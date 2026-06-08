@@ -12,13 +12,43 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { UNITS_PER_COIN } from "@fairco.in/core";
+import {
+  UNITS_PER_COIN,
+  getNetwork,
+  buildTransaction,
+  type UTXO as TxUTXO,
+} from "@fairco.in/core";
 import type { UTXO } from "./utxo-set";
 import {
   selectInputsForSend,
   estimateSend,
   estimateFeeForInputs,
 } from "./coin-selection";
+
+const MAINNET = getNetwork("mainnet");
+// A real, valid FairCoin mainnet P2PKH address (recipient + change reuse it;
+// only the script size matters for fee parity, which is identical for P2PKH).
+const ADDR = "FQVANvQqVsLwkwBnAJ5oPDYrqcfXLak7Bf";
+
+/** The actual fee buildTransaction charges for the given inputs + amount. */
+function builtFee(selected: UTXO[], amount: bigint, feePerByte: number): bigint {
+  const inputs: TxUTXO[] = selected.map((u) => ({
+    txid: u.txid,
+    vout: u.vout,
+    value: u.value,
+    scriptPubKey: u.scriptPubKey,
+  }));
+  const tx = buildTransaction({
+    utxos: inputs,
+    recipients: [{ address: ADDR, value: amount }],
+    changeAddress: ADDR,
+    feePerByte: BigInt(feePerByte),
+    network: MAINNET,
+  });
+  const totalIn = selected.reduce((s, u) => s + u.value, 0n);
+  const totalOut = tx.outputs.reduce((s, o) => s + o.value, 0n);
+  return totalIn - totalOut;
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -245,5 +275,64 @@ describe("H2: estimateSend reports the real fee and balance", () => {
     });
     const feeForOne = estimateFeeForInputs(1, FEE_PER_BYTE);
     expect(est.maxSendable).toBe(1n * ONE_FAIR - feeForOne);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H2 exactness: the reported fee equals buildTransaction's fee to the base
+// unit, including the dust-change edge case where the change output is dropped.
+// ---------------------------------------------------------------------------
+
+describe("H2: fee parity with buildTransaction (dustThreshold)", () => {
+  const DUST = MAINNET.minRelayFee; // 10_000
+
+  test("normal change: reported fee == built fee", () => {
+    const amount = 3n * ONE_FAIR;
+    const sel = selectInputsForSend({
+      candidates: MANY,
+      targetValue: amount,
+      feePerByte: FEE_PER_BYTE,
+      dustThreshold: DUST,
+    });
+    expect(sel.change).toBeGreaterThan(DUST);
+    expect(sel.fee).toBe(builtFee(sel.selected, amount, FEE_PER_BYTE));
+  });
+
+  test("dust change is absorbed into the fee, matching buildTransaction", () => {
+    // One coin sized so change would land just inside the dust band (<= DUST):
+    // baseFee(1 input) = 226*5 = 1130; pick change target = 5000 (< 10000).
+    const amount = 1n * ONE_FAIR;
+    const baseFee = estimateFeeForInputs(1, FEE_PER_BYTE);
+    const coinValue = amount + baseFee + 5000n; // change would be 5000 (dust)
+    const candidates: UTXO[] = [utxo("dustcoin", coinValue)];
+
+    const sel = selectInputsForSend({
+      candidates,
+      targetValue: amount,
+      feePerByte: FEE_PER_BYTE,
+      dustThreshold: DUST,
+    });
+
+    // Change output dropped; the dust folds into the fee.
+    expect(sel.change).toBe(0n);
+    expect(sel.fee).toBe(coinValue - amount); // == baseFee + 5000
+    // And that is exactly what buildTransaction charges.
+    expect(sel.fee).toBe(builtFee(sel.selected, amount, FEE_PER_BYTE));
+  });
+
+  test("estimateSend reports the same dust-absorbed fee the build will charge", () => {
+    const amount = 1n * ONE_FAIR;
+    const baseFee = estimateFeeForInputs(1, FEE_PER_BYTE);
+    const coinValue = amount + baseFee + 5000n;
+    const candidates: UTXO[] = [utxo("dustcoin", coinValue)];
+
+    const est = estimateSend({
+      candidates,
+      targetValue: amount,
+      feePerByte: FEE_PER_BYTE,
+      dustThreshold: DUST,
+    });
+    expect(est.fee).toBe(coinValue - amount);
+    expect(est.total).toBe(amount + (coinValue - amount));
   });
 });

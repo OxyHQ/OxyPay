@@ -997,6 +997,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         targetValue: amount,
         feePerByte: feeRate,
         coinControl,
+        dustThreshold: networkConfig.minRelayFee,
       });
 
       const inputs: TxUTXO[] = selection.selected.map((utxo) => ({
@@ -1132,6 +1133,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       targetValue: amount,
       feePerByte: feeRate,
       coinControl: get().selectedUTXOs,
+      dustThreshold: networkConfig?.minRelayFee,
     });
   },
 

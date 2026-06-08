@@ -36,6 +36,14 @@ export interface SelectInputsParams {
    * largest-first selection runs instead.
    */
   readonly coinControl?: ReadonlyArray<{ txid: string; vout: number }>;
+  /**
+   * Dust threshold (network `minRelayFee`). When provided, the returned
+   * fee/change are computed with the EXACT rule `buildTransaction` uses (drop
+   * the change output and absorb it into the fee when it would be <= this
+   * threshold), so the displayed fee equals the built fee to the base unit.
+   * When omitted, the selector's own dust rule is used.
+   */
+  readonly dustThreshold?: bigint;
 }
 
 export interface SelectedInputs {
@@ -52,6 +60,30 @@ function outpointKey(txid: string, vout: number): string {
 }
 
 /**
+ * Compute the fee and change for a fixed set of inputs paying a single
+ * recipient, mirroring `buildTransaction`'s exact logic: the base fee assumes a
+ * change output (recipient + change), and if the resulting change would be at
+ * or below `dustThreshold` the change output is dropped and the dust is
+ * absorbed into the fee. This is what keeps "fee shown == fee built" exact.
+ */
+function computeFeeAndChange(
+  totalIn: bigint,
+  targetValue: bigint,
+  inputCount: number,
+  feePerByte: number,
+  dustThreshold: bigint,
+): { fee: bigint; change: bigint } {
+  const feeWithChange = estimateFeeForInputs(inputCount, feePerByte);
+  const change = totalIn - targetValue - feeWithChange;
+  if (change > dustThreshold) {
+    return { fee: feeWithChange, change };
+  }
+  // No change output: the remainder (which may be negative-proof by the
+  // caller's coverage check) is absorbed into the miner fee.
+  return { fee: totalIn - targetValue, change: 0n };
+}
+
+/**
  * Select the inputs for an outgoing transaction.
  *
  * @throws If the target is non-positive, a coin-control outpoint is missing /
@@ -60,7 +92,8 @@ function outpointKey(txid: string, vout: number): string {
 export function selectInputsForSend(
   params: SelectInputsParams,
 ): SelectedInputs {
-  const { candidates, targetValue, feePerByte, coinControl } = params;
+  const { candidates, targetValue, feePerByte, coinControl, dustThreshold } =
+    params;
 
   if (targetValue <= 0n) {
     throw new Error("Target value must be positive");
@@ -75,10 +108,12 @@ export function selectInputsForSend(
     }
   }
 
-  // ---- Coin control: spend exactly the user-picked outpoints --------------
+  // Pick the inputs (coin control vs automatic), then derive the final
+  // fee/change. When dustThreshold is supplied, fee/change are computed with
+  // buildTransaction's exact rule so the displayed and built fees match.
+  let selected: UTXO[];
   if (coinControl && coinControl.length > 0) {
-    const selected: UTXO[] = [];
-    let total = 0n;
+    selected = [];
     for (const { txid, vout } of coinControl) {
       const utxo = confirmed.get(txid, vout);
       if (!utxo) {
@@ -87,24 +122,33 @@ export function selectInputsForSend(
         );
       }
       selected.push(utxo);
-      total += utxo.value;
     }
-
-    // A coin-control spend produces the same outputs as automatic selection
-    // (recipient + change), so estimate the fee identically for the chosen set.
-    const fee = estimateFeeForInputs(selected.length, feePerByte);
-    if (total < targetValue + fee) {
-      throw new Error(
-        `Insufficient funds in selected coins: need ${(targetValue + fee).toString()} ${SMALLEST_UNIT_NAME}, ` +
-          `selected ${total.toString()} ${SMALLEST_UNIT_NAME}`,
-      );
-    }
-    return { selected, fee, change: total - targetValue - fee };
+  } else {
+    // Automatic largest-first selection over confirmed coins.
+    selected = confirmed.selectCoins(targetValue, feePerByte).selected;
   }
 
-  // ---- Automatic largest-first selection over confirmed coins -------------
-  const result = confirmed.selectCoins(targetValue, feePerByte);
-  return { selected: result.selected, fee: result.fee, change: result.change };
+  const total = selected.reduce((sum, u) => sum + u.value, 0n);
+  const baseFee = estimateFeeForInputs(selected.length, feePerByte);
+  if (total < targetValue + baseFee) {
+    throw new Error(
+      `Insufficient funds in selected coins: need ${(targetValue + baseFee).toString()} ${SMALLEST_UNIT_NAME}, ` +
+        `selected ${total.toString()} ${SMALLEST_UNIT_NAME}`,
+    );
+  }
+
+  if (dustThreshold !== undefined) {
+    const { fee, change } = computeFeeAndChange(
+      total,
+      targetValue,
+      selected.length,
+      feePerByte,
+      dustThreshold,
+    );
+    return { selected, fee, change };
+  }
+
+  return { selected, fee: baseFee, change: total - targetValue - baseFee };
 }
 
 /**
