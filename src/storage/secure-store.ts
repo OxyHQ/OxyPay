@@ -10,8 +10,7 @@
  */
 
 import { getItemAsync, setItemAsync, deleteItemAsync } from "./kv-store";
-import { sha256 } from "@noble/hashes/sha256";
-import { bytesToHex } from "@fairco.in/core";
+import { buildPinRecord, verifyPinRecord } from "./pin-kdf";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -221,22 +220,16 @@ export async function deleteMnemonic(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// PIN management
+// PIN management (review finding M2)
+//
+// PIN hashing uses scrypt with a per-record random salt (see ./pin-kdf), which
+// makes a leaked store far harder to brute-force than the old unsalted SHA-256.
+// Records are versioned so a legacy PIN is transparently upgraded to scrypt on
+// the next successful unlock.
 // ---------------------------------------------------------------------------
 
-/**
- * Hash the PIN before storing to avoid keeping plaintext.
- * Uses SHA-256 with a domain separator to prevent trivial rainbow tables.
- */
-function hashPin(pin: string): string {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(`fairwallet:pin:${pin}`);
-  return bytesToHex(sha256(data));
-}
-
 export async function savePin(pin: string): Promise<void> {
-  const hashed = hashPin(pin);
-  await setItemAsync(WALLET_PIN_KEY, hashed);
+  await setItemAsync(WALLET_PIN_KEY, await buildPinRecord(pin));
 }
 
 export async function verifyPin(pin: string): Promise<boolean> {
@@ -244,22 +237,21 @@ export async function verifyPin(pin: string): Promise<boolean> {
   if (stored === null) {
     return false;
   }
-  const hashed = hashPin(pin);
-  return constantTimeEqual(stored, hashed);
-}
 
-/**
- * Constant-time string comparison to prevent timing attacks on PIN verification.
- */
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
+  const { valid, upgradedRecord } = await verifyPinRecord(pin, stored);
+
+  // On a correct legacy PIN, persist the scrypt upgrade so the weak hash never
+  // survives the next unlock. Best-effort: a failed re-save must not block the
+  // unlock and is retried on the next successful verification.
+  if (valid && upgradedRecord) {
+    try {
+      await setItemAsync(WALLET_PIN_KEY, upgradedRecord);
+    } catch {
+      // Ignore — migration retried next time.
+    }
   }
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
+
+  return valid;
 }
 
 // ---------------------------------------------------------------------------
