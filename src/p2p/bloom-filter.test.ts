@@ -91,15 +91,25 @@ describe("BloomFilter (manual size)", () => {
 // ---------------------------------------------------------------------------
 
 describe("BloomFilter.forAddresses", () => {
-  test("empty address list returns a minimal placeholder filter", () => {
+  test("empty address list returns a minimal placeholder filter that matches nothing", () => {
     const filter = BloomFilter.forAddresses([], 0.0001);
     expect(filter.toBytes().length).toBeGreaterThanOrEqual(1);
-    // An empty (0-hash-func) filter contains every element vacuously,
-    // because `contains` iterates over zero hash functions and returns
-    // true by default. See SPV_AUDIT.md — this edge case matches BIP37's
-    // behaviour but means the caller must avoid asking for an empty
-    // filter if they expect no matches.
     expect(filter.getNumHashFuncs()).toBe(0);
+
+    // SPV_AUDIT.md §4.8: a 0-hash-func filter must NOT match every element.
+    // Previously `contains` iterated over zero hash functions and returned
+    // `true` vacuously, so an empty filter matched everything (a privacy and
+    // bandwidth bug — the peer would relay the whole network's traffic).
+    for (let i = 0; i < 256; i++) {
+      const el = new Uint8Array([i, (i * 31) & 0xff, 0xab, 0xcd]);
+      expect(filter.contains(el)).toBe(false);
+    }
+  });
+
+  test("a manually constructed 0-hash-func filter matches nothing", () => {
+    const filter = new BloomFilter(8, 0, 0, BLOOM_UPDATE_ALL);
+    expect(filter.contains(new Uint8Array([1, 2, 3, 4]))).toBe(false);
+    expect(filter.contains(new Uint8Array(0))).toBe(false);
   });
 
   test("all inserted elements match", () => {

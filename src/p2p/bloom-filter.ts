@@ -125,8 +125,17 @@ export class BloomFilter {
 
   /**
    * Test whether an element is (probably) in the filter.
+   *
+   * A filter with zero hash functions (e.g. the empty filter built by
+   * `forAddresses([])`) matches nothing: returning `true` here would make an
+   * uninitialised filter vacuously match every element, defeating the privacy
+   * and bandwidth purpose of the Bloom filter (the SPV peer would relay every
+   * transaction on the network). Guard that case explicitly.
    */
   contains(element: Uint8Array): boolean {
+    if (this.numHashFuncs === 0 || this.data.length === 0) {
+      return false;
+    }
     for (let i = 0; i < this.numHashFuncs; i++) {
       const bitIndex = this.hash(i, element);
       if ((this.data[bitIndex >>> 3] & (1 << (bitIndex & 7))) === 0) {

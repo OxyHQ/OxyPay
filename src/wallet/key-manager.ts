@@ -82,6 +82,50 @@ export class KeyManager {
   }
 
   /**
+   * Restore the derivation cursors from persisted state (SPV_AUDIT.md §4.5).
+   *
+   * `KeyManager.fromMnemonic` always resets `nextExternalIndex` /
+   * `nextChangeIndex` to 0, so without this the wallet forgets which addresses
+   * it had already handed out and re-issues the same "next receive address" on
+   * every launch (and can miss funds beyond the initial gap window). The store
+   * computes the cursors from the database on init and calls this to advance
+   * them, pre-deriving the lookahead window so the Bloom filter keeps watching
+   * the right addresses.
+   *
+   * Cursors only ever move forward: a smaller value than the current cursor is
+   * ignored, so this is safe to call repeatedly.
+   *
+   * @param externalNext Next unused external index (one past the highest used).
+   * @param changeNext   Next unused change index (one past the highest used).
+   */
+  restoreCursors(externalNext: number, changeNext: number): void {
+    if (externalNext > this.nextExternalIndex) {
+      this.nextExternalIndex = externalNext;
+      const targetEnd = this.nextExternalIndex + EXTERNAL_GAP_LIMIT;
+      for (let i = this.externalKeys.size; i < targetEnd; i++) {
+        this.deriveExternal(i);
+      }
+    }
+    if (changeNext > this.nextChangeIndex) {
+      this.nextChangeIndex = changeNext;
+      const targetEnd = this.nextChangeIndex + CHANGE_GAP_LIMIT;
+      for (let i = this.changeKeys.size; i < targetEnd; i++) {
+        this.deriveChange(i);
+      }
+    }
+  }
+
+  /** Current next-unused external derivation index (for persistence). */
+  getNextExternalIndex(): number {
+    return this.nextExternalIndex;
+  }
+
+  /** Current next-unused change derivation index (for persistence). */
+  getNextChangeIndex(): number {
+    return this.nextChangeIndex;
+  }
+
+  /**
    * Get the next unused external (receive) address.
    */
   getNextAddress(): DerivedAddress {

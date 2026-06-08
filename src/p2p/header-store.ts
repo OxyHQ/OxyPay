@@ -64,6 +64,10 @@ export class DatabaseHeaderStore implements HeaderStore {
     if (!latest) return 0;
     return latest.height;
   }
+
+  async deleteHeadersAboveHeight(height: number): Promise<void> {
+    await this.db.deleteHeadersAboveHeight(height);
+  }
 }
 
 // ---------------------------------------------------------------------------

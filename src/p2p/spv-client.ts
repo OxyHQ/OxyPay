@@ -7,8 +7,22 @@
 
 import { sha256 } from "@noble/hashes/sha256";
 import type { NetworkConfig, BlockHeader } from "@fairco.in/core";
-import { hashBlockHeader as quarkHashBlockHeader } from "@fairco.in/core";
+import { hashBlockHeader as quarkHashBlockHeader, getCheckpointHash } from "@fairco.in/core";
 import { BloomFilter } from "./bloom-filter";
+import { validateMerkleProof } from "./merkle-proof";
+import {
+  validateHeaderChain,
+  planChainUpdate,
+  proofOfWorkLimit,
+  HeaderValidationError,
+  type HeaderChainAnchor,
+  type ValidatedHeader,
+} from "./header-validation";
+import {
+  Rescanner,
+  DEFAULT_RESCAN_WINDOW,
+  type RescanProgress,
+} from "./rescan";
 import {
   type BlockHeaderMsg,
   type InvItem,
@@ -50,6 +64,11 @@ export interface HeaderStore {
   getHeaderByHeight(height: number): Promise<StoredBlockHeader | undefined>;
   saveHeaders(headers: StoredBlockHeader[]): Promise<void>;
   getChainHeight(): Promise<number>;
+  /**
+   * Delete every stored header strictly above `height`. Used when a longer
+   * competing branch replaces the tip during a reorg.
+   */
+  deleteHeadersAboveHeight(height: number): Promise<void>;
 }
 
 export interface SPVClientConfig {
@@ -78,6 +97,16 @@ export interface SPVClientEvents {
   ) => void;
   onBlockHeader?: (header: StoredBlockHeader) => void;
   onSyncProgress?: (progress: number) => void;
+  /**
+   * Fired when a longer competing chain orphans blocks above `forkHeight`,
+   * BEFORE the new branch's headers are stored. The consumer must roll the
+   * wallet (UTXO set, transactions) back to `forkHeight` so it never spends or
+   * displays outputs that no longer exist on the winning chain.
+   *
+   * @param forkHeight Height of the last header common to both chains.
+   * @param oldTipHeight Height of the tip that is being discarded.
+   */
+  onReorg?: (forkHeight: number, oldTipHeight: number) => Promise<void> | void;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +115,8 @@ export interface SPVClientEvents {
 
 const LOCATOR_STEP_MULTIPLIER = 2;
 const BLOOM_FALSE_POSITIVE_RATE = 0.0001;
+/** Time to wait for peers to answer one rescan window of merkle-block requests. */
+const RESCAN_WINDOW_DELAY_MS = 8000;
 
 // ---------------------------------------------------------------------------
 // Utility: Quark hash of an 80-byte block header (FairCoin uses Quark, not SHA256d)
@@ -158,91 +189,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/**
- * Validate a Merkle proof from a merkleblock message.
- * Traverses the partial Merkle tree and checks that the computed root
- * matches the block's merkleRoot.
- */
-function validateMerkleProof(merkleBlock: MerkleBlockMsg): Uint8Array[] {
-  const { totalTransactions, hashes, flags } = merkleBlock;
-  const matchedTxHashes: Uint8Array[] = [];
-
-  if (totalTransactions === 0) {
-    return matchedTxHashes;
-  }
-
-  // Calculate tree height
-  let height = 0;
-  let n = totalTransactions;
-  while (n > 1) {
-    n = Math.ceil(n / 2);
-    height++;
-  }
-
-  let bitIndex = 0;
-  let hashIndex = 0;
-
-  function getBit(): boolean {
-    const byteIdx = bitIndex >>> 3;
-    const bitIdx = bitIndex & 7;
-    bitIndex++;
-    if (byteIdx >= flags.length) return false;
-    return (flags[byteIdx] & (1 << bitIdx)) !== 0;
-  }
-
-  function getHash(): Uint8Array {
-    if (hashIndex >= hashes.length) {
-      return new Uint8Array(32);
-    }
-    const h = hashes[hashIndex];
-    hashIndex++;
-    return h;
-  }
-
-  function traverse(depth: number, pos: number): Uint8Array {
-    const isMatch = getBit();
-
-    if (depth === height) {
-      // Leaf node
-      const txHash = getHash();
-      if (isMatch && pos < totalTransactions) {
-        matchedTxHashes.push(txHash);
-      }
-      return txHash;
-    }
-
-    if (!isMatch) {
-      // Not a match path — hash is provided directly
-      return getHash();
-    }
-
-    // Recurse into children
-    const left = traverse(depth + 1, pos * 2);
-    const nodesAtDepth = Math.ceil(totalTransactions / (1 << (height - depth)));
-    let right: Uint8Array;
-    if (pos * 2 + 1 < nodesAtDepth) {
-      right = traverse(depth + 1, pos * 2 + 1);
-    } else {
-      right = left;
-    }
-
-    // Hash the pair
-    const combined = new Uint8Array(64);
-    combined.set(left, 0);
-    combined.set(right, 32);
-    return sha256(sha256(combined));
-  }
-
-  const computedRoot = traverse(0, 0);
-
-  // Verify computed root matches the block header's merkle root
-  if (!bytesEqual(computedRoot, merkleBlock.merkleRoot)) {
-    throw new Error("Merkle proof validation failed: root mismatch");
-  }
-
-  return matchedTxHashes;
-}
-
 // ---------------------------------------------------------------------------
 // SPVClient
 // ---------------------------------------------------------------------------
@@ -250,6 +196,8 @@ function validateMerkleProof(merkleBlock: MerkleBlockMsg): Uint8Array[] {
 export class SPVClient {
   private readonly headerStore: HeaderStore;
   private readonly peerManager: PeerManager;
+  private readonly network: NetworkConfig;
+  private readonly powLimit: bigint;
 
   private events: SPVClientEvents = {};
   private bloomFilter: BloomFilter | undefined;
@@ -257,13 +205,25 @@ export class SPVClient {
   private running = false;
   private chainHeight = 0;
   private syncTargetHeight = 0;
+  // Serialises header-batch processing so a reorg rewind can never interleave
+  // with another batch being applied (which would corrupt heights/balance).
+  private headerProcessing: Promise<void> = Promise.resolve();
 
-  // Track pending merkleblock → tx associations
-  private pendingMerkleBlock: MerkleBlockMsg | undefined;
-  private pendingTxHashes: Set<string> = new Set();
+  // Track which block each expected transaction belongs to. Keyed by the tx
+  // hash (internal byte order, hex). A `merkleblock` populates these
+  // associations and the following `tx` messages consume them. Using a map
+  // (rather than a single pending block) keeps associations correct when many
+  // merkle blocks are requested at once — e.g. during a historical rescan —
+  // and the per-block `tx` messages interleave.
+  private pendingTxBlock: Map<string, Uint8Array> = new Map();
+
+  // Historical rescan (SPV_AUDIT.md §6.3)
+  private rescanner: Rescanner | undefined;
 
   constructor(config: SPVClientConfig) {
     this.headerStore = config.headerStore;
+    this.network = config.network;
+    this.powLimit = proofOfWorkLimit();
 
     const peerManagerConfig: PeerManagerConfig = {
       network: config.network,
@@ -446,6 +406,74 @@ export class SPVClient {
     return this.peerManager;
   }
 
+  /** Whether a historical rescan is currently running. */
+  isRescanning(): boolean {
+    return this.rescanner?.isActive ?? false;
+  }
+
+  /**
+   * Run (or resume) a historical rescan over `[fromHeight, toHeight]`,
+   * re-requesting each stored block as a filtered (merkle) block so payments
+   * confirmed before the Bloom filter loaded are discovered and credited
+   * (SPV_AUDIT.md §6.3).
+   *
+   * The Bloom filter must already be set (peers filter the merkle blocks
+   * against it). Matches flow through the normal `onTransaction` receive path,
+   * which is idempotent, so a re-scan never double-counts.
+   *
+   * @param params.fromHeight  First height to scan.
+   * @param params.toHeight    Last height to scan (inclusive).
+   * @param params.resumeFrom  Optional resume point from persisted progress.
+   * @param params.onProgress  Called after each window so the caller can persist.
+   * @returns The final rescan progress.
+   */
+  async rescan(params: {
+    fromHeight: number;
+    toHeight: number;
+    resumeFrom?: number;
+    onProgress?: (progress: RescanProgress) => Promise<void> | void;
+  }): Promise<RescanProgress> {
+    if (this.rescanner?.isActive) {
+      throw new Error("Rescan already in progress");
+    }
+
+    this.rescanner = new Rescanner(
+      {
+        getBlockHashesInRange: async (fromHeight, toHeight) => {
+          const hashes: Uint8Array[] = [];
+          for (let h = fromHeight; h <= toHeight; h++) {
+            const header = await this.headerStore.getHeaderByHeight(h);
+            if (header) {
+              hashes.push(header.hash);
+            }
+          }
+          return hashes;
+        },
+        requestMerkleBlocks: async (hashes) => {
+          const items: InvItem[] = hashes.map((hash) => ({
+            type: INV_FILTERED_BLOCK,
+            hash,
+          }));
+          return this.peerManager.sendToOne("getdata", serializeGetData(items));
+        },
+        persist: async (progress) => {
+          if (params.onProgress) {
+            await params.onProgress(progress);
+          }
+        },
+        waitForWindow: () => delay(RESCAN_WINDOW_DELAY_MS),
+        isRunning: () => this.running,
+      },
+      DEFAULT_RESCAN_WINDOW,
+    );
+
+    return this.rescanner.run(
+      params.fromHeight,
+      params.toHeight,
+      params.resumeFrom,
+    );
+  }
+
   // -----------------------------------------------------------------------
   // Message handling
   // -----------------------------------------------------------------------
@@ -453,7 +481,16 @@ export class SPVClient {
   private handlePeerMessage(peer: Peer, command: string, payload: Uint8Array): void {
     switch (command) {
       case "headers":
-        void this.processHeadersResponse(payload);
+        // Serialise header batches: each batch (and any reorg rewind it
+        // triggers) must fully apply before the next one starts, otherwise two
+        // concurrent batches could assign overlapping heights or rewind a chain
+        // mid-write and corrupt the balance.
+        this.headerProcessing = this.headerProcessing
+          .then(() => this.processHeadersResponse(payload))
+          .catch(() => {
+            // A batch failure is non-fatal: the sync loop re-requests from the
+            // current (unchanged) tip. Swallow so the serial chain continues.
+          });
         break;
       case "inv":
         this.processInv(peer, payload);
@@ -486,44 +523,110 @@ export class SPVClient {
       return;
     }
 
-    // Validate and store headers
-    const toStore: StoredBlockHeader[] = [];
-    let currentHeight = this.chainHeight;
+    // -------------------------------------------------------------------
+    // 1. Find where this batch connects to the chain we already have.
+    //    A peer answering `getheaders` returns headers starting just after a
+    //    matched locator hash; that anchor may be the current tip (a simple
+    //    extension) or an earlier block (a competing branch / reorg).
+    // -------------------------------------------------------------------
+    const firstPrev = headers[0].prevBlock;
+    const tip = await this.headerStore.getLatestHeader();
 
-    for (const header of headers) {
-      const hash = hashBlockHeader(header);
-
-      currentHeight++;
-
-      toStore.push({
-        hash,
-        height: currentHeight,
-        version: header.version,
-        prevBlock: header.prevBlock,
-        merkleRoot: header.merkleRoot,
-        timestamp: header.timestamp,
-        bits: header.bits,
-        nonce: header.nonce,
-      });
+    let anchor: HeaderChainAnchor | undefined;
+    if (!tip) {
+      // Empty store: the batch must begin at genesis (validateHeaderChain
+      // enforces the genesis hash). `anchor` stays undefined.
+      anchor = undefined;
+    } else if (bytesEqual(firstPrev, tip.hash)) {
+      anchor = { hash: tip.hash, height: tip.height };
+    } else {
+      const connect = await this.headerStore.getHeaderByHash(firstPrev);
+      if (!connect) {
+        // The batch does not build on any header we know. This is an
+        // unconnected chain from a misbehaving or out-of-sync peer; drop it.
+        return;
+      }
+      anchor = { hash: connect.hash, height: connect.height };
     }
 
+    // -------------------------------------------------------------------
+    // 2. Validate the chain: prev-hash linkage, nBits sanity, checkpoints.
+    //    Any failure rejects the WHOLE batch (we never store a partial or
+    //    unverified chain).
+    // -------------------------------------------------------------------
+    let validated: ValidatedHeader[];
     try {
-      await this.headerStore.saveHeaders(toStore);
-      this.chainHeight = currentHeight;
-
-      // Notify listeners
-      const lastHeader = toStore[toStore.length - 1];
-      if (lastHeader && this.events.onBlockHeader) {
-        this.events.onBlockHeader(lastHeader);
+      validated = validateHeaderChain({
+        headers,
+        anchor,
+        powLimit: this.powLimit,
+        checkpointHashHex: (height) =>
+          getCheckpointHash(height, this.network.name),
+        genesisHashHex: this.network.genesisHash,
+      });
+    } catch (err) {
+      if (err instanceof HeaderValidationError) {
+        // Invalid header chain from a peer — reject and let the sync loop
+        // retry against another peer.
+        return;
       }
+      throw err;
+    }
 
-      if (this.events.onSyncProgress) {
-        this.events.onSyncProgress(this.getSyncProgress());
+    // -------------------------------------------------------------------
+    // 3. Decide extend vs reorg vs ignore. SPV cannot recompute Quark PoW
+    //    reliably (SPV_AUDIT.md §4.1), so chain length is the work proxy: a
+    //    competing branch must be strictly longer (and within maxReorgDepth)
+    //    to win; ties keep the active chain.
+    // -------------------------------------------------------------------
+    const oldTipHeight = tip ? tip.height : -1;
+    const newTipHeight = validated[validated.length - 1].height;
+    const plan = planChainUpdate({
+      anchorHeight: anchor ? anchor.height : -1,
+      batchTipHeight: newTipHeight,
+      currentTipHeight: oldTipHeight,
+      maxReorgDepth: this.network.maxReorgDepth,
+    });
+
+    if (plan.action === "ignore") {
+      return;
+    }
+
+    if (plan.action === "reorg") {
+      // Roll the wallet back to the fork point BEFORE storing the new branch,
+      // so balance/UTXOs never reflect orphaned blocks. The wallet's rewind is
+      // atomic and also prunes orphaned headers; the explicit delete below is a
+      // defensive no-op in that case and the authoritative prune when no
+      // `onReorg` consumer is registered.
+      if (this.events.onReorg) {
+        await this.events.onReorg(plan.forkHeight, oldTipHeight);
       }
-    } catch {
-      // Header storage failure — will retry on next sync round.
-      // The in-memory chainHeight is not updated, so the next iteration
-      // will re-request the same range.
+      await this.headerStore.deleteHeadersAboveHeight(plan.forkHeight);
+    }
+
+    // -------------------------------------------------------------------
+    // 4. Persist the validated headers and advance the tip.
+    // -------------------------------------------------------------------
+    const toStore: StoredBlockHeader[] = validated.map((v) => ({
+      hash: v.hash,
+      height: v.height,
+      version: v.header.version,
+      prevBlock: v.header.prevBlock,
+      merkleRoot: v.header.merkleRoot,
+      timestamp: v.header.timestamp,
+      bits: v.header.bits,
+      nonce: v.header.nonce,
+    }));
+
+    await this.headerStore.saveHeaders(toStore);
+    this.chainHeight = newTipHeight;
+
+    const lastHeader = toStore[toStore.length - 1];
+    if (lastHeader && this.events.onBlockHeader) {
+      this.events.onBlockHeader(lastHeader);
+    }
+    if (this.events.onSyncProgress) {
+      this.events.onSyncProgress(this.getSyncProgress());
     }
   }
 
@@ -560,21 +663,33 @@ export class SPVClient {
       return;
     }
 
-    // Validate Merkle proof and extract matched transaction hashes
+    // Validate Merkle proof and extract matched transaction hashes. A failure
+    // here means the partial tree did not reconstruct the header's merkle root
+    // (a misbehaving peer or corrupt data) — drop the whole block.
     let matchedHashes: Uint8Array[];
     try {
       matchedHashes = validateMerkleProof(merkleBlock);
     } catch {
-      // Invalid Merkle proof — the block's partial tree didn't verify.
-      // This could indicate a misbehaving peer or corrupted data.
       return;
     }
 
-    // Store the merkle block for tx association
-    this.pendingMerkleBlock = merkleBlock;
-    this.pendingTxHashes.clear();
+    if (matchedHashes.length === 0) {
+      return;
+    }
+
+    // Record the block hash for each matched tx so the following `tx` messages
+    // can be tagged with their containing block.
+    const blockHash = hashBlockHeader({
+      version: merkleBlock.version,
+      prevBlock: merkleBlock.prevBlock,
+      merkleRoot: merkleBlock.merkleRoot,
+      timestamp: merkleBlock.timestamp,
+      bits: merkleBlock.bits,
+      nonce: merkleBlock.nonce,
+      txCount: 0,
+    });
     for (const hash of matchedHashes) {
-      this.pendingTxHashes.add(bytesToHex(hash));
+      this.pendingTxBlock.set(bytesToHex(hash), blockHash);
     }
   }
 
@@ -588,29 +703,18 @@ export class SPVClient {
     }
 
     // Compute txid. The internal (non-reversed) hash is used to match against
-    // the pending merkle block's matched hashes; the reversed form is the
-    // canonical display txid handed to listeners (same convention as
-    // `hashTransaction` in @fairco.in/core and the block explorer).
+    // the pending merkle block associations; the reversed form is the canonical
+    // display txid handed to listeners (same convention as `hashTransaction` in
+    // @fairco.in/core and the block explorer).
     const txHash = sha256(sha256(tx.raw));
     const txHashHex = bytesToHex(txHash);
     const displayTxid = bytesToHexReversed(txHash);
 
-    let blockHash: Uint8Array | undefined;
-    if (this.pendingTxHashes.has(txHashHex) && this.pendingMerkleBlock) {
-      blockHash = hashBlockHeader({
-        version: this.pendingMerkleBlock.version,
-        prevBlock: this.pendingMerkleBlock.prevBlock,
-        merkleRoot: this.pendingMerkleBlock.merkleRoot,
-        timestamp: this.pendingMerkleBlock.timestamp,
-        bits: this.pendingMerkleBlock.bits,
-        nonce: this.pendingMerkleBlock.nonce,
-        txCount: 0,
-      });
-      this.pendingTxHashes.delete(txHashHex);
-
-      if (this.pendingTxHashes.size === 0) {
-        this.pendingMerkleBlock = undefined;
-      }
+    // A confirmed tx was announced by a merkle block: pop its block hash.
+    // Absent association → an unconfirmed (mempool) tx.
+    const blockHash = this.pendingTxBlock.get(txHashHex);
+    if (blockHash !== undefined) {
+      this.pendingTxBlock.delete(txHashHex);
     }
 
     if (this.events.onTransaction) {

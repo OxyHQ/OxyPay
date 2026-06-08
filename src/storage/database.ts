@@ -42,6 +42,11 @@ export interface TransactionRow {
  * `value` is stored as TEXT in SQLite and returned as string here
  * to preserve precision for amounts that exceed Number.MAX_SAFE_INTEGER.
  * Callers should convert to bigint: `BigInt(row.value)`.
+ *
+ * `spent_height` / `spent_txid` record *where* a UTXO was spent so a chain
+ * reorg can precisely un-spend outputs whose spending transaction was orphaned.
+ * `spent_height` is -1 when the spend is unconfirmed (mempool) and 0 when
+ * unknown (legacy rows written before reorg tracking existed).
  */
 export interface UTXORow {
   txid: string;
@@ -51,6 +56,8 @@ export interface UTXORow {
   script_pub_key: string;
   spent: number;
   block_height: number;
+  spent_height: number;
+  spent_txid: string;
 }
 
 export interface AddressRow {
@@ -96,6 +103,19 @@ export interface RecentRecipientRow {
   use_count: number;
 }
 
+/**
+ * Persisted progress of a historical rescan. `next_height` is the next block
+ * height to request; the scan is resumable from there across app restarts.
+ */
+export interface RescanStateRow {
+  id: number;
+  start_height: number;
+  next_height: number;
+  target_height: number;
+  completed: number;
+  updated_at: number;
+}
+
 // ---------------------------------------------------------------------------
 // Schema (single SQL batch for initialization)
 // ---------------------------------------------------------------------------
@@ -134,6 +154,8 @@ const SCHEMA_SQL = `
     script_pub_key TEXT NOT NULL,
     spent INTEGER DEFAULT 0,
     block_height INTEGER NOT NULL,
+    spent_height INTEGER NOT NULL DEFAULT 0,
+    spent_txid TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (txid, vout)
   );
 
@@ -180,15 +202,43 @@ const SCHEMA_SQL = `
     use_count INTEGER DEFAULT 1
   );
 
+  CREATE TABLE IF NOT EXISTS rescan_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    start_height INTEGER NOT NULL,
+    next_height INTEGER NOT NULL,
+    target_height INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_block_headers_hash ON block_headers(hash);
   CREATE INDEX IF NOT EXISTS idx_utxos_address ON utxos(address);
   CREATE INDEX IF NOT EXISTS idx_utxos_unspent ON utxos(spent, address);
+  CREATE INDEX IF NOT EXISTS idx_utxos_block_height ON utxos(block_height);
+  CREATE INDEX IF NOT EXISTS idx_utxos_spent_height ON utxos(spent_height);
   CREATE INDEX IF NOT EXISTS idx_transactions_block_height ON transactions(block_height);
   CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp);
   CREATE INDEX IF NOT EXISTS idx_addresses_change_used ON addresses(is_change, used);
   CREATE INDEX IF NOT EXISTS idx_contacts_address ON contacts(address);
   CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 `;
+
+/**
+ * Columns added after the initial release. `CREATE TABLE IF NOT EXISTS` never
+ * alters an existing table, so for wallets created before reorg tracking we add
+ * the columns idempotently. SQLite has no "ADD COLUMN IF NOT EXISTS", so each
+ * statement is run individually and a duplicate-column error is ignored.
+ */
+const UTXO_MIGRATION_COLUMNS: readonly { name: string; ddl: string }[] = [
+  {
+    name: "spent_height",
+    ddl: "ALTER TABLE utxos ADD COLUMN spent_height INTEGER NOT NULL DEFAULT 0",
+  },
+  {
+    name: "spent_txid",
+    ddl: "ALTER TABLE utxos ADD COLUMN spent_txid TEXT NOT NULL DEFAULT ''",
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Database class
@@ -224,6 +274,26 @@ export class Database {
    */
   private async initialize(): Promise<void> {
     await this.db.execAsync(SCHEMA_SQL);
+    await this.migrateUtxoColumns();
+  }
+
+  /**
+   * Add reorg-tracking columns to the `utxos` table for databases created
+   * before they existed. Idempotent: an "duplicate column" error means the
+   * column is already present and is safely ignored; any other error is
+   * surfaced.
+   */
+  private async migrateUtxoColumns(): Promise<void> {
+    const existing = await this.db.getAllAsync<{ name: string }>(
+      "SELECT name FROM pragma_table_info('utxos')",
+    );
+    const present = new Set(existing.map((c) => c.name));
+    for (const column of UTXO_MIGRATION_COLUMNS) {
+      if (present.has(column.name)) {
+        continue;
+      }
+      await this.db.execAsync(column.ddl);
+    }
   }
 
   async close(): Promise<void> {
@@ -401,11 +471,13 @@ export class Database {
     script_pub_key: string;
     spent?: number;
     block_height: number;
+    spent_height?: number;
+    spent_txid?: string;
   }): Promise<void> {
     await this.db.runAsync(
       `INSERT OR REPLACE INTO utxos
-        (txid, vout, address, value, script_pub_key, spent, block_height)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (txid, vout, address, value, script_pub_key, spent, block_height, spent_height, spent_txid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       utxo.txid,
       utxo.vout,
       utxo.address,
@@ -413,12 +485,25 @@ export class Database {
       utxo.script_pub_key,
       utxo.spent ?? 0,
       utxo.block_height,
+      utxo.spent_height ?? 0,
+      utxo.spent_txid ?? "",
     );
   }
 
-  async markUTXOSpent(txid: string, vout: number): Promise<void> {
+  /**
+   * Mark a UTXO as spent, recording the spending transaction and the height it
+   * was spent at (-1 if unconfirmed) so a later reorg can un-spend it precisely.
+   */
+  async markUTXOSpent(
+    txid: string,
+    vout: number,
+    spendingTxid = "",
+    spentHeight = -1,
+  ): Promise<void> {
     await this.db.runAsync(
-      "UPDATE utxos SET spent = 1 WHERE txid = ? AND vout = ?",
+      "UPDATE utxos SET spent = 1, spent_txid = ?, spent_height = ? WHERE txid = ? AND vout = ?",
+      spendingTxid,
+      spentHeight,
       txid,
       vout,
     );
@@ -448,6 +533,128 @@ export class Database {
       total: total?.count ?? 0,
       unspent: unspent?.count ?? 0,
     };
+  }
+
+  // -----------------------------------------------------------------------
+  // Reorg rewind
+  //
+  // When a better chain orphans blocks above `forkHeight`, every wallet effect
+  // that those blocks caused must be undone atomically:
+  //   1. UTXOs *created* in an orphaned block are deleted (they no longer
+  //      exist; if the same output reappears in the new chain the receive path
+  //      re-adds it).
+  //   2. UTXOs *spent* by a transaction in an orphaned block are restored to
+  //      unspent (the spend no longer happened on the winning chain).
+  //   3. Orphaned headers are deleted so the new branch can take their heights.
+  // -----------------------------------------------------------------------
+
+  /**
+   * Roll the wallet back to `forkHeight`, undoing all UTXO and header effects of
+   * orphaned blocks above it. Runs in a single transaction so the balance can
+   * never be observed half-rewound.
+   *
+   * The UTXO rules here are the exact SQL translation of `computeReorgRewind`
+   * in `src/wallet/reorg-rewind.ts` (the unit-tested specification): delete
+   * outputs created above the fork, restore outputs whose spend was orphaned.
+   *
+   * @returns Counts of the changes applied (for logging / event payloads).
+   */
+  async rewindToHeight(
+    forkHeight: number,
+  ): Promise<{ deletedUtxos: number; restoredUtxos: number; deletedHeaders: number }> {
+    let deletedUtxos = 0;
+    let restoredUtxos = 0;
+    let deletedHeaders = 0;
+
+    await this.db.withTransactionAsync(async () => {
+      const createdAbove = await this.db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM utxos WHERE block_height > ?",
+        forkHeight,
+      );
+      deletedUtxos = createdAbove?.count ?? 0;
+
+      const spentAbove = await this.db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM utxos WHERE spent = 1 AND spent_height > ?",
+        forkHeight,
+      );
+      restoredUtxos = spentAbove?.count ?? 0;
+
+      // 2. Un-spend outputs whose spending tx was orphaned. Do this BEFORE the
+      //    delete so we don't resurrect an output that was itself created above
+      //    the fork (those are removed in step 1).
+      await this.db.runAsync(
+        "UPDATE utxos SET spent = 0, spent_txid = '', spent_height = 0 WHERE spent = 1 AND spent_height > ?",
+        forkHeight,
+      );
+
+      // 1. Delete outputs created in orphaned blocks.
+      await this.db.runAsync(
+        "DELETE FROM utxos WHERE block_height > ?",
+        forkHeight,
+      );
+
+      // Orphaned transactions: drop them. If they re-confirm on the new chain
+      // the merkle-block receive path re-inserts them.
+      await this.db.runAsync(
+        "DELETE FROM transactions WHERE block_height > ?",
+        forkHeight,
+      );
+
+      const headerCount = await this.db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM block_headers WHERE height > ?",
+        forkHeight,
+      );
+      deletedHeaders = headerCount?.count ?? 0;
+
+      // 3. Delete orphaned headers.
+      await this.db.runAsync(
+        "DELETE FROM block_headers WHERE height > ?",
+        forkHeight,
+      );
+    });
+
+    return { deletedUtxos, restoredUtxos, deletedHeaders };
+  }
+
+  /**
+   * Delete all stored headers strictly above `height` (without touching UTXOs).
+   * Used by the SPV client when accepting a longer competing branch.
+   */
+  async deleteHeadersAboveHeight(height: number): Promise<void> {
+    await this.db.runAsync(
+      "DELETE FROM block_headers WHERE height > ?",
+      height,
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Rescan state (resumable historical scan)
+  // -----------------------------------------------------------------------
+
+  async getRescanState(): Promise<RescanStateRow | null> {
+    const row = await this.db.getFirstAsync<RescanStateRow>(
+      "SELECT * FROM rescan_state WHERE id = 1",
+    );
+    return row ?? null;
+  }
+
+  async saveRescanState(state: {
+    start_height: number;
+    next_height: number;
+    target_height: number;
+    completed: number;
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    await this.db.runAsync(
+      `INSERT OR REPLACE INTO rescan_state
+        (id, start_height, next_height, target_height, completed, updated_at)
+       VALUES (1, ?, ?, ?, ?, ?)`,
+      state.start_height,
+      state.next_height,
+      state.target_height,
+      state.completed,
+      now,
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -490,6 +697,22 @@ export class Database {
       "UPDATE addresses SET used = 1 WHERE address = ?",
       address,
     );
+  }
+
+  /**
+   * The next unused derivation index for a chain: one past the highest *used*
+   * index in the database (0 if none are used). Used to restore the BIP44
+   * cursor on startup so used addresses are never re-issued (SPV_AUDIT.md §4.5).
+   */
+  async getNextUnusedIndex(isChange: boolean): Promise<number> {
+    const row = await this.db.getFirstAsync<{ max_used: number | null }>(
+      "SELECT MAX(index_num) as max_used FROM addresses WHERE is_change = ? AND used = 1",
+      isChange ? 1 : 0,
+    );
+    if (row?.max_used == null) {
+      return 0;
+    }
+    return row.max_used + 1;
   }
 
   // -----------------------------------------------------------------------

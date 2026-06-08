@@ -26,6 +26,7 @@ import {
 } from "@fairco.in/core";
 import type { ParsedTransaction } from "../p2p/messages";
 import { SPVClient } from "../p2p/spv-client";
+import { planRescan, type RescanProgress } from "../p2p/rescan";
 import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
@@ -125,6 +126,7 @@ export interface WalletState {
   estimateFee: (feeLevel: FeeLevel) => bigint;
   hasWallet: () => Promise<boolean>;
   wipeWallet: () => Promise<void>;
+  rescanWallet: () => Promise<void>;
 
   // Multi-wallet actions
   loadWalletList: () => Promise<void>;
@@ -169,6 +171,9 @@ let utxoSet: UTXOSet | null = null;
 let database: Database | null = null;
 let networkConfig: NetworkConfig | null = null;
 let spvClient: SPVClient | null = null;
+// Guards the historical-rescan driver so the periodic trigger never starts a
+// second concurrent scan.
+let rescanDriverRunning = false;
 
 /**
  * Get the current Database instance. Returns null if the wallet is not initialized.
@@ -310,8 +315,15 @@ async function processIncomingTransaction(
   }
 
   // ---- Mirror spent inputs to SQLite -------------------------------------
+  // Record which tx spent the UTXO and at what height so a reorg can un-spend
+  // it precisely if the spending block is later orphaned.
   for (const debit of result.debited) {
-    await database.markUTXOSpent(debit.txid, debit.vout);
+    await database.markUTXOSpent(
+      debit.txid,
+      debit.vout,
+      txid,
+      confirmation.blockHeight,
+    );
   }
 
   // ---- Persist the transaction row and update derived state --------------
@@ -348,6 +360,133 @@ async function processIncomingTransaction(
       .getAllAddresses()
       .map((addr) => decodeAddress(addr).hash);
     spvClient.setBloomFilter(addressHashes);
+  }
+}
+
+/**
+ * Replace the in-memory UTXO set with the unspent UTXOs currently in SQLite.
+ * Used at init, and after a reorg rewind, to keep the in-memory set the single
+ * source of truth for balance in lock-step with the persisted state.
+ */
+async function reloadUtxoSetFromDatabase(): Promise<void> {
+  if (!utxoSet || !database) {
+    return;
+  }
+  const fresh = new UTXOSet();
+  const dbUtxos = await database.getUnspentUTXOs();
+  for (const row of dbUtxos) {
+    fresh.add({
+      txid: row.txid,
+      vout: row.vout,
+      address: row.address,
+      value: BigInt(row.value),
+      scriptPubKey: hexToBytes(row.script_pub_key),
+      blockHeight: row.block_height,
+      confirmed: row.block_height >= 0,
+    });
+  }
+  utxoSet = fresh;
+}
+
+/**
+ * Roll the wallet back to `forkHeight` after the SPV client detects that a
+ * longer chain has orphaned the blocks above it. The database rewind deletes
+ * UTXOs created in orphaned blocks and restores UTXOs spent by orphaned
+ * transactions; we then rebuild the in-memory set and balance from the
+ * post-rewind database so nothing reflects the discarded chain.
+ */
+async function rewindWalletToHeight(
+  forkHeight: number,
+  set: WalletSet,
+): Promise<void> {
+  if (!database || !utxoSet) {
+    return;
+  }
+  // The DB rewind prunes UTXOs and the `transactions` rows for orphaned blocks.
+  await database.rewindToHeight(forkHeight);
+  await reloadUtxoSetFromDatabase();
+
+  // Reconcile the displayed transaction list with what survived in the
+  // database: any tx whose row was pruned (confirmed only in an orphaned block)
+  // is dropped. Unconfirmed sends/receives (still present in the DB) are kept
+  // and will re-confirm via the receive path once the new chain includes them.
+  const surviving = new Set<string>();
+  for (const row of await database.getTransactions(10_000, 0)) {
+    surviving.add(row.txid);
+  }
+  set((state) => ({
+    transactions: state.transactions.filter((t) => surviving.has(t.txid)),
+    chainHeight: forkHeight,
+  }));
+  publishBalance(set);
+}
+
+/**
+ * Drive a historical rescan (SPV_AUDIT.md §6.3): find and credit transactions
+ * that confirmed BEFORE the Bloom filter loaded (e.g. funds already sitting at
+ * one of the wallet's addresses on a restored wallet).
+ *
+ * Reads persisted progress, plans the scan with {@link planRescan} (resuming an
+ * incomplete scan or catching up newly-synced blocks), and asks the SPV client
+ * to re-request each block as a filtered merkle block. Discovered matches flow
+ * through the same idempotent `onTransaction` receive path, so nothing is
+ * double-counted. Progress is persisted after every window for resumability.
+ *
+ * Best-effort and re-entrancy-guarded: the periodic trigger calls this whenever
+ * headers advance, but only one scan runs at a time.
+ */
+async function runHistoricalRescan(set: WalletSet, get: WalletGet): Promise<void> {
+  if (rescanDriverRunning || !database || !spvClient) {
+    return;
+  }
+  // A rescan only makes sense once we have some chain and at least one peer to
+  // serve the merkle blocks.
+  const chainTip = get().chainHeight;
+  if (chainTip <= 0) {
+    return;
+  }
+  if (spvClient.getPeerManager().getReadyPeers().length === 0) {
+    return;
+  }
+
+  const persistedRow = await database.getRescanState();
+  const persisted: RescanProgress | null = persistedRow
+    ? {
+        startHeight: persistedRow.start_height,
+        nextHeight: persistedRow.next_height,
+        targetHeight: persistedRow.target_height,
+        completed: persistedRow.completed === 1,
+      }
+    : null;
+
+  // No wallet-birthday tracking yet: scan from genesis. The FairCoin chain is
+  // young, so a full scan is acceptable; a future birthday field can narrow it.
+  const birthday = 0;
+  const plan = planRescan(persisted, birthday, chainTip);
+  if (!plan) {
+    return;
+  }
+
+  rescanDriverRunning = true;
+  try {
+    await spvClient.rescan({
+      fromHeight: plan.startHeight,
+      toHeight: plan.targetHeight,
+      resumeFrom: plan.resumeFrom,
+      onProgress: async (progress) => {
+        if (!database) {
+          return;
+        }
+        await database.saveRescanState({
+          start_height: progress.startHeight,
+          next_height: progress.nextHeight,
+          target_height: progress.targetHeight,
+          completed: progress.completed ? 1 : 0,
+        });
+      },
+    });
+  } finally {
+    rescanDriverRunning = false;
   }
 }
 
@@ -413,6 +552,7 @@ function resetWalletInternals(): void {
   utxoSet = null;
   database = null;
   networkConfig = null;
+  rescanDriverRunning = false;
 }
 
 const DEFAULT_WALLET_STATE = {
@@ -492,18 +632,15 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // Load persisted UTXOs from database. A UTXO is confirmed iff it was
       // stored with a real block height (>= 0); mempool receives are stored
       // with height -1 and remain unconfirmed until their block is seen.
-      const dbUtxos = await database.getUnspentUTXOs();
-      for (const row of dbUtxos) {
-        utxoSet.add({
-          txid: row.txid,
-          vout: row.vout,
-          address: row.address,
-          value: BigInt(row.value),
-          scriptPubKey: hexToBytes(row.script_pub_key),
-          blockHeight: row.block_height,
-          confirmed: row.block_height >= 0,
-        });
-      }
+      await reloadUtxoSetFromDatabase();
+
+      // Restore the BIP44 derivation cursors from persisted state so used
+      // addresses are never re-issued across restarts and the lookahead window
+      // (hence the Bloom filter) keeps watching the right addresses
+      // (SPV_AUDIT.md §4.5). KeyManager.fromMnemonic resets the cursors to 0.
+      const nextExternal = await database.getNextUnusedIndex(false);
+      const nextChange = await database.getNextUnusedIndex(true);
+      keyManager.restoreCursors(nextExternal, nextChange);
 
       // Load persisted addresses from database
       const dbAddresses = await database.getAddresses();
@@ -586,11 +723,27 @@ export const useWalletStore = create<WalletState>((set, get) => ({
               // wallet error or interrupt sync.
             });
           },
+          onReorg: async (forkHeight) => {
+            // A longer chain orphaned the blocks above forkHeight. Roll the
+            // wallet (UTXO set, balance, tx list) back so it never spends or
+            // displays outputs that no longer exist on the winning chain. This
+            // runs before the SPV client stores the new branch.
+            await rewindWalletToHeight(forkHeight, set);
+          },
           onSyncProgress: (progress) => {
             set({
               syncProgress: Math.round(progress * 100),
               isSyncing: progress < 1,
             });
+            // Once headers are (nearly) caught up, kick the historical rescan
+            // so funds received before the filter loaded are discovered. The
+            // driver is guarded and resumable, so calling it repeatedly is safe.
+            if (progress >= 1) {
+              void runHistoricalRescan(set, get).catch(() => {
+                // Rescan is best-effort; failures are retried on the next tip
+                // advance and do not surface as wallet errors.
+              });
+            }
           },
         });
 
@@ -625,6 +778,16 @@ export const useWalletStore = create<WalletState>((set, get) => ({
               ? `Connected to ${count} peer${count === 1 ? "" : "s"}`
               : "Searching for peers...",
           });
+
+          // Drive the historical rescan once peers and a chain exist. This
+          // covers the already-synced case (a restored wallet whose headers are
+          // current so `onSyncProgress` never fires). Guarded + resumable, so
+          // the repeated call is a cheap no-op while a scan is in flight or done.
+          if (count > 0) {
+            void runHistoricalRescan(set, get).catch(() => {
+              // Best-effort; retried on the next interval tick.
+            });
+          }
         }, 5000);
       } catch (spvError: unknown) {
         const spvMsg = spvError instanceof Error ? spvError.message : "Unknown P2P error";
@@ -675,6 +838,23 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       set({ loading: false, error: message });
       throw new Error(message);
     }
+  },
+
+  rescanWallet: async (): Promise<void> => {
+    if (!database || !spvClient) {
+      return;
+    }
+    // Force a full rescan from genesis by clearing any persisted progress, then
+    // drive it. Discovered transactions are credited idempotently, so this is
+    // safe to invoke even if the wallet is already up to date.
+    const tip = get().chainHeight;
+    await database.saveRescanState({
+      start_height: 0,
+      next_height: 0,
+      target_height: tip > 0 ? tip : 0,
+      completed: 0,
+    });
+    await runHistoricalRescan(set, get);
   },
 
   refreshBalance: (): void => {
@@ -773,9 +953,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         spvClient.broadcastTransaction(rawTx);
       }
 
-      // Mark UTXOs as spent locally
+      // Mark UTXOs as spent locally. The spend is unconfirmed (height -1) until
+      // it lands in a block; recording the spending txid lets a reorg undo it.
       for (const input of tx.inputs) {
-        await database.markUTXOSpent(input.txid, input.vout);
+        await database.markUTXOSpent(input.txid, input.vout, txid, -1);
         if (utxoSet) {
           utxoSet.spend(input.txid, input.vout);
         }
