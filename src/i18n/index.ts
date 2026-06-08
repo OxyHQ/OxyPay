@@ -372,9 +372,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     // Restore wallet flow
     "onboarding.restore.title": "Restore Your Wallet",
     "onboarding.restore.description":
-      "Enter your 24-word recovery phrase to restore access to your wallet.",
+      "Enter your 12 or 24-word recovery phrase to restore access to your wallet.",
     "onboarding.restore.phrasePlaceholder": "word1 word2 word3 ...",
-    "onboarding.restore.wordCount": "{count}/24 words",
+    "onboarding.restore.wordCount.one": "{count} word",
+    "onboarding.restore.wordCount.other": "{count} words",
     "onboarding.restore.pasteCta": "Paste",
     "onboarding.restore.error.clipboard": "Failed to read clipboard",
     "onboarding.restore.error.failed": "Failed to restore wallet",
@@ -1063,9 +1064,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     // Restore wallet flow
     "onboarding.restore.title": "Restaurar tu Billetera",
     "onboarding.restore.description":
-      "Ingresa tu frase de recuperaci\u00f3n de 24 palabras para restaurar el acceso a tu billetera.",
+      "Ingresa tu frase de recuperaci\u00f3n de 12 o 24 palabras para restaurar el acceso a tu billetera.",
     "onboarding.restore.phrasePlaceholder": "palabra1 palabra2 palabra3 ...",
-    "onboarding.restore.wordCount": "{count}/24 palabras",
+    "onboarding.restore.wordCount.one": "{count} palabra",
+    "onboarding.restore.wordCount.other": "{count} palabras",
     "onboarding.restore.pasteCta": "Pegar",
     "onboarding.restore.error.clipboard": "No se pudo leer el portapapeles",
     "onboarding.restore.error.failed": "Fall\u00f3 la restauraci\u00f3n de la billetera",

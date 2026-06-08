@@ -123,6 +123,7 @@ function useDeepLinkHandler() {
 
 function useAutoLock() {
   const initialized = useWalletStore((s) => s.initialized);
+  const lockWallet = useWalletStore((s) => s.lockWallet);
   const lock = useLockStore((s) => s.lock);
   const backgroundTime = useRef<number | null>(null);
 
@@ -137,11 +138,17 @@ function useAutoLock() {
         getAutoLockTimeout().then((min) => {
           // Re-lock via the lock store so the overlay covers every screen, not
           // just by navigating to a route the user could swipe away from.
-          if (elapsed > min * 60_000) lock();
+          if (elapsed > min * 60_000) {
+            lock();
+            // Zeroize cached private keys and stop SPV while locked (M1). The
+            // lock overlay's unlock path re-initializes the wallet on a correct
+            // PIN, so this is non-destructive.
+            lockWallet();
+          }
         });
       }
     },
-    [initialized, lock],
+    [initialized, lock, lockWallet],
   );
 
   // Attach the AppState listener in an effect with teardown (review finding M6).

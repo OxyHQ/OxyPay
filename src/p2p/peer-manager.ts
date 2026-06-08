@@ -13,12 +13,34 @@ import { Peer, type PeerConfig, type PeerEvents, type SocketProvider } from "./p
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * A connectivity event worth surfacing to telemetry/logging (review finding
+ * L6). Peer errors and disconnects used to be swallowed entirely, making
+ * network problems invisible. A consumer can supply {@link PeerManagerConfig.onEvent}
+ * to observe them; the default is a no-op so behaviour is unchanged when unset.
+ */
+export interface PeerManagerEvent {
+  /** What happened: a transport/protocol error, or a peer disconnect. */
+  readonly type: "peer-error" | "peer-disconnect";
+  /** The peer's `host:port` identifier. */
+  readonly peer: string;
+  /** Human-readable detail (the error message or disconnect reason). */
+  readonly detail: string;
+}
+
+export type PeerEventSink = (event: PeerManagerEvent) => void;
+
 export interface PeerManagerConfig {
   network: NetworkConfig;
   socketProvider: SocketProvider;
   nativeDnsResolver?: NativeDnsResolver;
   targetPeers?: number;
   maxPeers?: number;
+  /**
+   * Optional telemetry hook for connectivity events (errors, disconnects).
+   * Defaults to a no-op. Must not throw; it is called from socket callbacks.
+   */
+  onEvent?: PeerEventSink;
 }
 
 export type MessageHandler = (peer: Peer, command: string, payload: Uint8Array) => void;
@@ -43,6 +65,7 @@ export class PeerManager {
   private readonly nativeDnsResolver: NativeDnsResolver | undefined;
   private readonly targetPeers: number;
   private readonly maxPeers: number;
+  private readonly onEvent: PeerEventSink;
 
   private readonly peers: Map<string, Peer> = new Map();
   private readonly knownAddresses: Set<string> = new Set();
@@ -60,6 +83,20 @@ export class PeerManager {
     this.nativeDnsResolver = config.nativeDnsResolver;
     this.targetPeers = config.targetPeers ?? DEFAULT_TARGET_PEERS;
     this.maxPeers = config.maxPeers ?? DEFAULT_MAX_PEERS;
+    this.onEvent = config.onEvent ?? noopEventSink;
+  }
+
+  /**
+   * Emit a connectivity event to the configured sink, guarding against a sink
+   * that throws so a faulty telemetry hook can never break the network loop.
+   */
+  private emitEvent(event: PeerManagerEvent): void {
+    try {
+      this.onEvent(event);
+    } catch {
+      // A telemetry sink must never disrupt connectivity. Swallowing here is
+      // deliberate and scoped to the observer callback only.
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -279,15 +316,25 @@ export class PeerManager {
       onMessage: (peer: Peer, command: string, payload: Uint8Array) => {
         this.dispatchMessage(peer, command, payload);
       },
-      onDisconnect: (peer: Peer, _reason: string) => {
+      onDisconnect: (peer: Peer, reason: string) => {
         this.peers.delete(peer.id);
         // Schedule reconnection attempt
         const fails = (this.failedAddresses.get(peer.host) ?? 0) + 1;
         this.failedAddresses.set(peer.host, fails);
+        this.emitEvent({
+          type: "peer-disconnect",
+          peer: peer.id,
+          detail: reason,
+        });
       },
-      onError: (_peer: Peer, _error: Error) => {
-        // Error logging is intentionally omitted in production code.
-        // The disconnect handler manages fail tracking.
+      onError: (peer: Peer, error: Error) => {
+        // Fail tracking is handled by the disconnect that follows; surface the
+        // error to telemetry so connectivity problems are observable (L6).
+        this.emitEvent({
+          type: "peer-error",
+          peer: peer.id,
+          detail: error.message,
+        });
       },
     };
 
@@ -310,6 +357,11 @@ export class PeerManager {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+/** Default telemetry sink: ignores every event (no observability configured). */
+function noopEventSink(_event: PeerManagerEvent): void {
+  // Intentionally empty — the default behaviour is to not observe events.
+}
 
 /** Fisher-Yates shuffle (in-place). */
 function shuffleArray<T>(arr: T[]): void {

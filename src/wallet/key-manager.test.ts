@@ -164,3 +164,68 @@ describe("KeyManager.fromXpub (watch-only)", () => {
     expect(() => KeyManager.fromXpub("", MAINNET)).toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Key zeroization on lock / reset (review finding M1).
+//
+// The manager caches every derived private key in memory for the session. On
+// lock / wallet reset those keys must not linger in the heap. `wipe()` overwrites
+// each private-key buffer with zeros IN PLACE and clears the maps.
+// ---------------------------------------------------------------------------
+
+describe("KeyManager.wipe (M1 zeroization)", () => {
+  test("overwrites the cached private-key bytes with zeros in place", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const addr = km.getExternalAddresses()[0];
+
+    // Grab the live reference the manager hands out for signing. After wipe the
+    // SAME buffer must be all-zero — proving the secret bytes are destroyed, not
+    // merely de-referenced (a GC'd-but-not-cleared buffer is recoverable).
+    const priv = km.getPrivateKeyForAddress(addr);
+    expect(priv.length).toBe(32);
+    expect(priv.some((b) => b !== 0)).toBe(true); // real key material before wipe
+
+    km.wipe();
+
+    expect(priv.every((b) => b === 0)).toBe(true); // zeroized in place
+  });
+
+  test("drops all derived addresses so none are owned after wipe", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const addr = km.getExternalAddresses()[0];
+    expect(km.ownsAddress(addr)).toBe(true);
+
+    km.wipe();
+
+    expect(km.getAllAddresses()).toHaveLength(0);
+    expect(km.getExternalAddresses()).toHaveLength(0);
+    expect(km.getChangeAddresses()).toHaveLength(0);
+    expect(km.ownsAddress(addr)).toBe(false);
+  });
+
+  test("zeroizes change-chain private keys too", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const changeAddr = km.getChangeAddresses()[0];
+    const priv = km.getPrivateKeyForAddress(changeAddr);
+    expect(priv.some((b) => b !== 0)).toBe(true);
+
+    km.wipe();
+
+    expect(priv.every((b) => b === 0)).toBe(true);
+  });
+
+  test("a wiped manager can no longer produce a private key", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const addr = km.getExternalAddresses()[0];
+    km.wipe();
+    // The address is gone from the maps, so a lookup fails rather than returning
+    // a zeroed (and now useless) key.
+    expect(() => km.getPrivateKeyForAddress(addr)).toThrow(/not found/);
+  });
+
+  test("wipe() on a watch-only manager is safe (no private keys to zero)", () => {
+    const watch = KeyManager.fromXpub(accountXpub(), MAINNET);
+    expect(() => watch.wipe()).not.toThrow();
+    expect(watch.getAllAddresses()).toHaveLength(0);
+  });
+});

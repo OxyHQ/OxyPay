@@ -13,7 +13,7 @@ import { useCallback } from "react";
 import { View } from "react-native";
 import { useLockStore } from "../../wallet/lock-store";
 import { useWalletStore } from "../../wallet/wallet-store";
-import { getMnemonic } from "../../storage/secure-store";
+import { getMnemonic, getActiveWalletId } from "../../storage/secure-store";
 import { LockScreenContent } from "./LockScreenContent";
 
 export function LockGate() {
@@ -24,13 +24,22 @@ export function LockGate() {
 
   const handleUnlock = useCallback(() => {
     // Bring the wallet up only AFTER a successful unlock. If boot deferred
-    // initialization (PIN present), load the secret and initialize now; if the
-    // wallet was already initialized (no-PIN path), this is a cheap no-op.
+    // initialization (PIN present) or auto-lock tore the wallet down (M1), load
+    // the secret and initialize now; if the wallet is still initialized (no-PIN
+    // path), this is a cheap no-op.
     const run = async () => {
       if (!useWalletStore.getState().initialized) {
         const mnemonic = await getMnemonic();
         if (mnemonic) {
-          await initialize(mnemonic);
+          // Re-open the SAME wallet's database. `getMnemonic` resolves the
+          // active wallet's secret, so the database must be scoped to that same
+          // wallet id — otherwise a re-init after locking a switched (non-
+          // default) wallet would open the default `fairwallet.db` instead.
+          const activeId =
+            useWalletStore.getState().activeWalletId ??
+            (await getActiveWalletId()) ??
+            undefined;
+          await initialize(mnemonic, activeId);
         }
       }
       unlock();

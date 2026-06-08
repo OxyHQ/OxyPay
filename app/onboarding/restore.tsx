@@ -28,7 +28,10 @@ export default function RestoreWalletScreen() {
     return trimmed.split(/\s+/).length;
   }, [mnemonicInput]);
 
-  const isValidCount = wordCount === 24;
+  // Accept either standard BIP39 length. The store validates the full checksum
+  // via `restoreWallet`, so the import modal (which already allows 12 or 24)
+  // and this screen agree — a valid 12-word phrase is not rejected here (L5).
+  const isValidCount = wordCount === 12 || wordCount === 24;
 
   const handlePaste = useCallback(async () => {
     try {
@@ -94,7 +97,9 @@ export default function RestoreWalletScreen() {
         {/* Word count + paste row */}
         <View className="flex-row items-center justify-between mb-6">
           <Text className={`text-sm font-medium ${wordCountColor}`}>
-            {t("onboarding.restore.wordCount", { count: wordCount })}
+            {wordCount === 1
+              ? t("onboarding.restore.wordCount.one", { count: wordCount })
+              : t("onboarding.restore.wordCount.other", { count: wordCount })}
           </Text>
           <Pressable
             className="flex-row items-center gap-2 bg-surface border border-border rounded-full px-4 py-2 active:bg-primary/10"

@@ -144,6 +144,38 @@ export class KeyManager {
   }
 
   /**
+   * Zeroize all cached private-key material and clear the derived-key maps.
+   *
+   * The manager keeps every derived private key in memory for the session so
+   * signing is instant. On lock, wallet reset, switch, or network change those
+   * keys must not linger in the heap where a memory dump could recover them.
+   * This overwrites each private-key buffer with zeros in place (so the
+   * underlying bytes are destroyed even if another reference still points at the
+   * buffer) and drops the maps.
+   *
+   * The manager is single-use afterwards: a wiped manager has no addresses and
+   * cannot sign. Callers replace it (e.g. via `KeyManager.fromMnemonic`) when
+   * the wallet is brought back up, so there is no `unwipe`.
+   */
+  wipe(): void {
+    for (const entry of this.externalKeys.values()) {
+      entry.privateKey?.fill(0);
+    }
+    for (const entry of this.changeKeys.values()) {
+      entry.privateKey?.fill(0);
+    }
+    this.externalKeys.clear();
+    this.changeKeys.clear();
+    this.nextExternalIndex = 0;
+    this.nextChangeIndex = 0;
+    // Also zeroize the account-level extended key the children derive from, so
+    // no signing-capable material survives (no-op for a watch-only manager,
+    // whose account key holds no private data). `wipePrivateData` overwrites the
+    // private-key bytes in place, matching the in-place wipe of the cached keys.
+    this.accountKey.wipePrivateData();
+  }
+
+  /**
    * Restore the derivation cursors from persisted state (SPV_AUDIT.md §4.5).
    *
    * `KeyManager.fromMnemonic` always resets `nextExternalIndex` /

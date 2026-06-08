@@ -37,6 +37,7 @@ import {
   type SendEstimate,
 } from "./coin-selection";
 import { applyTransactionToWallet } from "./apply-transaction";
+import { UtxoReservation } from "./utxo-reservation";
 import {
   saveMnemonic,
   getMnemonic,
@@ -133,6 +134,7 @@ export interface WalletState {
   estimateSend: (amount: bigint, feeRate: number) => SendEstimate;
   hasWallet: () => Promise<boolean>;
   wipeWallet: () => Promise<void>;
+  lockWallet: () => void;
   rescanWallet: () => Promise<void>;
 
   // Multi-wallet actions
@@ -188,6 +190,13 @@ let spvClient: SPVClient | null = null;
 // Guards the historical-rescan driver so the periodic trigger never starts a
 // second concurrent scan.
 let rescanDriverRunning = false;
+
+/**
+ * Outpoints reserved by an in-flight send (review finding M4). Guards concurrent
+ * send flows from selecting the same coins and double-spending. See
+ * {@link UtxoReservation}.
+ */
+const utxoReservation = new UtxoReservation();
 
 /**
  * Get the current Database instance. Returns null if the wallet is not initialized.
@@ -562,11 +571,17 @@ function resetWalletInternals(): void {
     spvClient.stop();
     spvClient = null;
   }
+  // Zeroize cached private keys before dropping the reference so key material
+  // never lingers in the heap after a lock/reset/switch (review finding M1).
+  if (keyManager) {
+    keyManager.wipe();
+  }
   keyManager = null;
   utxoSet = null;
   database = null;
   networkConfig = null;
   rescanDriverRunning = false;
+  utxoReservation.clear();
 }
 
 const DEFAULT_WALLET_STATE = {
@@ -966,6 +981,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   ): Promise<string> => {
     set({ loading: true, error: null });
 
+    // Outpoints this send reserves; released in `finally` on any exit so a
+    // failed or completed send never leaves coins permanently locked (M4).
+    let reservedHere: Array<{ txid: string; vout: number }> = [];
+
     try {
       if (!keyManager || !database || !networkConfig) {
         throw new Error("Wallet not initialized");
@@ -976,17 +995,21 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       // Build the pool of spendable coins from CONFIRMED unspent rows only.
       // Unconfirmed (block_height < 0, mempool) outputs are excluded so a send
-      // never spends funds that could still be reorged away.
+      // never spends funds that could still be reorged away. Coins already
+      // reserved by another in-flight send are excluded too, so automatic
+      // selection cannot pick a UTXO a concurrent send is about to spend (M4).
       const utxoRows = await database.getUnspentUTXOs();
-      const candidates: UTXO[] = utxoRows.map((row) => ({
-        txid: row.txid,
-        vout: row.vout,
-        address: row.address,
-        value: BigInt(row.value),
-        scriptPubKey: hexToBytes(row.script_pub_key),
-        blockHeight: row.block_height,
-        confirmed: row.block_height >= 0,
-      }));
+      const candidates: UTXO[] = utxoRows
+        .filter((row) => !utxoReservation.has(row.txid, row.vout))
+        .map((row) => ({
+          txid: row.txid,
+          vout: row.vout,
+          address: row.address,
+          value: BigInt(row.value),
+          scriptPubKey: hexToBytes(row.script_pub_key),
+          blockHeight: row.block_height,
+          confirmed: row.block_height >= 0,
+        }));
 
       // Decide which coins to spend: honour an explicit coin-control selection
       // when present, otherwise pick the minimum set largest-first. This is the
@@ -999,6 +1022,22 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         coinControl,
         dustThreshold: networkConfig.minRelayFee,
       });
+
+      // Reserve the selected outpoints synchronously, before the first `await`
+      // below can yield to another send (M4). A coin-control selection bypasses
+      // the candidate filter above, so reserve() re-checks each outpoint: if any
+      // is already held by an overlapping send, refuse rather than double-spend.
+      const outpoints = selection.selected.map((utxo) => ({
+        txid: utxo.txid,
+        vout: utxo.vout,
+      }));
+      const conflict = utxoReservation.reserve(outpoints);
+      if (conflict !== null) {
+        throw new Error(
+          "Selected coins are being spent by another transaction in progress",
+        );
+      }
+      reservedHere = outpoints;
 
       const inputs: TxUTXO[] = selection.selected.map((utxo) => ({
         txid: utxo.txid,
@@ -1093,6 +1132,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       const msg = err instanceof Error ? err.message : "Transaction failed";
       set({ loading: false, error: msg });
       throw new Error(msg);
+    } finally {
+      // Release this send's UTXO reservations whether it succeeded or failed.
+      // On success the inputs are already marked spent in the DB so they won't
+      // be reselected; on failure they return to the available pool (M4).
+      utxoReservation.release(reservedHere);
     }
   },
 
@@ -1171,6 +1215,28 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         err instanceof Error ? err.message : "Failed to wipe wallet";
       set({ loading: false, error: message });
     }
+  },
+
+  lockWallet: (): void => {
+    // Tear the wallet down when the app auto-locks (review finding M1): stop the
+    // SPV client and zeroize cached private keys (via resetWalletInternals ->
+    // KeyManager.wipe) so no key material survives in memory behind the lock.
+    // `initialized` is cleared so the lock overlay's unlock path re-initializes
+    // the wallet from the stored secret — the same deferred-init flow used when
+    // a PIN-protected wallet boots (review finding C1). Multi-wallet identity
+    // (activeWalletId / wallets / network) is preserved so the right wallet is
+    // brought back up. Persisted secrets and chain data are untouched, so this
+    // is non-destructive and fully reversible by unlocking.
+    const state = get();
+    resetWalletInternals();
+    set({
+      ...DEFAULT_WALLET_STATE,
+      network: state.network,
+      activeWalletId: state.activeWalletId,
+      activeWalletName: state.activeWalletName,
+      wallets: state.wallets,
+      isWatchOnly: state.isWatchOnly,
+    });
   },
 
   // -------------------------------------------------------------------

@@ -40,7 +40,11 @@ import {
   serializeGetHeaders,
 } from "./messages";
 import type { Peer, SocketProvider } from "./peer";
-import { PeerManager, type PeerManagerConfig } from "./peer-manager";
+import {
+  PeerManager,
+  type PeerManagerConfig,
+  type PeerEventSink,
+} from "./peer-manager";
 import type { NativeDnsResolver } from "./dns-seeds";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +80,12 @@ export interface SPVClientConfig {
   socketProvider: SocketProvider;
   headerStore: HeaderStore;
   nativeDnsResolver?: NativeDnsResolver;
+  /**
+   * Optional telemetry sink for peer connectivity events (errors, disconnects).
+   * Forwarded to the underlying {@link PeerManager}; defaults to a no-op so
+   * connectivity is observable only when a consumer opts in (review finding L6).
+   */
+  onPeerEvent?: PeerEventSink;
 }
 
 export interface SPVClientEvents {
@@ -230,6 +240,7 @@ export class SPVClient {
       socketProvider: config.socketProvider,
       nativeDnsResolver: config.nativeDnsResolver,
       targetPeers: 8,
+      onEvent: config.onPeerEvent,
     };
 
     this.peerManager = new PeerManager(peerManagerConfig);

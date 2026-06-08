@@ -369,14 +369,25 @@ export class Peer {
   }
 
   private handlePongMessage(payload: Uint8Array): void {
+    let nonce: bigint;
     try {
-      const nonce = parsePong(payload);
-      if (nonce !== this.lastPingNonce) {
-        // Nonce mismatch — could be stale, ignore silently
-      }
+      nonce = parsePong(payload);
     } catch {
       // Malformed pong is non-fatal — the connection remains valid.
       // The peer simply sent an unparseable response to our ping.
+      return;
+    }
+    // A correctly-behaving peer echoes the exact nonce we sent. A mismatch means
+    // the peer is buggy or replaying stale frames; surface it and drop the peer
+    // rather than trusting its keepalive (review finding L6).
+    if (nonce !== this.lastPingNonce) {
+      this.events.onError(
+        this,
+        new Error(
+          `pong nonce mismatch (expected ${this.lastPingNonce}, got ${nonce})`,
+        ),
+      );
+      this.handleDisconnect("pong nonce mismatch");
     }
   }
 
