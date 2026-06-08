@@ -516,6 +516,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "masternode.broadcastSent.title": "Masternode Broadcast Sent",
     "masternode.broadcastSent.description":
       "Masternode broadcast for {ip}:{port} has been queued. It may take a few minutes for the network to recognize your masternode.",
+    "masternode.notAvailable.title": "Not Yet Available",
+    "masternode.notAvailable.description":
+      "Starting a masternode requires broadcasting a signed announcement over the FairCoin P2P network, which this wallet does not yet support. You can prepare collateral now; masternode start will be enabled in a future update.",
+    "masternode.notAvailableBadge": "Coming soon",
 
     // ---------- Export Key ----------
     "exportKey.verifyPin.title": "Verify PIN",
@@ -1221,6 +1225,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "masternode.broadcastSent.title": "Transmisi\u00f3n de Masternode Enviada",
     "masternode.broadcastSent.description":
       "La transmisi\u00f3n del masternode para {ip}:{port} ha sido encolada. Puede tardar unos minutos hasta que la red reconozca tu masternode.",
+    "masternode.notAvailable.title": "A\u00fan No Disponible",
+    "masternode.notAvailable.description":
+      "Iniciar un masternode requiere transmitir un anuncio firmado por la red P2P de FairCoin, algo que esta billetera todav\u00eda no admite. Puedes preparar el colateral ahora; el inicio de masternode se habilitar\u00e1 en una actualizaci\u00f3n futura.",
+    "masternode.notAvailableBadge": "Pr\u00f3ximamente",
 
     // ---------- Export Key ----------
     "exportKey.verifyPin.title": "Verificar PIN",

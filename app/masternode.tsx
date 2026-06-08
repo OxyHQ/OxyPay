@@ -1,12 +1,17 @@
 /**
  * Masternode management screen.
- * Lists eligible UTXOs (5,000 FAIR) and masternode status.
- * Provides a "Start Masternode" flow that collects the masternode IP:port,
- * confirms details, and prepares a masternode broadcast.
+ *
+ * Lists eligible collateral UTXOs (5,000 FAIR) and masternode status so the
+ * user can prepare collateral. Actually STARTING a masternode requires
+ * broadcasting a signed masternode announcement (mnb) over the FairCoin P2P
+ * network, which the SPV client does not yet implement. Rather than fake a
+ * success dialog for something that never happened (review finding H3), the
+ * start action is disabled and clearly labelled "coming soon", and tapping it
+ * explains what remains.
  */
 
-import { useState, useCallback } from "react";
-import { View, Text, ScrollView, Modal, TextInput } from "react-native";
+import { useCallback } from "react";
+import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useWalletStore } from "../src/wallet/wallet-store";
@@ -28,43 +33,6 @@ function truncateTxid(txid: string): string {
   return `${txid.slice(0, 10)}...${txid.slice(-10)}`;
 }
 
-/** Validate an IP:port string. Returns parsed components or null. */
-function parseIpPort(input: string): { ip: string; port: number } | null {
-  const trimmed = input.trim();
-  const lastColon = trimmed.lastIndexOf(":");
-  if (lastColon === -1) return null;
-
-  const ip = trimmed.slice(0, lastColon);
-  const portStr = trimmed.slice(lastColon + 1);
-  const port = Number(portStr);
-
-  if (
-    !Number.isFinite(port) ||
-    port < 1 ||
-    port > 65535 ||
-    Math.floor(port) !== port
-  ) {
-    return null;
-  }
-
-  // Basic IPv4 validation
-  const octets = ip.split(".");
-  if (octets.length !== 4) return null;
-  for (const octet of octets) {
-    const num = Number(octet);
-    if (
-      !Number.isFinite(num) ||
-      num < 0 ||
-      num > 255 ||
-      Math.floor(num) !== num
-    ) {
-      return null;
-    }
-  }
-
-  return { ip, port };
-}
-
 export default function MasternodeScreen() {
   const router = useRouter();
   const masternodeUTXOs = useWalletStore((s) => s.masternodeUTXOs);
@@ -72,22 +40,10 @@ export default function MasternodeScreen() {
     (s) => s.refreshMasternodeUTXOs,
   );
   const theme = useTheme();
-  const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [showIpModal, setShowIpModal] = useState(false);
-  const [ipPortInput, setIpPortInput] = useState("");
-  const [ipModalError, setIpModalError] = useState<string | null>(null);
 
-  const notReadyControl = Prompt.usePromptControl();
-  const confirmStartControl = Prompt.usePromptControl();
-  const broadcastSentControl = Prompt.usePromptControl();
-  const [pendingMasternode, setPendingMasternode] = useState<{
-    ip: string;
-    port: number;
-  } | null>(null);
-  const [broadcastResult, setBroadcastResult] = useState<{
-    ip: string;
-    port: number;
-  } | null>(null);
+  // Masternode start is not yet implemented (no P2P mnb relay). Tapping the
+  // action explains this instead of pretending the broadcast succeeded.
+  const notAvailableControl = Prompt.usePromptControl();
 
   useFocusEffect(
     useCallback(() => {
@@ -97,47 +53,9 @@ export default function MasternodeScreen() {
 
   const eligibleUtxos = masternodeUTXOs;
 
-  // Find the first eligible UTXO (>= 15 confirmations)
-  const firstEligible = eligibleUtxos.find((u) => u.confirmations >= 15);
-
   const handleStartMasternode = useCallback(() => {
-    if (!firstEligible) {
-      notReadyControl.open();
-      return;
-    }
-
-    setIpPortInput("");
-    setIpModalError(null);
-    setShowIpModal(true);
-  }, [firstEligible, notReadyControl]);
-
-  const handleIpModalCancel = useCallback(() => {
-    setShowIpModal(false);
-    setIpPortInput("");
-    setIpModalError(null);
-  }, []);
-
-  const handleIpModalConfirm = useCallback(() => {
-    if (!ipPortInput.trim()) {
-      setIpModalError(t("masternode.ipModal.error.empty"));
-      return;
-    }
-
-    const parsed = parseIpPort(ipPortInput);
-    if (!parsed) {
-      setIpModalError(t("masternode.ipModal.error.invalid"));
-      return;
-    }
-
-    if (!firstEligible) return;
-
-    setShowIpModal(false);
-    setIpPortInput("");
-    setIpModalError(null);
-
-    setPendingMasternode(parsed);
-    confirmStartControl.open();
-  }, [ipPortInput, firstEligible, confirmStartControl]);
+    notAvailableControl.open();
+  }, [notAvailableControl]);
 
   return (
     <SafeAreaView
@@ -193,173 +111,37 @@ export default function MasternodeScreen() {
           )}
         </Section>
 
-        {/* Start masternode button */}
+        {/* Start masternode — performs no broadcast (P2P mnb relay is not yet
+            implemented). Tapping explains this honestly; the badge marks it as
+            unavailable. No fake "broadcast sent" success is shown. */}
         <Button
-          title={
-            isBroadcasting
-              ? t("masternode.broadcasting")
-              : t("masternode.startCta")
-          }
+          title={t("masternode.startCta")}
           onPress={handleStartMasternode}
-          variant="primary"
-          disabled={eligibleUtxos.length === 0}
-          loading={isBroadcasting}
+          variant="secondary"
         />
-
-        {!firstEligible && eligibleUtxos.length > 0 ? (
-          <Text className="text-yellow-400 text-xs text-center mt-4">
-            {t("masternode.waiting")}
-          </Text>
-        ) : null}
+        <View className="flex-row justify-center mt-3">
+          <Badge
+            text={t("masternode.notAvailableBadge")}
+            variant="warning"
+            size="sm"
+          />
+        </View>
       </ScrollView>
 
-      {/* IP:port input modal */}
-      <Modal
-        visible={showIpModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleIpModalCancel}
-      >
-        <View className="flex-1 bg-black/70 items-center justify-center px-8">
-          <Card className="p-6 w-full max-w-sm">
-            <Text className="text-foreground text-lg font-bold mb-2 text-center">
-              {t("masternode.ipModal.title")}
-            </Text>
-            <Text className="text-muted-foreground text-sm mb-4 text-center">
-              {t("masternode.ipModal.description")}
-            </Text>
-
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-              placeholder={t("masternode.ipModal.placeholder")}
-              placeholderTextColor={theme.colors.textSecondary}
-              value={ipPortInput}
-              onChangeText={setIpPortInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="numbers-and-punctuation"
-            />
-
-            {ipModalError ? (
-              <Text className="text-red-400 text-xs mb-3 text-center">
-                {ipModalError}
-              </Text>
-            ) : null}
-
-            <View className="gap-3">
-              <Button
-                title={t("common.confirm")}
-                onPress={handleIpModalConfirm}
-                variant="primary"
-              />
-              <Button
-                title={t("common.cancel")}
-                onPress={handleIpModalCancel}
-                variant="secondary"
-              />
-            </View>
-          </Card>
-        </View>
-      </Modal>
-
-      {/* Not ready prompt: shown when there is no eligible collateral UTXO */}
-      <Prompt.Outer control={notReadyControl}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("masternode.notReady.title")}</Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {t("masternode.notReady.description")}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.ok")}
-            onPress={() => notReadyControl.close()}
-            color="primary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
-
-      {/* Confirm masternode start prompt: shows collateral details */}
-      <Prompt.Outer control={confirmStartControl}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("masternode.confirm.title")}</Prompt.TitleText>
-          {firstEligible && pendingMasternode ? (
-            <View className="mt-2 mb-2">
-              <Text className="text-muted-foreground text-sm mb-1">
-                {t("masternode.confirm.collateral")}{" "}
-                <Text className="text-foreground">
-                  {truncateTxid(firstEligible.txid)}:{firstEligible.vout}
-                </Text>
-              </Text>
-              <Text className="text-muted-foreground text-sm mb-1">
-                {t("masternode.confirm.address")}{" "}
-                <Text className="text-foreground">{firstEligible.address}</Text>
-              </Text>
-              <Text className="text-muted-foreground text-sm mb-1">
-                {t("masternode.confirm.confirmations")}{" "}
-                <Text className="text-foreground">
-                  {firstEligible.confirmations}
-                </Text>
-              </Text>
-              <Text className="text-muted-foreground text-sm mb-3">
-                {t("masternode.confirm.ip")}{" "}
-                <Text className="text-foreground">
-                  {pendingMasternode.ip}:{pendingMasternode.port}
-                </Text>
-              </Text>
-              <Text className="text-muted-foreground text-xs">
-                {t("masternode.confirm.note")}
-              </Text>
-            </View>
-          ) : null}
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("masternode.startCta")}
-            onPress={() => {
-              if (!pendingMasternode) return;
-              const parsed = pendingMasternode;
-              setIsBroadcasting(true);
-              // Actual P2P broadcast will be wired up when the SPV client
-              // supports masternode message relay. For now, show success.
-              setTimeout(() => {
-                setIsBroadcasting(false);
-                setBroadcastResult(parsed);
-                broadcastSentControl.open();
-              }, 1500);
-              setPendingMasternode(null);
-            }}
-            color="primary"
-          />
-          <Prompt.Action
-            cta={t("common.cancel")}
-            onPress={() => {
-              setPendingMasternode(null);
-            }}
-            color="secondary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
-
-      {/* Broadcast sent prompt: info-only result dialog */}
-      <Prompt.Outer control={broadcastSentControl}>
+      {/* Not-yet-available prompt: honest status instead of a fake success. */}
+      <Prompt.Outer control={notAvailableControl}>
         <Prompt.Content>
           <Prompt.TitleText>
-            {t("masternode.broadcastSent.title")}
+            {t("masternode.notAvailable.title")}
           </Prompt.TitleText>
           <Prompt.DescriptionText>
-            {broadcastResult
-              ? t("masternode.broadcastSent.description", {
-                  ip: broadcastResult.ip,
-                  port: broadcastResult.port,
-                })
-              : ""}
+            {t("masternode.notAvailable.description")}
           </Prompt.DescriptionText>
         </Prompt.Content>
         <Prompt.Actions>
           <Prompt.Action
             cta={t("common.ok")}
-            onPress={() => setBroadcastResult(null)}
+            onPress={() => notAvailableControl.close()}
             color="primary"
           />
         </Prompt.Actions>
