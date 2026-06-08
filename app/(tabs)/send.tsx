@@ -41,6 +41,8 @@ import { FONT_PHUDU_BLACK, FONT_PHUDU_LIGHT } from "../../src/utils/fonts";
 import {
   formatFair,
   parseFairToUnits,
+  validateAddress,
+  getNetwork,
   COIN_SYMBOL,
   COIN_TICKER,
   UNITS_PER_COIN,
@@ -100,6 +102,7 @@ export default function SendScreen() {
   const loading = useWalletStore((s) => s.loading);
   const isWatchOnly = useWalletStore((s) => s.isWatchOnly);
   const selectedUTXOs = useWalletStore((s) => s.selectedUTXOs);
+  const network = useWalletStore((s) => s.network);
   const contacts = useContactsStore((s) => s.contacts);
   const loadContacts = useContactsStore((s) => s.loadContacts);
   const getContactByAddress = useContactsStore((s) => s.getContactByAddress);
@@ -203,15 +206,20 @@ export default function SendScreen() {
     return sendEstimate.total ?? amountSats + fee;
   }, [amountSats, sendEstimate.total, fee]);
 
+  // Full base58check + network-version validation (review finding M3). A
+  // prefix/length check let malformed or wrong-network addresses pass and the
+  // Send button enable; an invalid address would burn funds. We still show the
+  // gentler "too short" hint for clearly-partial input.
+  const addressValid = useMemo(
+    () => validateAddress(toAddress, getNetwork(network)),
+    [toAddress, network],
+  );
+
   const validationError = useMemo(() => {
     if (toAddress.length > 0 && toAddress.length < 25) {
       return t("send.error.addressTooShort");
     }
-    if (
-      toAddress.length > 0 &&
-      !toAddress.startsWith("F") &&
-      !toAddress.startsWith("T")
-    ) {
+    if (toAddress.length >= 25 && !addressValid) {
       return t("send.error.invalidAddress");
     }
     if (amount.length > 0 && (amountSats === null || amountSats <= 0n)) {
@@ -227,10 +235,10 @@ export default function SendScreen() {
       return t("send.error.insufficientBalance");
     }
     return null;
-  }, [toAddress, amount, amountSats, sendEstimate.insufficientFunds]);
+  }, [toAddress, addressValid, amount, amountSats, sendEstimate.insufficientFunds]);
 
   const canSend =
-    toAddress.length >= 25 &&
+    addressValid &&
     amountSats !== null &&
     amountSats > 0n &&
     validationError === null;
