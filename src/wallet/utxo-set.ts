@@ -69,6 +69,20 @@ export class UTXOSet {
   }
 
   /**
+   * Whether a UTXO with the given outpoint is currently in the set (unspent).
+   */
+  has(txid: string, vout: number): boolean {
+    return this.utxos.has(utxoKey(txid, vout));
+  }
+
+  /**
+   * Get a single UTXO by outpoint, or undefined if it is not in the set.
+   */
+  get(txid: string, vout: number): UTXO | undefined {
+    return this.utxos.get(utxoKey(txid, vout));
+  }
+
+  /**
    * Mark a UTXO as spent and remove it from the set.
    */
   spend(txid: string, vout: number): void {

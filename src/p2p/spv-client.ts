@@ -60,7 +60,22 @@ export interface SPVClientConfig {
 }
 
 export interface SPVClientEvents {
-  onTransaction?: (tx: ParsedTransaction, blockHash: Uint8Array | undefined) => void;
+  /**
+   * Fired for every transaction delivered by a peer that matches the Bloom
+   * filter (and for transactions inside matched merkle blocks).
+   *
+   * @param tx       Parsed transaction (inputs, outputs, raw bytes).
+   * @param txid     Transaction id in display byte order (reversed double-SHA256).
+   * @param blockHash Hash of the block that contains the tx, in the same byte
+   *                  order the header store uses (internal/quark-hash order, as
+   *                  produced by `hashBlockHeader`), or `undefined` for an
+   *                  unconfirmed (mempool) transaction.
+   */
+  onTransaction?: (
+    tx: ParsedTransaction,
+    txid: string,
+    blockHash: Uint8Array | undefined,
+  ) => void;
   onBlockHeader?: (header: StoredBlockHeader) => void;
   onSyncProgress?: (progress: number) => void;
 }
@@ -572,9 +587,13 @@ export class SPVClient {
       return;
     }
 
-    // Compute txid to check against pending merkle block
+    // Compute txid. The internal (non-reversed) hash is used to match against
+    // the pending merkle block's matched hashes; the reversed form is the
+    // canonical display txid handed to listeners (same convention as
+    // `hashTransaction` in @fairco.in/core and the block explorer).
     const txHash = sha256(sha256(tx.raw));
     const txHashHex = bytesToHex(txHash);
+    const displayTxid = bytesToHexReversed(txHash);
 
     let blockHash: Uint8Array | undefined;
     if (this.pendingTxHashes.has(txHashHex) && this.pendingMerkleBlock) {
@@ -595,7 +614,7 @@ export class SPVClient {
     }
 
     if (this.events.onTransaction) {
-      this.events.onTransaction(tx, blockHash);
+      this.events.onTransaction(tx, displayTxid, blockHash);
     }
   }
 

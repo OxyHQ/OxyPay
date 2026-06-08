@@ -124,6 +124,37 @@ export class KeyManager {
   }
 
   /**
+   * Whether the given address belongs to this wallet (external or change).
+   */
+  ownsAddress(address: string): boolean {
+    return this.externalKeys.has(address) || this.changeKeys.has(address);
+  }
+
+  /**
+   * Mark an address as used and extend the derivation window so that at least
+   * `gapLimit` unused addresses always exist beyond the highest used index.
+   *
+   * This is the sync-level equivalent of the BIP44 gap-limit walk: when a
+   * payment lands on one of our addresses we advance the cursor past it and
+   * pre-derive the next batch so future receives to higher indexes are still
+   * watched by the Bloom filter.
+   *
+   * @returns `true` if new addresses were derived (the caller should refresh
+   *          its address watch set / Bloom filter), `false` otherwise.
+   */
+  markAddressUsed(address: string): boolean {
+    const changeEntry = this.changeKeys.get(address);
+    if (changeEntry) {
+      return this.advanceCursor(true, changeEntry.index);
+    }
+    const externalEntry = this.externalKeys.get(address);
+    if (externalEntry) {
+      return this.advanceCursor(false, externalEntry.index);
+    }
+    return false;
+  }
+
+  /**
    * Get the private key bytes for a derived address.
    * Throws if the address is not managed by this KeyManager.
    */
@@ -221,6 +252,41 @@ export class KeyManager {
 
       index += 1;
     }
+  }
+
+  /**
+   * Advance the next-index cursor for a chain past a used index and pre-derive
+   * addresses so that `gapLimit` unused addresses always exist beyond it.
+   * Returns true if any new address was derived.
+   */
+  private advanceCursor(isChange: boolean, usedIndex: number): boolean {
+    const gapLimit = isChange ? CHANGE_GAP_LIMIT : EXTERNAL_GAP_LIMIT;
+    const keys = isChange ? this.changeKeys : this.externalKeys;
+
+    if (isChange) {
+      if (usedIndex >= this.nextChangeIndex) {
+        this.nextChangeIndex = usedIndex + 1;
+      }
+    } else {
+      if (usedIndex >= this.nextExternalIndex) {
+        this.nextExternalIndex = usedIndex + 1;
+      }
+    }
+
+    const nextIndex = isChange ? this.nextChangeIndex : this.nextExternalIndex;
+    const targetEnd = nextIndex + gapLimit;
+
+    let derivedNew = false;
+    for (let i = keys.size; i < targetEnd; i++) {
+      if (isChange) {
+        this.deriveChange(i);
+      } else {
+        this.deriveExternal(i);
+      }
+      derivedNew = true;
+    }
+
+    return derivedNew;
   }
 
   private deriveExternal(index: number): DerivedKeyEntry {

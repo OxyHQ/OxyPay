@@ -8,7 +8,7 @@
  * multiple wallets, each with its own mnemonic and chain data.
  */
 
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import {
   generateMnemonic,
   validateMnemonic,
@@ -24,11 +24,13 @@ import {
   type NetworkConfig,
   type UTXO as TxUTXO,
 } from "@fairco.in/core";
+import type { ParsedTransaction } from "../p2p/messages";
 import { SPVClient } from "../p2p/spv-client";
 import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
 import { UTXOSet } from "./utxo-set";
+import { applyTransactionToWallet } from "./apply-transaction";
 import {
   saveMnemonic,
   getMnemonic,
@@ -177,6 +179,214 @@ export function getDatabase(): Database | null {
 }
 
 // ---------------------------------------------------------------------------
+// Incoming transaction processing (SPV receive path)
+// ---------------------------------------------------------------------------
+
+type WalletSet = StoreApi<WalletState>["setState"];
+type WalletGet = StoreApi<WalletState>["getState"];
+
+/**
+ * Push the current in-memory balance and transaction list into the store and
+ * persist nothing (callers are responsible for DB writes). Centralises the
+ * derived-state update so every receive/spend path stays consistent.
+ */
+function publishBalance(set: WalletSet): void {
+  if (!utxoSet) {
+    return;
+  }
+  set({
+    balance: utxoSet.getBalance(),
+    confirmedBalance: utxoSet.getConfirmedBalance(),
+    unconfirmedBalance: utxoSet.getUnconfirmedBalance(),
+  });
+}
+
+/**
+ * Merge a transaction into the in-memory `transactions` list, replacing any
+ * existing entry with the same txid (so a mempool receive is upgraded in place
+ * once it confirms, rather than duplicated).
+ */
+function upsertWalletTransaction(set: WalletSet, tx: WalletTransaction): void {
+  set((state) => {
+    const filtered = state.transactions.filter((t) => t.txid !== tx.txid);
+    return { transactions: [tx, ...filtered] };
+  });
+}
+
+/**
+ * Resolve the block height and confirmation count for a transaction given the
+ * hash of the block that contains it. `blockHash` is in the header store's
+ * internal byte order (as produced by the SPV client). Returns height -1 and
+ * zero confirmations for unconfirmed (mempool) transactions.
+ */
+async function resolveConfirmation(
+  blockHash: Uint8Array | undefined,
+  chainTip: number,
+): Promise<{ blockHeight: number; blockHash: string; confirmations: number }> {
+  if (!blockHash || !database) {
+    return { blockHeight: -1, blockHash: "", confirmations: 0 };
+  }
+
+  const blockHashHex = bytesToHex(blockHash);
+  const header = await database.getHeaderByHash(blockHashHex);
+  if (!header) {
+    // The containing block header has not been stored yet (the tx arrived
+    // ahead of its merkle block during sync). Treat as unconfirmed for now;
+    // `reconcileConfirmations` will upgrade it once the header lands.
+    return { blockHeight: -1, blockHash: blockHashHex, confirmations: 0 };
+  }
+
+  const tip = chainTip > 0 ? chainTip : header.height;
+  const confirmations = Math.max(0, tip - header.height + 1);
+  return { blockHeight: header.height, blockHash: blockHashHex, confirmations };
+}
+
+/**
+ * Process a transaction delivered by the SPV client.
+ *
+ * Credits every output that pays one of our addresses (adding a UTXO and
+ * recording a "receive"), and debits every input that spends one of our
+ * existing UTXOs (marking it spent and recording a "send"). All changes are
+ * mirrored to SQLite so balances and history survive an app restart.
+ *
+ * Idempotent: replaying the same transaction (e.g. on reconnect, or when the
+ * same tx arrives loose and again inside a merkle block) does not double-count.
+ */
+async function processIncomingTransaction(
+  tx: ParsedTransaction,
+  txid: string,
+  blockHash: Uint8Array | undefined,
+  set: WalletSet,
+  get: WalletGet,
+): Promise<void> {
+  if (!keyManager || !utxoSet || !database || !networkConfig) {
+    return;
+  }
+
+  const chainTip = get().chainHeight;
+  const confirmation = await resolveConfirmation(blockHash, chainTip);
+  const confirmed = confirmation.blockHeight >= 0;
+  const now = Math.floor(Date.now() / 1000);
+
+  // Apply the receive/spend logic against the in-memory UTXO set. This is the
+  // single source of truth for "which outputs are ours / which inputs spend
+  // ours" — shared with the unit tests so the tested path is the real path.
+  const result = applyTransactionToWallet(
+    utxoSet,
+    tx,
+    txid,
+    (address) => keyManager?.ownsAddress(address) ?? false,
+    networkConfig,
+    confirmation,
+  );
+
+  if (!result.changed) {
+    // Bloom-filter false positive: the tx matched the filter but touches none
+    // of our outputs or UTXOs. Nothing to record.
+    return;
+  }
+
+  // ---- Mirror credited outputs to SQLite ---------------------------------
+  for (const { utxo } of result.credited) {
+    await database.insertUTXO({
+      txid: utxo.txid,
+      vout: utxo.vout,
+      address: utxo.address,
+      value: utxo.value,
+      script_pub_key: bytesToHex(utxo.scriptPubKey),
+      spent: 0,
+      block_height: utxo.blockHeight,
+    });
+  }
+
+  // Mark matched receive addresses as used and extend the derivation /
+  // Bloom-filter window so payments to higher-index addresses still arrive.
+  let bloomNeedsRefresh = false;
+  for (const address of result.receiveAddresses) {
+    await database.markAddressUsed(address);
+    if (keyManager.markAddressUsed(address)) {
+      bloomNeedsRefresh = true;
+    }
+  }
+
+  // ---- Mirror spent inputs to SQLite -------------------------------------
+  for (const debit of result.debited) {
+    await database.markUTXOSpent(debit.txid, debit.vout);
+  }
+
+  // ---- Persist the transaction row and update derived state --------------
+  await database.insertTransaction({
+    txid,
+    raw_hex: bytesToHex(tx.raw),
+    block_height: confirmation.blockHeight,
+    block_hash: confirmation.blockHash,
+    timestamp: now,
+    fee: 0,
+    confirmed: confirmed ? 1 : 0,
+  });
+
+  // Net effect on this wallet: received outputs minus our spent inputs.
+  // A pure receive is positive; spending our own coins (with change back to
+  // us) nets negative by the amount that left the wallet.
+  const net = result.receivedTotal - result.spentTotal;
+  if (net !== 0n) {
+    const spentAddress = result.debited[0]?.address ?? "";
+    upsertWalletTransaction(set, {
+      txid,
+      amount: net,
+      address: net > 0n ? (result.receiveAddresses[0] ?? "") : spentAddress,
+      timestamp: now,
+      confirmations: confirmation.confirmations,
+      type: net > 0n ? "receive" : "send",
+    });
+  }
+
+  publishBalance(set);
+
+  if (bloomNeedsRefresh && spvClient && keyManager) {
+    const addressHashes = keyManager
+      .getAllAddresses()
+      .map((addr) => decodeAddress(addr).hash);
+    spvClient.setBloomFilter(addressHashes);
+  }
+}
+
+/**
+ * Re-derive confirmation counts for stored UTXOs and transactions when the
+ * chain tip advances. Promotes any UTXO whose containing block is now known
+ * from unconfirmed to confirmed, and refreshes the displayed balance.
+ */
+async function reconcileConfirmations(
+  set: WalletSet,
+  get: WalletGet,
+): Promise<void> {
+  if (!utxoSet || !database) {
+    return;
+  }
+
+  const tip = get().chainHeight;
+  if (tip <= 0) {
+    return;
+  }
+
+  let changed = false;
+  for (const utxo of utxoSet.getAllUTXOs()) {
+    if (utxo.confirmed || utxo.blockHeight < 0) {
+      continue;
+    }
+    // A previously-unconfirmed UTXO now sits at or below the tip: confirm it.
+    if (utxo.blockHeight <= tip) {
+      utxoSet.add({ ...utxo, confirmed: true });
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    publishBalance(set);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Fee estimation constants (satoshis per byte)
 // ---------------------------------------------------------------------------
 
@@ -279,7 +489,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       keyManager = KeyManager.fromMnemonic(mnemonic, networkConfig);
       utxoSet = new UTXOSet();
 
-      // Load persisted UTXOs from database
+      // Load persisted UTXOs from database. A UTXO is confirmed iff it was
+      // stored with a real block height (>= 0); mempool receives are stored
+      // with height -1 and remain unconfirmed until their block is seen.
       const dbUtxos = await database.getUnspentUTXOs();
       for (const row of dbUtxos) {
         utxoSet.add({
@@ -289,7 +501,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           value: BigInt(row.value),
           scriptPubKey: hexToBytes(row.script_pub_key),
           blockHeight: row.block_height,
-          confirmed: true,
+          confirmed: row.block_height >= 0,
         });
       }
 
@@ -351,12 +563,28 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         });
 
         spvClient.setEvents({
-          onTransaction: (_tx, _blockHash) => {
-            // Incoming transactions are processed by the SPV client.
-            // Future: parse outputs, match to wallet addresses, add UTXOs.
+          onTransaction: (tx, txid, blockHash) => {
+            // A peer delivered a transaction matching our Bloom filter.
+            // Process it: credit received outputs, debit spent inputs, and
+            // persist everything so balances survive restarts. The SPV client
+            // calls this synchronously, so fire the async processor and route
+            // any failure into the store's error state (never swallow it).
+            void processIncomingTransaction(tx, txid, blockHash, set, get).catch(
+              (err: unknown) => {
+                const message =
+                  err instanceof Error ? err.message : "Unknown error";
+                set({ error: `Failed to process transaction: ${message}` });
+              },
+            );
           },
           onBlockHeader: (header) => {
             set({ chainHeight: header.height });
+            // A new tip means previously-received UTXOs gained a confirmation.
+            void reconcileConfirmations(set, get).catch(() => {
+              // Confirmation reconciliation is best-effort; a transient failure
+              // here is retried on the next block. Do not surface it as a
+              // wallet error or interrupt sync.
+            });
           },
           onSyncProgress: (progress) => {
             set({
