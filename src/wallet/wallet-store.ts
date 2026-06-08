@@ -30,7 +30,12 @@ import { planRescan, type RescanProgress } from "../p2p/rescan";
 import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
-import { UTXOSet } from "./utxo-set";
+import { UTXOSet, type UTXO } from "./utxo-set";
+import {
+  selectInputsForSend,
+  estimateSend as computeSendEstimate,
+  type SendEstimate,
+} from "./coin-selection";
 import { applyTransactionToWallet } from "./apply-transaction";
 import {
   saveMnemonic,
@@ -124,6 +129,7 @@ export interface WalletState {
   ) => Promise<string>;
   refreshMasternodeUTXOs: () => void;
   estimateFee: (feeLevel: FeeLevel) => bigint;
+  estimateSend: (amount: bigint, feeRate: number) => SendEstimate;
   hasWallet: () => Promise<boolean>;
   wipeWallet: () => Promise<void>;
   rescanWallet: () => Promise<void>;
@@ -906,20 +912,48 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       if (!keyManager || !database || !networkConfig) {
         throw new Error("Wallet not initialized");
       }
+      if (get().isWatchOnly) {
+        throw new Error("Watch-only wallets cannot send transactions");
+      }
 
-      // Get unspent UTXOs from database
+      // Build the pool of spendable coins from CONFIRMED unspent rows only.
+      // Unconfirmed (block_height < 0, mempool) outputs are excluded so a send
+      // never spends funds that could still be reorged away.
       const utxoRows = await database.getUnspentUTXOs();
-      const utxos: TxUTXO[] = utxoRows.map((row) => ({
+      const candidates: UTXO[] = utxoRows.map((row) => ({
         txid: row.txid,
         vout: row.vout,
+        address: row.address,
         value: BigInt(row.value),
         scriptPubKey: hexToBytes(row.script_pub_key),
+        blockHeight: row.block_height,
+        confirmed: row.block_height >= 0,
       }));
 
-      // Build unsigned transaction with coin selection
+      // Decide which coins to spend: honour an explicit coin-control selection
+      // when present, otherwise pick the minimum set largest-first. This is the
+      // single source of truth for spent inputs and the real fee.
+      const coinControl = get().selectedUTXOs;
+      const selection = selectInputsForSend({
+        candidates,
+        targetValue: amount,
+        feePerByte: feeRate,
+        coinControl,
+      });
+
+      const inputs: TxUTXO[] = selection.selected.map((utxo) => ({
+        txid: utxo.txid,
+        vout: utxo.vout,
+        value: utxo.value,
+        scriptPubKey: utxo.scriptPubKey,
+      }));
+
+      // Build unsigned transaction from EXACTLY the selected inputs. The core
+      // builder spends every input it is given, which is why selection (not the
+      // builder) is responsible for choosing the right coins.
       const changeAddress = keyManager.getNextChangeAddress().address;
       const tx = buildTransaction({
-        utxos,
+        utxos: inputs,
         recipients: [{ address: toAddress, value: amount }],
         changeAddress,
         feePerByte: BigInt(feeRate),
@@ -929,7 +963,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // Sign each input with the corresponding private key
       for (let i = 0; i < tx.inputs.length; i++) {
         const input = tx.inputs[i];
-        const utxo = utxoRows.find(
+        const utxo = selection.selected.find(
           (u) => u.txid === input.txid && u.vout === input.vout,
         );
         if (!utxo) {
@@ -937,10 +971,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         }
 
         const privateKey = keyManager.getPrivateKeyForAddress(utxo.address);
-        const prevScript = hexToBytes(utxo.script_pub_key);
         tx.inputs[i] = {
           ...tx.inputs[i],
-          scriptSig: signInput(tx, i, prevScript, privateKey),
+          scriptSig: signInput(tx, i, utxo.scriptPubKey, privateKey),
         };
       }
 
@@ -987,6 +1020,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       set((state) => ({
         transactions: [newTx, ...state.transactions],
         loading: false,
+        // A coin-control selection is a one-shot instruction for THIS send.
+        // Clear it so the next transaction defaults back to automatic
+        // selection instead of silently reusing the same (now-spent) coins.
+        selectedUTXOs: [],
       }));
 
       // Refresh balance from UTXO set
@@ -1023,6 +1060,21 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   estimateFee: (feeLevel: FeeLevel): bigint => {
     const rate = FEE_RATES[feeLevel];
     return BigInt(rate * AVERAGE_TX_SIZE);
+  },
+
+  estimateSend: (amount: bigint, feeRate: number): SendEstimate => {
+    // Reason over the same confirmed coins (and coin-control selection) that
+    // sendTransaction will spend, so the confirmation screen, the Max button,
+    // and the insufficient-funds gate all reflect the REAL fee and balance.
+    const candidates: UTXO[] = utxoSet
+      ? utxoSet.getAllUTXOs().filter((u) => u.confirmed)
+      : [];
+    return computeSendEstimate({
+      candidates,
+      targetValue: amount,
+      feePerByte: feeRate,
+      coinControl: get().selectedUTXOs,
+    });
   },
 
   hasWallet: async (): Promise<boolean> => {

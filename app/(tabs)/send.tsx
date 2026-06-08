@@ -93,11 +93,13 @@ function truncateAddress(address: string): string {
 export default function SendScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const balance = useWalletStore((s) => s.balance);
+  const confirmedBalance = useWalletStore((s) => s.confirmedBalance);
   const sendTransaction = useWalletStore((s) => s.sendTransaction);
   const estimateFee = useWalletStore((s) => s.estimateFee);
+  const estimateSend = useWalletStore((s) => s.estimateSend);
   const loading = useWalletStore((s) => s.loading);
   const isWatchOnly = useWalletStore((s) => s.isWatchOnly);
+  const selectedUTXOs = useWalletStore((s) => s.selectedUTXOs);
   const contacts = useContactsStore((s) => s.contacts);
   const loadContacts = useContactsStore((s) => s.loadContacts);
   const getContactByAddress = useContactsStore((s) => s.getContactByAddress);
@@ -171,17 +173,35 @@ export default function SendScreen() {
     setSentTxid(null);
   }, []);
 
-  const fee = useMemo(() => estimateFee(feeLevel), [estimateFee, feeLevel]);
+  // Numeric fee rate (base units per byte) for the selected level. Must match
+  // the rate sendTransaction is called with so the displayed fee is the real one.
+  const feeRate = useMemo(
+    () => (feeLevel === "high" ? 10 : feeLevel === "medium" ? 5 : 1),
+    [feeLevel],
+  );
 
   const amountSats = useMemo<bigint | null>(
     () => parseFairToUnits(amount),
     [amount],
   );
 
+  // Real, pre-broadcast estimate computed from the actual coins that would be
+  // selected (largest-first, or the coin-control set). `selectedUTXOs` is in the
+  // dependency list so the estimate updates when coin control changes.
+  const sendEstimate = useMemo(
+    () => estimateSend(amountSats ?? 0n, feeRate),
+    [estimateSend, amountSats, feeRate, selectedUTXOs],
+  );
+
+  // Fee actually charged for this send (recipient + change over the selected
+  // inputs). Falls back to the flat per-level estimate only when no concrete
+  // selection exists yet (e.g. amount not entered), purely for display.
+  const fee = sendEstimate.fee ?? estimateFee(feeLevel);
+
   const totalSats = useMemo<bigint>(() => {
     if (amountSats === null || amountSats === 0n) return 0n;
-    return amountSats + fee;
-  }, [amountSats, fee]);
+    return sendEstimate.total ?? amountSats + fee;
+  }, [amountSats, sendEstimate.total, fee]);
 
   const validationError = useMemo(() => {
     if (toAddress.length > 0 && toAddress.length < 25) {
@@ -197,13 +217,17 @@ export default function SendScreen() {
     if (amount.length > 0 && (amountSats === null || amountSats <= 0n)) {
       return t("send.error.invalidAmount");
     }
-    if (amountSats !== null && amountSats > 0n) {
-      if (amountSats + fee > balance) {
-        return t("send.error.insufficientBalance");
-      }
+    // Gate against the REAL fee over confirmed/selected coins, not a flat
+    // estimate against the (possibly unconfirmed-inflated) total balance.
+    if (
+      amountSats !== null &&
+      amountSats > 0n &&
+      sendEstimate.insufficientFunds
+    ) {
+      return t("send.error.insufficientBalance");
     }
     return null;
-  }, [toAddress, amount, amountSats, balance, fee]);
+  }, [toAddress, amount, amountSats, sendEstimate.insufficientFunds]);
 
   const canSend =
     toAddress.length >= 25 &&
@@ -293,9 +317,11 @@ export default function SendScreen() {
   }, []);
 
   const handleMax = useCallback(() => {
-    const maxSats = balance > fee ? balance - fee : 0n;
+    // Max is the largest amount actually sendable: confirmed (or coin-control)
+    // coins minus the fee to spend them, never the unconfirmed-inflated balance.
+    const maxSats = sendEstimate.maxSendable;
     setAmount(maxSats > 0n ? formatFair(maxSats) : "");
-  }, [balance, fee]);
+  }, [sendEstimate.maxSendable]);
 
   const handleSendPress = useCallback(() => {
     setError(null);
@@ -310,7 +336,6 @@ export default function SendScreen() {
         setError(t("send.error.invalidAmount"));
         return;
       }
-      const feeRate = feeLevel === "high" ? 10 : feeLevel === "medium" ? 5 : 1;
       const sentAddress = toAddress;
       const txid = await sendTransaction(sentAddress, amountSats, feeRate);
       hapticSuccess();
@@ -343,7 +368,7 @@ export default function SendScreen() {
   }, [
     toAddress,
     amountSats,
-    feeLevel,
+    feeRate,
     sendTransaction,
     getContactByAddress,
     refreshRecentRecipients,
@@ -415,7 +440,7 @@ export default function SendScreen() {
               {t("send.usdApprox", { amount: usdEquivalent ?? "0.00" })}
             </Text>
             <Text className="text-muted-foreground text-xs mt-1">
-              {t("send.available", { amount: formatFair(balance) })}
+              {t("send.available", { amount: formatFair(confirmedBalance) })}
             </Text>
           </View>
 
