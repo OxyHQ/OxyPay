@@ -40,7 +40,6 @@ import {
   type PaymentCurrency,
 } from "../../src/api/buy";
 import { useWalletStore } from "../../src/wallet/wallet-store";
-import { deriveNextBuyAddress } from "../../src/wallet/derive-buy-address";
 import { FONT_PHUDU_BLACK } from "../../src/utils/fonts";
 import { t } from "../../src/i18n";
 
@@ -96,7 +95,7 @@ export default function BuyScreen() {
   const theme = useTheme();
   const isWatchOnly = useWalletStore((s) => s.isWatchOnly);
   const activeWalletId = useWalletStore((s) => s.activeWalletId);
-  const network = useWalletStore((s) => s.network);
+  const getBuyDeliveryAddress = useWalletStore((s) => s.getBuyDeliveryAddress);
 
   const [amount, setAmount] = useState("");
   const [paymentCurrency, setPaymentCurrency] =
@@ -120,14 +119,15 @@ export default function BuyScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const derived = await deriveNextBuyAddress({
-        walletId: activeWalletId,
-        network,
-      });
+      // Deliver to a normal chain-0 receive address so the deposit is watched
+      // by the Bloom filter and credited by the receive path (review finding
+      // C5: the old dedicated buy chain was never watched, so bought FAIR never
+      // appeared in the wallet).
+      const deliveryAddress = await getBuyDeliveryAddress();
       const quote = await requestBuyQuote({
         fairAmount: amount,
         paymentCurrency,
-        fairDestinationAddress: derived.address,
+        fairDestinationAddress: deliveryAddress,
         userIdentifier: activeWalletId,
       });
       router.push({
@@ -155,7 +155,14 @@ export default function BuyScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeWalletId, amount, amountSats, network, paymentCurrency, router]);
+  }, [
+    activeWalletId,
+    amount,
+    amountSats,
+    getBuyDeliveryAddress,
+    paymentCurrency,
+    router,
+  ]);
 
   if (isWatchOnly) {
     return (
