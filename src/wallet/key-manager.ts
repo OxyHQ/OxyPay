@@ -25,7 +25,8 @@ interface DerivedKeyEntry {
   path: string;
   index: number;
   isChange: boolean;
-  privateKey: Uint8Array;
+  /** Private key bytes, or null for watch-only (xpub) wallets. */
+  privateKey: Uint8Array | null;
   publicKey: Uint8Array;
 }
 
@@ -47,10 +48,17 @@ export class KeyManager {
   private readonly changeKeys: Map<string, DerivedKeyEntry> = new Map();
   private nextExternalIndex = 0;
   private nextChangeIndex = 0;
+  /** True when built from an xpub (no private keys; cannot sign/spend). */
+  private readonly watchOnly: boolean;
 
-  private constructor(accountKey: HDKey, network: NetworkConfig) {
+  private constructor(
+    accountKey: HDKey,
+    network: NetworkConfig,
+    watchOnly: boolean,
+  ) {
     this.accountKey = accountKey;
     this.network = network;
+    this.watchOnly = watchOnly;
   }
 
   /**
@@ -68,7 +76,7 @@ export class KeyManager {
     });
     const accountPath = `m/44'/${network.bip44CoinType}'/0'`;
     const accountKey = root.derive(accountPath);
-    const manager = new KeyManager(accountKey, network);
+    const manager = new KeyManager(accountKey, network, false);
 
     // Pre-generate initial batch of addresses up to the gap limit
     for (let i = 0; i < EXTERNAL_GAP_LIMIT; i++) {
@@ -79,6 +87,60 @@ export class KeyManager {
     }
 
     return manager;
+  }
+
+  /**
+   * Create a watch-only KeyManager from an account-level extended public key
+   * (the xpub at m/44'/coinType'/0'). Derives receive/change addresses from the
+   * neutered public key — NO private keys are ever produced, so the wallet can
+   * track balances but cannot sign or spend.
+   *
+   * Security: this exists so watch-only import never feeds a non-mnemonic into
+   * `mnemonicToSeedSync` (BIP39 does not validate its input, so that path
+   * silently derives a random *spendable* keypair — a dangerous fake wallet).
+   *
+   * @throws If the string is not a valid extended public key for this network,
+   *         or if it carries private material (an xprv was supplied).
+   */
+  static fromXpub(xpub: string, network: NetworkConfig): KeyManager {
+    const trimmed = xpub.trim();
+    let accountKey: HDKey;
+    try {
+      accountKey = HDKey.fromExtendedKey(trimmed, {
+        public: network.bip32.public,
+        private: network.bip32.private,
+      });
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : "unknown error";
+      throw new Error(`Invalid extended public key for this network: ${detail}`);
+    }
+
+    // A watch-only manager must hold no private material. If an xprv slipped
+    // through, refuse it rather than silently retaining spend capability.
+    if (accountKey.privateKey) {
+      throw new Error(
+        "Expected an extended PUBLIC key (xpub) but got a private key",
+      );
+    }
+    if (!accountKey.publicKey) {
+      throw new Error("Extended key has no public key");
+    }
+
+    const manager = new KeyManager(accountKey, network, true);
+
+    for (let i = 0; i < EXTERNAL_GAP_LIMIT; i++) {
+      manager.deriveExternal(i);
+    }
+    for (let i = 0; i < CHANGE_GAP_LIMIT; i++) {
+      manager.deriveChange(i);
+    }
+
+    return manager;
+  }
+
+  /** Whether this manager is watch-only (xpub) and therefore cannot sign. */
+  isWatchOnly(): boolean {
+    return this.watchOnly;
   }
 
   /**
@@ -200,16 +262,22 @@ export class KeyManager {
 
   /**
    * Get the private key bytes for a derived address.
-   * Throws if the address is not managed by this KeyManager.
+   * Throws if the wallet is watch-only or the address is not managed here.
    */
   getPrivateKeyForAddress(address: string): Uint8Array {
+    if (this.watchOnly) {
+      throw new Error(
+        "Watch-only wallet has no private keys; cannot sign or spend",
+      );
+    }
+
     const externalEntry = this.externalKeys.get(address);
-    if (externalEntry) {
+    if (externalEntry?.privateKey) {
       return externalEntry.privateKey;
     }
 
     const changeEntry = this.changeKeys.get(address);
-    if (changeEntry) {
+    if (changeEntry?.privateKey) {
       return changeEntry.privateKey;
     }
 
@@ -361,9 +429,17 @@ export class KeyManager {
     const privateKey = childKey.privateKey;
     const publicKey = childKey.publicKey;
 
-    if (!privateKey || !publicKey) {
+    // The public key is always required (it yields the address). The private
+    // key is absent for watch-only (xpub) wallets, which is expected; only a
+    // signing wallet must have one.
+    if (!publicKey) {
       throw new Error(
-        `Failed to derive key at chain=${chain} index=${index}`,
+        `Failed to derive public key at chain=${chain} index=${index}`,
+      );
+    }
+    if (!this.watchOnly && !privateKey) {
+      throw new Error(
+        `Failed to derive private key at chain=${chain} index=${index}`,
       );
     }
 
@@ -377,7 +453,7 @@ export class KeyManager {
       path,
       index,
       isChange,
-      privateKey: new Uint8Array(privateKey),
+      privateKey: privateKey ? new Uint8Array(privateKey) : null,
       publicKey: new Uint8Array(publicKey),
     };
 

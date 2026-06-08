@@ -159,6 +159,13 @@ export interface WalletState {
 // UUID generator (no external deps)
 // ---------------------------------------------------------------------------
 
+/**
+ * Prefix stored in place of a mnemonic for watch-only wallets:
+ * `xpub:<account-level extended public key>`. `initialize` routes any secret
+ * with this prefix to the public-only KeyManager (no private keys derived).
+ */
+const XPUB_MARKER_PREFIX = "xpub:";
+
 function generateWalletId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -632,7 +639,17 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     try {
       networkConfig = getNetwork(state.network);
       database = await Database.open(walletId);
-      keyManager = KeyManager.fromMnemonic(mnemonic, networkConfig);
+      // A wallet's stored secret is either a BIP39 mnemonic or the watch-only
+      // marker `xpub:<extended public key>`. The marker MUST route to the
+      // public-only KeyManager: feeding it into mnemonicToSeedSync would
+      // silently derive a random spendable keypair (BIP39 doesn't validate),
+      // producing a dangerous fake wallet (review finding C2).
+      if (mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
+        const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
+        keyManager = KeyManager.fromXpub(xpub, networkConfig);
+      } else {
+        keyManager = KeyManager.fromMnemonic(mnemonic, networkConfig);
+      }
       utxoSet = new UTXOSet();
 
       // Load persisted UTXOs from database. A UTXO is confirmed iff it was
@@ -1357,16 +1374,24 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      const trimmedXpub = xpub.trim();
+
+      // Validate the extended public key BEFORE persisting anything. This both
+      // gives the user a clear error on a bad key and guarantees we never store
+      // a non-mnemonic that could later be (mis)fed into seed derivation.
+      // KeyManager.fromXpub throws on anything that isn't a valid xpub for this
+      // network (or that carries private material).
+      const network = getNetwork(get().network);
+      KeyManager.fromXpub(trimmedXpub, network);
+
       const walletId = generateWalletId();
 
-      // Store xpub to mark as watch-only
-      await saveWalletXpub(walletId, xpub);
+      // Persist the xpub both as the watch-only flag (saveWalletXpub) and as the
+      // wallet "secret" using the xpub: marker. `initialize` routes the marker
+      // to the public-only KeyManager (no private keys).
+      await saveWalletXpub(walletId, trimmedXpub);
       await addWalletToIndex(walletId, name);
-
-      // Watch-only wallets still need a placeholder mnemonic for the key manager
-      // to derive addresses. We store the xpub and use it for address derivation.
-      // For now, store a marker so the wallet can be identified.
-      await saveWalletMnemonic(walletId, `xpub:${xpub}`);
+      await saveWalletMnemonic(walletId, `${XPUB_MARKER_PREFIX}${trimmedXpub}`);
       await setActiveWalletId(walletId);
 
       // Close current database if open
@@ -1384,9 +1409,12 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         activeWalletName: name,
         wallets: state.wallets,
         isWatchOnly: true,
-        loading: false,
+        loading: true,
       });
 
+      // Initialize like any other wallet: derive watch addresses, persist them,
+      // load the Bloom filter, and start SPV so balances actually appear.
+      await get().initialize(`${XPUB_MARKER_PREFIX}${trimmedXpub}`, walletId);
       await get().loadWalletList();
     } catch (err: unknown) {
       const message =

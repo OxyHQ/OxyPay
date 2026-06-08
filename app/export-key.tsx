@@ -158,6 +158,16 @@ export default function ExportKeyScreen() {
         return;
       }
 
+      // Watch-only wallets store an `xpub:` marker instead of a mnemonic and
+      // hold no private keys. Never feed that into mnemonicToSeedSync (it would
+      // derive a random, unrelated keypair — review finding C2); there is simply
+      // nothing to export.
+      if (mnemonic.startsWith("xpub:")) {
+        showMessage(t("common.error"), t("exportKey.error.noPrivateKey"));
+        setEncrypting(false);
+        return;
+      }
+
       const km = KeyManager.fromMnemonic(mnemonic, networkConfig);
       let privateKey: Uint8Array | null = null;
 

@@ -195,7 +195,11 @@ function WatchOnlyModal({ visible, onCancel, onImport }: WatchOnlyModalProps) {
       return;
     }
 
-    if (!trimmedXpub.startsWith("xpub") && !trimmedXpub.startsWith("tpub")) {
+    // A FairCoin account-level extended public key does NOT use the Bitcoin
+    // "xpub"/"tpub" prefix (its version bytes differ), so we only do a coarse
+    // length sanity check here. The store validates the key authoritatively via
+    // KeyManager.fromXpub and surfaces a precise error if it is malformed.
+    if (trimmedXpub.length < 100) {
       setError(t("wallets.watchOnly.error.xpubFormat"));
       return;
     }
@@ -541,10 +545,14 @@ export default function WalletsScreen() {
           t("wallets.watchOnly.imported.title"),
           t("wallets.watchOnly.imported.description"),
         );
-      } catch {
+      } catch (err: unknown) {
+        // Surface the store's precise reason (e.g. invalid extended public key)
+        // rather than a generic message, so the user can correct the input.
+        const detail =
+          err instanceof Error ? err.message : null;
         showMessage(
           t("wallets.watchOnly.failed.title"),
-          t("wallets.watchOnly.failed.description"),
+          detail ?? t("wallets.watchOnly.failed.description"),
         );
       }
     },

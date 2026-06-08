@@ -11,6 +11,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { getNetwork } from "@fairco.in/core";
+import { HDKey } from "@scure/bip32";
+import { mnemonicToSeedSync } from "@scure/bip39";
 import { KeyManager } from "./key-manager";
 
 const MAINNET = getNetwork("mainnet");
@@ -82,5 +84,83 @@ describe("KeyManager cursor persistence", () => {
     expect(km.getNextExternalIndex()).toBe(0);
     const change = km.getNextChangeAddress();
     expect(change.index).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watch-only (xpub) key manager — review finding C2.
+//
+// The old importWatchOnly stored `xpub:<key>` as the "mnemonic" and on cold
+// boot fed it into mnemonicToSeedSync, which (because BIP39 does not validate
+// its input) silently derived a RANDOM spendable keypair — a dangerous fake
+// wallet. These tests prove the real public-only path: it watches the correct
+// addresses and never produces private keys.
+// ---------------------------------------------------------------------------
+
+/** The account-level (m/44'/119'/0') extended PUBLIC key for the trial mnemonic. */
+function accountXpub(): string {
+  const seed = mnemonicToSeedSync(MNEMONIC);
+  const root = HDKey.fromMasterSeed(seed, {
+    public: MAINNET.bip32.public,
+    private: MAINNET.bip32.private,
+  });
+  const account = root.derive(`m/44'/${MAINNET.bip44CoinType}'/0'`);
+  return account.publicExtendedKey;
+}
+
+/** The account-level extended PRIVATE key (xprv) — must be rejected by fromXpub. */
+function accountXprv(): string {
+  const seed = mnemonicToSeedSync(MNEMONIC);
+  const root = HDKey.fromMasterSeed(seed, {
+    public: MAINNET.bip32.public,
+    private: MAINNET.bip32.private,
+  });
+  return root.derive(`m/44'/${MAINNET.bip44CoinType}'/0'`).privateExtendedKey;
+}
+
+describe("KeyManager.fromXpub (watch-only)", () => {
+  test("derives the SAME addresses a full wallet would (watches the right keys)", () => {
+    const full = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const watch = KeyManager.fromXpub(accountXpub(), MAINNET);
+
+    // External and change address sets must match exactly — otherwise the
+    // Bloom filter would watch the wrong addresses and miss incoming funds.
+    expect(watch.getExternalAddresses()).toEqual(full.getExternalAddresses());
+    expect(watch.getChangeAddresses()).toEqual(full.getChangeAddresses());
+
+    // It recognises its own addresses.
+    const first = full.getExternalAddresses()[0];
+    expect(watch.ownsAddress(first)).toBe(true);
+  });
+
+  test("is flagged watch-only and exposes NO private keys", () => {
+    const watch = KeyManager.fromXpub(accountXpub(), MAINNET);
+    expect(watch.isWatchOnly()).toBe(true);
+
+    const addr = watch.getExternalAddresses()[0];
+    // The core guarantee: a watch-only wallet can never hand out a private key.
+    expect(() => watch.getPrivateKeyForAddress(addr)).toThrow(/Watch-only/);
+  });
+
+  test("the watch-only addresses are real (match full-wallet derivation), not random", () => {
+    // Regression guard for C2: the bug produced random, unrelated keys. Here the
+    // very first watch-only address MUST equal the full wallet's first address.
+    const full = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const watch = KeyManager.fromXpub(accountXpub(), MAINNET);
+    expect(watch.getNextAddress().address).toBe(full.getNextAddress().address);
+  });
+
+  test("rejects a private extended key (xprv) instead of retaining spend power", () => {
+    expect(() => KeyManager.fromXpub(accountXprv(), MAINNET)).toThrow();
+  });
+
+  test("rejects a malformed extended key", () => {
+    expect(() => KeyManager.fromXpub("not-an-xpub", MAINNET)).toThrow(
+      /Invalid extended public key/,
+    );
+  });
+
+  test("rejects an empty string", () => {
+    expect(() => KeyManager.fromXpub("", MAINNET)).toThrow();
   });
 });

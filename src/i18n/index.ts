@@ -445,7 +445,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallets.watchOnly.error.xpubRequired":
       "Please enter the extended public key (xpub).",
     "wallets.watchOnly.error.xpubFormat":
-      "Extended public key must start with 'xpub' or 'tpub'.",
+      "That doesn't look like a valid extended public key. Paste the account xpub from your wallet's export.",
     "wallets.watchOnly.cta": "Import Watch-Only",
     "wallets.watchOnly.imported.title": "Watch-Only Wallet",
     "wallets.watchOnly.imported.description":
@@ -1147,7 +1147,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallets.watchOnly.error.xpubRequired":
       "Por favor, ingresa la clave p\u00fablica extendida (xpub).",
     "wallets.watchOnly.error.xpubFormat":
-      "La clave p\u00fablica extendida debe empezar con 'xpub' o 'tpub'.",
+      "Eso no parece una clave p\u00fablica extendida v\u00e1lida. Pega el xpub de cuenta exportado por tu billetera.",
     "wallets.watchOnly.cta": "Importar Solo Lectura",
     "wallets.watchOnly.imported.title": "Billetera de Solo Lectura",
     "wallets.watchOnly.imported.description":
