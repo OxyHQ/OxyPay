@@ -8,6 +8,7 @@ import { View, Text, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { savePin } from "../../src/storage/secure-store";
+import { useLockStore } from "../../src/wallet/lock-store";
 import { PinPad } from "../../src/ui/components/PinPad";
 import { PinDots } from "../../src/ui/components/PinDots";
 import { hapticSuccess } from "../../src/utils/haptics";
@@ -19,6 +20,7 @@ type PinPhase = "create" | "confirm";
 
 export default function PinSetupScreen() {
   const router = useRouter();
+  const unlock = useLockStore((s) => s.unlock);
   const [phase, setPhase] = useState<PinPhase>("create");
   const [pin, setPin] = useState("");
   const [firstPin, setFirstPin] = useState("");
@@ -57,6 +59,10 @@ export default function PinSetupScreen() {
                 setSaving(true);
                 savePin(next)
                   .then(() => {
+                    // The wallet was just created and is already initialized;
+                    // the user explicitly set this PIN, so unlock immediately
+                    // instead of letting the lock overlay shut them out.
+                    unlock();
                     router.replace("/(tabs)");
                   })
                   .catch((err: unknown) => {

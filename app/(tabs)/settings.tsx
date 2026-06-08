@@ -20,6 +20,7 @@ import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../../src/wallet/wallet-store";
+import { useLockStore } from "../../src/wallet/lock-store";
 import {
   verifyPin,
   isBiometricsEnabled,
@@ -284,6 +285,7 @@ export default function SettingsScreen() {
   const network = useWalletStore((s) => s.network);
   const connectedPeers = useWalletStore((s) => s.connectedPeers);
   const wipeWallet = useWalletStore((s) => s.wipeWallet);
+  const markNoPinUnlocked = useLockStore((s) => s.markNoPinUnlocked);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
   const wallets = useWalletStore((s) => s.wallets);
@@ -570,8 +572,11 @@ export default function SettingsScreen() {
 
   const handleConfirmWipe = useCallback(async () => {
     await wipeWallet();
+    // A wiped device has no PIN; clear any lock state so onboarding isn't
+    // shown behind the lock overlay.
+    markNoPinUnlocked();
     router.replace("/onboarding/welcome");
-  }, [wipeWallet, router]);
+  }, [wipeWallet, markNoPinUnlocked, router]);
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>

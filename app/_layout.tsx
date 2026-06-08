@@ -14,7 +14,7 @@
 import "../src/crypto-polyfill";
 import "../global.css";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -43,6 +43,8 @@ import {
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
 import { useWalletStore } from "../src/wallet/wallet-store";
+import { useLockStore } from "../src/wallet/lock-store";
+import { LockGate } from "../src/ui/components/LockGate";
 import { getAutoLockTimeout } from "../src/storage/secure-store";
 import { initLanguage } from "../src/i18n";
 import { useLanguageStore } from "../src/i18n/store";
@@ -84,10 +86,14 @@ const THEME_MODE_KEY = "fairwallet_theme_mode";
 function useDeepLinkHandler() {
   const router = useRouter();
   const initialized = useWalletStore((s) => s.initialized);
+  const locked = useLockStore((s) => s.locked);
 
   const handleDeepLink = useCallback(
     (event: { url: string }) => {
-      if (!event.url || !initialized) return;
+      // Never navigate into an authenticated screen while locked or before the
+      // wallet is initialized (review finding C1: a deep link must not bypass
+      // the lock by pushing straight to /(tabs)/send).
+      if (!event.url || !initialized || locked) return;
       const parsed = parseFairCoinURI(event.url);
       if (parsed) {
         router.push({
@@ -96,22 +102,28 @@ function useDeepLinkHandler() {
         });
       }
     },
-    [router, initialized],
+    [router, initialized, locked],
   );
 
-  const subscribed = useRef(false);
-  if (!subscribed.current) {
-    subscribed.current = true;
-    Linking.addEventListener("url", handleDeepLink);
+  // Register the URL listener in an effect with proper teardown (review finding
+  // M6: the previous ref-in-render registration never removed the listener,
+  // leaking a subscription on every remount).
+  useEffect(() => {
+    const subscription = Linking.addEventListener("url", handleDeepLink);
+    let cancelled = false;
     Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink({ url });
+      if (url && !cancelled) handleDeepLink({ url });
     });
-  }
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [handleDeepLink]);
 }
 
 function useAutoLock() {
-  const router = useRouter();
   const initialized = useWalletStore((s) => s.initialized);
+  const lock = useLockStore((s) => s.lock);
   const backgroundTime = useRef<number | null>(null);
 
   const handleStateChange = useCallback(
@@ -123,18 +135,22 @@ function useAutoLock() {
         const elapsed = Date.now() - backgroundTime.current;
         backgroundTime.current = null;
         getAutoLockTimeout().then((min) => {
-          if (elapsed > min * 60_000) router.replace("/lock");
+          // Re-lock via the lock store so the overlay covers every screen, not
+          // just by navigating to a route the user could swipe away from.
+          if (elapsed > min * 60_000) lock();
         });
       }
     },
-    [initialized, router],
+    [initialized, lock],
   );
 
-  const attached = useRef(false);
-  if (!attached.current) {
-    attached.current = true;
-    AppState.addEventListener("change", handleStateChange);
-  }
+  // Attach the AppState listener in an effect with teardown (review finding M6).
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", handleStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [handleStateChange]);
 }
 
 /**
@@ -259,6 +275,9 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="transaction/[txid]" options={{ headerShown: false }} />
         <Stack.Screen name="buy" options={{ headerShown: false }} />
       </Stack>
+      {/* Full-screen lock overlay: covers every authenticated route while the
+          app is locked so no screen can be reached behind it (finding C1). */}
+      <LockGate />
     </View>
   );
 }
