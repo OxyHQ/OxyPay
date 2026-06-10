@@ -678,6 +678,16 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "chain.time.daysAgo": "{count}d ago",
     "chain.refresh": "Refresh",
 
+    // ---------- Wallet P2P network status ----------
+    "wallet.network.offline": "Offline",
+    "wallet.network.resolvingDns": "Resolving DNS seeds...",
+    "wallet.network.connecting": "Connecting to peers...",
+    "wallet.network.waitingForPeers": "Waiting for peers...",
+    "wallet.network.searchingForPeers": "Searching for peers...",
+    "wallet.network.connectedSingular": "Connected to 1 peer",
+    "wallet.network.connectedPlural": "Connected to {count} peers",
+    "wallet.network.error": "P2P error: {message}",
+
     // ---------- Language picker ----------
     "language.title": "Language",
     "language.searchPlaceholder": "Search languages...",
@@ -1394,6 +1404,16 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "chain.time.hoursAgo": "hace {count}h",
     "chain.time.daysAgo": "hace {count}d",
     "chain.refresh": "Actualizar",
+
+    // ---------- Wallet P2P network status ----------
+    "wallet.network.offline": "Sin conexión",
+    "wallet.network.resolvingDns": "Resolviendo semillas DNS...",
+    "wallet.network.connecting": "Conectando a pares...",
+    "wallet.network.waitingForPeers": "Esperando pares...",
+    "wallet.network.searchingForPeers": "Buscando pares...",
+    "wallet.network.connectedSingular": "Conectado a 1 par",
+    "wallet.network.connectedPlural": "Conectado a {count} pares",
+    "wallet.network.error": "Error P2P: {message}",
 
     // ---------- Language picker ----------
     "language.title": "Idioma",
