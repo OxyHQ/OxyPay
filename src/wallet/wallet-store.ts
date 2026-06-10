@@ -36,7 +36,10 @@ import {
   estimateSend as computeSendEstimate,
   type SendEstimate,
 } from "./coin-selection";
-import { applyTransactionToWallet } from "./apply-transaction";
+import {
+  applyTransactionToWallet,
+  reverseBytesToHex,
+} from "./apply-transaction";
 import { UtxoReservation } from "./utxo-reservation";
 import {
   saveMnemonic,
@@ -62,6 +65,21 @@ import { Database } from "../storage/database";
 // ---------------------------------------------------------------------------
 
 export type FeeLevel = "low" | "medium" | "high";
+
+/**
+ * Discrete P2P network states. Stored on the wallet store as a key (rather
+ * than a free-form string) so the UI can localise the message and react to
+ * language changes without the store re-emitting (U-2).
+ */
+export type NetworkStatusKey =
+  | "wallet.network.offline"
+  | "wallet.network.resolvingDns"
+  | "wallet.network.connecting"
+  | "wallet.network.waitingForPeers"
+  | "wallet.network.searchingForPeers"
+  | "wallet.network.connectedSingular"
+  | "wallet.network.connectedPlural"
+  | "wallet.network.error";
 
 export interface WalletTransaction {
   txid: string;
@@ -102,7 +120,17 @@ export interface WalletState {
   chainHeight: number;
   connectedPeers: number;
   isSyncing: boolean;
-  networkStatus: string; // human-readable P2P status
+  /**
+   * Human-readable P2P status. Kept for back-compat with callers that only
+   * need a string; UI components should prefer {@link networkStatusKey} +
+   * {@link networkStatusData} so they can translate on render and react to
+   * language changes without the store re-emitting the status (U-2).
+   */
+  networkStatus: string;
+  /** i18n key describing the current P2P status. See `wallet.network.*`. */
+  networkStatusKey: NetworkStatusKey;
+  /** Optional interpolation values for the status key (e.g. `{count}`). */
+  networkStatusData?: Record<string, string | number>;
 
   // Addresses
   currentReceiveAddress: string;
@@ -187,6 +215,12 @@ let utxoSet: UTXOSet | null = null;
 let database: Database | null = null;
 let networkConfig: NetworkConfig | null = null;
 let spvClient: SPVClient | null = null;
+// Handle of the recurring poll that mirrors peer / sync state from the SPV
+// client into the store (peer count, height, status text, periodic rescan).
+// Held at module scope so we can clear it from `resetWalletInternals` — without
+// that, every wallet switch / network change layered a fresh interval on top
+// of the previous one, all racing to mutate the same state (C-1).
+let peerUpdateInterval: ReturnType<typeof setInterval> | null = null;
 // Guards the historical-rescan driver so the periodic trigger never starts a
 // second concurrent scan.
 let rescanDriverRunning = false;
@@ -347,6 +381,33 @@ async function processIncomingTransaction(
       txid,
       confirmation.blockHeight,
     );
+  }
+
+  // H-4: when our OWN outgoing transaction confirms, the inputs it claims to
+  // spend were already removed from the in-memory UTXO set at broadcast time
+  // (with spent_height = -1). They will NOT appear in `result.debited`, so the
+  // loop above would never update their spent_height — leaving them at -1 and
+  // making a future reorg unable to restore them (the rewind query keys off
+  // `spent_height > forkHeight`).
+  //
+  // Walk every raw input of this transaction and, if the persisted row is
+  // present and already marked spent at -1 (i.e. ours, broadcast before this
+  // confirmation), promote its `spent_height` to the real block height. This
+  // is a no-op for received transactions (none of those rows exist locally)
+  // and for already-confirmed spends (spent_height > -1).
+  if (confirmation.blockHeight >= 0) {
+    for (const input of tx.inputs) {
+      const prevTxid = reverseBytesToHex(input.prevTxHash);
+      try {
+        await database.updateUTXOSpentHeight(
+          prevTxid,
+          input.prevTxIndex,
+          confirmation.blockHeight,
+        );
+      } catch {
+        // Best-effort: a missing row here is normal for inputs we never owned.
+      }
+    }
   }
 
   // ---- Persist the transaction row and update derived state --------------
@@ -532,6 +593,50 @@ async function reconcileConfirmations(
   }
 
   let changed = false;
+
+  // H-3: a UTXO can be stored with block_height = -1 when its transaction
+  // arrived ahead of its merkle block during sync (the header was not yet in
+  // the DB at receive time). Once the header lands, look up the real height
+  // by the tx's recorded block_hash and promote both the in-memory set and
+  // the persisted row. Without this, such UTXOs stay "unconfirmed" forever.
+  try {
+    const pendingUtxos = await database.getPendingHeightUTXOs();
+    for (const pending of pendingUtxos) {
+      const header = await database.getHeaderByHash(pending.block_hash);
+      if (!header) continue;
+      await database.updateUTXOBlockHeight(
+        pending.txid,
+        pending.vout,
+        header.height,
+      );
+      const inMemory = utxoSet.get(pending.txid, pending.vout);
+      if (inMemory) {
+        utxoSet.add({
+          ...inMemory,
+          blockHeight: header.height,
+          confirmed: header.height <= tip,
+        });
+        changed = true;
+      }
+    }
+
+    // Same pattern for the history rows (Tx list).
+    const pendingTxs = await database.getPendingHeightTransactions();
+    for (const pending of pendingTxs) {
+      const header = await database.getHeaderByHash(pending.block_hash);
+      if (!header) continue;
+      const confirmed = header.height <= tip ? 1 : 0;
+      await database.updateTransactionConfirmation(
+        pending.txid,
+        header.height,
+        pending.block_hash,
+        confirmed,
+      );
+    }
+  } catch {
+    // Best-effort reconciliation; never let a DB hiccup stall sync.
+  }
+
   for (const utxo of utxoSet.getAllUTXOs()) {
     if (utxo.confirmed || utxo.blockHeight < 0) {
       continue;
@@ -567,6 +672,10 @@ const AVERAGE_TX_SIZE = 226;
 
 /** Reset all in-memory wallet state to defaults. */
 function resetWalletInternals(): void {
+  if (peerUpdateInterval) {
+    clearInterval(peerUpdateInterval);
+    peerUpdateInterval = null;
+  }
   if (spvClient) {
     spvClient.stop();
     spvClient = null;
@@ -596,6 +705,8 @@ const DEFAULT_WALLET_STATE = {
   connectedPeers: 0,
   isSyncing: false,
   networkStatus: "Offline",
+  networkStatusKey: "wallet.network.offline" as NetworkStatusKey,
+  networkStatusData: undefined as Record<string, string | number> | undefined,
   currentReceiveAddress: "",
   addresses: [] as string[],
   transactions: [] as WalletTransaction[],
@@ -603,6 +714,57 @@ const DEFAULT_WALLET_STATE = {
   isWatchOnly: false,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
+
+/**
+ * Default English fallback text for each P2P status key. Lives in the store
+ * (alongside the key) so any non-UI consumer that reads `networkStatus` still
+ * gets a sensible string; the UI should translate via `networkStatusKey`.
+ */
+const NETWORK_STATUS_FALLBACK: Record<NetworkStatusKey, string> = {
+  "wallet.network.offline": "Offline",
+  "wallet.network.resolvingDns": "Resolving DNS seeds...",
+  "wallet.network.connecting": "Connecting to peers...",
+  "wallet.network.waitingForPeers": "Waiting for peers...",
+  "wallet.network.searchingForPeers": "Searching for peers...",
+  "wallet.network.connectedSingular": "Connected to 1 peer",
+  "wallet.network.connectedPlural": "Connected to {count} peers",
+  "wallet.network.error": "P2P error: {message}",
+};
+
+/**
+ * Format the fallback string by interpolating `{name}` placeholders. The UI
+ * uses the proper i18n module on `networkStatusKey`; this is only used by the
+ * back-compat `networkStatus` string.
+ */
+function formatNetworkStatusFallback(
+  key: NetworkStatusKey,
+  data?: Record<string, string | number>,
+): string {
+  let out = NETWORK_STATUS_FALLBACK[key];
+  if (data) {
+    for (const [name, value] of Object.entries(data)) {
+      out = out.replaceAll(`{${name}}`, String(value));
+    }
+  }
+  return out;
+}
+
+/**
+ * Write a P2P status update to the store. Always populates both the i18n key
+ * and the back-compat `networkStatus` string in one `set` so consumers can't
+ * observe an inconsistent pair (U-2).
+ */
+function setNetworkStatus(
+  set: WalletSet,
+  key: NetworkStatusKey,
+  data?: Record<string, string | number>,
+): void {
+  set({
+    networkStatus: formatNetworkStatusFallback(key, data),
+    networkStatusKey: key,
+    networkStatusData: data,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Store
@@ -629,7 +791,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   chainHeight: 0,
   connectedPeers: 0,
   isSyncing: false,
-  networkStatus: "Offline",
+  networkStatus: NETWORK_STATUS_FALLBACK["wallet.network.offline"],
+  networkStatusKey: "wallet.network.offline" as NetworkStatusKey,
+  networkStatusData: undefined,
 
   currentReceiveAddress: "",
   addresses: [],
@@ -728,7 +892,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       // Start SPV client for P2P connectivity
       try {
-        set({ networkStatus: "Resolving DNS seeds..." });
+        setNetworkStatus(set, "wallet.network.resolvingDns");
         const socketProvider = createSocketProvider();
         const headerStore = new DatabaseHeaderStore(database);
 
@@ -796,27 +960,39 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           spvClient.setBloomFilter(addressHashes);
         }
 
-        set({ networkStatus: "Connecting to peers..." });
+        setNetworkStatus(set, "wallet.network.connecting");
         await spvClient.start();
 
-        set({
-          chainHeight: spvClient.getChainHeight(),
-          networkStatus: "Waiting for peers...",
-        });
+        set({ chainHeight: spvClient.getChainHeight() });
+        setNetworkStatus(set, "wallet.network.waitingForPeers");
 
-        // Periodic peer count updater
-        const peerUpdateInterval = setInterval(() => {
+        // Periodic peer count updater. Persist the handle at module scope so
+        // `resetWalletInternals` (lock / switch wallet / change network) can
+        // unconditionally clear it; otherwise a stale interval keeps writing
+        // peer-count and triggering rescans on top of the new wallet (C-1).
+        if (peerUpdateInterval) {
+          clearInterval(peerUpdateInterval);
+          peerUpdateInterval = null;
+        }
+        peerUpdateInterval = setInterval(() => {
           if (!spvClient) {
-            clearInterval(peerUpdateInterval);
+            if (peerUpdateInterval) {
+              clearInterval(peerUpdateInterval);
+              peerUpdateInterval = null;
+            }
             return;
           }
           const count = spvClient.getPeerManager().getReadyPeers().length;
-          set({
-            connectedPeers: count,
-            networkStatus: count > 0
-              ? `Connected to ${count} peer${count === 1 ? "" : "s"}`
-              : "Searching for peers...",
-          });
+          set({ connectedPeers: count });
+          if (count === 0) {
+            setNetworkStatus(set, "wallet.network.searchingForPeers");
+          } else if (count === 1) {
+            setNetworkStatus(set, "wallet.network.connectedSingular");
+          } else {
+            setNetworkStatus(set, "wallet.network.connectedPlural", {
+              count,
+            });
+          }
 
           // Drive the historical rescan once peers and a chain exist. This
           // covers the already-synced case (a restored wallet whose headers are
@@ -829,8 +1005,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           }
         }, 5000);
       } catch (spvError: unknown) {
-        const spvMsg = spvError instanceof Error ? spvError.message : "Unknown P2P error";
-        set({ networkStatus: `P2P error: ${spvMsg}` });
+        const spvMsg =
+          spvError instanceof Error ? spvError.message : "Unknown P2P error";
+        setNetworkStatus(set, "wallet.network.error", { message: spvMsg });
       }
     } catch (err: unknown) {
       const message =
@@ -1075,13 +1252,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         };
       }
 
-      // Serialize and compute txid
+      // Serialize and compute txid. `hashTransaction` is the single source of
+      // truth used across the wallet (history, UI, reorg) — pass the same
+      // txid into broadcast so what the user sees matches what hit the network
+      // (H-2). The SPV client computes the txid from the raw bytes too but we
+      // ignore that value to avoid divergence between two code paths.
       const rawTx = serializeTransaction(tx);
       const txid = hashTransaction(tx);
 
-      // Broadcast via SPV client (P2P) or log for manual broadcast
-      if (spvClient) {
-        spvClient.broadcastTransaction(rawTx);
+      // Broadcast via SPV client (P2P). REQUIRES at least one peer received the
+      // `tx` message; otherwise the transaction never reached the network and
+      // we MUST NOT mark inputs as spent or pretend the send succeeded (H-1).
+      // Without this gate the wallet would silently desync from the network:
+      // UTXOs locally spent but still spendable by anyone else on chain.
+      if (!spvClient) {
+        throw new Error(
+          "Wallet is offline. Connect to peers before sending a transaction.",
+        );
+      }
+      const broadcast = spvClient.broadcastTransaction(rawTx);
+      if (broadcast.peerCount === 0) {
+        throw new Error(
+          "No peers available to relay the transaction. Try again once the wallet is connected.",
+        );
       }
 
       // Mark UTXOs as spent locally. The spend is unconfirmed (height -1) until
@@ -1093,7 +1286,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         }
       }
 
-      // Persist the transaction record
+      // Persist the transaction record. Persist the REAL fee derived from
+      // inputs - outputs (selection.fee), not a re-estimate against the
+      // serialized size — selection already computed exactly what the
+      // transaction pays, so the history row matches the on-chain fee (M-1).
       const now = Math.floor(Date.now() / 1000);
       await database.insertTransaction({
         txid,
@@ -1101,7 +1297,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         block_height: -1,
         block_hash: "",
         timestamp: now,
-        fee: Number(BigInt(feeRate) * BigInt(rawTx.length)),
+        fee: Number(selection.fee),
         confirmed: 0,
       });
 

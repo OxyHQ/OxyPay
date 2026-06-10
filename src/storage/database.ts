@@ -515,6 +515,89 @@ export class Database {
     );
   }
 
+  /**
+   * Update the recorded block height of a stored UTXO. Used by the
+   * confirmation-reconciler when a transaction was received before its
+   * containing header was known (block_height was persisted as -1) and we
+   * later learn the real height (H-3).
+   */
+  async updateUTXOBlockHeight(
+    txid: string,
+    vout: number,
+    blockHeight: number,
+  ): Promise<void> {
+    await this.db.runAsync(
+      "UPDATE utxos SET block_height = ? WHERE txid = ? AND vout = ?",
+      blockHeight,
+      txid,
+      vout,
+    );
+  }
+
+  /**
+   * Update the spent_height of an already-spent UTXO whose spend height was
+   * still unknown (< 0). Used when our own outgoing transaction confirms: at
+   * broadcast time we marked the input as spent with height -1 (mempool);
+   * once the spend lands in a block we must persist the real height so a
+   * future reorg above that block can correctly un-spend the UTXO (H-4).
+   *
+   * Deliberately scoped to `spent = 1 AND spent_height < 0` so it can never
+   * touch unspent rows or overwrite an already-resolved spend height.
+   */
+  async updateUTXOSpentHeight(
+    txid: string,
+    vout: number,
+    spentHeight: number,
+  ): Promise<void> {
+    await this.db.runAsync(
+      `UPDATE utxos SET spent_height = ?
+        WHERE txid = ? AND vout = ? AND spent = 1 AND spent_height < 0`,
+      spentHeight,
+      txid,
+      vout,
+    );
+  }
+
+  /**
+   * Return every UTXO row whose stored block_height is < 0 (the tx was
+   * received ahead of its merkle block during sync) together with the
+   * block_hash recorded for that tx in the `transactions` table, so the caller
+   * can attempt to resolve the real height once the header lands.
+   */
+  async getPendingHeightUTXOs(): Promise<
+    { txid: string; vout: number; block_hash: string }[]
+  > {
+    return this.db.getAllAsync<{
+      txid: string;
+      vout: number;
+      block_hash: string;
+    }>(
+      `SELECT u.txid AS txid, u.vout AS vout, t.block_hash AS block_hash
+         FROM utxos u
+         JOIN transactions t ON t.txid = u.txid
+        WHERE u.block_height < 0
+          AND t.block_hash IS NOT NULL
+          AND t.block_hash <> ''`,
+    );
+  }
+
+  /**
+   * Return every tx row whose stored block_height is < 0 (received ahead of
+   * its header during sync) together with the recorded block_hash. Used by
+   * the confirmation-reconciler to promote unconfirmed history rows once the
+   * header lands.
+   */
+  async getPendingHeightTransactions(): Promise<
+    { txid: string; block_hash: string }[]
+  > {
+    return this.db.getAllAsync<{ txid: string; block_hash: string }>(
+      `SELECT txid, block_hash FROM transactions
+        WHERE block_height < 0
+          AND block_hash IS NOT NULL
+          AND block_hash <> ''`,
+    );
+  }
+
   async getUnspentUTXOsForAddress(address: string): Promise<UTXORow[]> {
     return this.db.getAllAsync<UTXORow>(
       "SELECT * FROM utxos WHERE spent = 0 AND address = ?",
