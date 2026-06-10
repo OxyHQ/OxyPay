@@ -1,0 +1,33 @@
+{
+  "name": "oxypay",
+  "version": "0.1.0",
+  "description": "Oxy Pay monorepo — backend, mobile/web app, and shared types.",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:frontend": "bun run --filter @oxypay/frontend dev",
+    "dev:backend": "bun run --filter @oxypay/backend dev",
+    "build": "bun run --filter '*' build",
+    "build:shared-types": "bun run --filter @oxypay/shared-types build",
+    "build:frontend": "bun run --filter @oxypay/frontend build",
+    "build:backend": "bun run --filter @oxypay/backend build",
+    "test": "bun run --filter '*' test",
+    "lint": "bun run --filter '*' lint",
+    "clean": "bun run --filter '*' clean && rm -rf node_modules",
+    "install:all": "bun install",
+    "start:frontend": "bun run --filter @oxypay/frontend start",
+    "start:backend": "bun run --filter @oxypay/backend start",
+    "postinstall": "bun run build:shared-types"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "~5.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}

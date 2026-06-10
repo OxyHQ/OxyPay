@@ -1,0 +1,24 @@
+{
+  "name": "@oxypay/shared-types",
+  "version": "0.1.0",
+  "description": "Shared TypeScript types for the Oxy Pay backend and frontend.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "test": "echo \"No tests specified\" && exit 0",
+    "prepublishOnly": "bun run build"
+  },
+  "author": "Oxy Pay",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "@types/node": "^20.0.0"
+  },
+  "files": [
+    "dist/**/*"
+  ]
+}
