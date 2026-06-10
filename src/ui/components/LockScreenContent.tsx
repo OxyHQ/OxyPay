@@ -14,6 +14,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { verifyPin, isBiometricsEnabled } from "../../storage/secure-store";
+import {
+  loadPinAttempts,
+  recordPinFailure,
+  clearPinAttempts,
+  PIN_MAX_ATTEMPTS,
+  lockoutSecondsForAttempts,
+} from "../../storage/pin-attempts";
 import { PinPad } from "./PinPad";
 import { PinDots } from "./PinDots";
 import { useTheme } from "@oxyhq/bloom/theme";
@@ -23,8 +30,7 @@ import { APP_NAME } from "@fairco.in/core";
 import { t } from "../../i18n";
 
 const PIN_LENGTH = 6;
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_SECONDS = 30;
+const MAX_ATTEMPTS = PIN_MAX_ATTEMPTS;
 
 interface LockScreenContentProps {
   /** Called exactly once when the user successfully unlocks. */
@@ -45,6 +51,10 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
   const isLockedOut = lockedUntil !== null && Date.now() < lockedUntil;
 
   const handleUnlocked = useCallback(() => {
+    // N-3: a successful unlock clears the persisted attempts counter so the
+    // user starts fresh next time. Best-effort — a clear failure must not
+    // block the unlock (we already verified the PIN was correct).
+    void clearPinAttempts();
     hapticSuccess();
     playUnlocked();
     onUnlock();
@@ -59,8 +69,13 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
       if (remaining <= 0) {
         setLockedUntil(null);
         setLockoutRemaining(0);
-        setAttempts(0);
         setError(null);
+        // N-3: deliberately do NOT zero the persisted attempts here. Resetting
+        // would let an attacker run "N-1 attempts → wait base lockout → N-1
+        // more" indefinitely. Keeping the counter means the next failure
+        // triggers the next back-off step (60s, 120s, …) until a real
+        // success calls `clearPinAttempts`. A legitimate user who mistyped
+        // sees one painful retry, then they're fine.
         if (lockoutTimerRef.current) {
           clearInterval(lockoutTimerRef.current);
           lockoutTimerRef.current = null;
@@ -99,6 +114,35 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
       // Biometric auth failed or unavailable — fall through to PIN entry
     }
   }, [handleUnlocked]);
+
+  // N-3: rehydrate the persisted attempts counter / lockout deadline on
+  // every mount. Without this, killing the app between attempts would reset
+  // the in-memory counter and let a brute-force loop bypass the policy.
+  useEffect(() => {
+    let cancelled = false;
+    loadPinAttempts()
+      .then((state) => {
+        if (cancelled) return;
+        setAttempts(state.failedAttempts);
+        if (state.lockedUntil > Date.now()) {
+          setLockedUntil(state.lockedUntil);
+          startLockoutTimer(state.lockedUntil);
+          setError(
+            t("lock.tooManyAttempts", {
+              seconds: Math.ceil((state.lockedUntil - Date.now()) / 1000),
+            }),
+          );
+        }
+      })
+      .catch(() => {
+        // Failing to read the persisted state is non-fatal; the lockout is
+        // best-effort defence in depth. The PIN itself is still protected by
+        // scrypt + secure storage.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [startLockoutTimer]);
 
   // Attempt biometric auth once when the lock screen is shown (the overlay
   // mounts whenever the app becomes locked). A plain effect avoids depending on
@@ -157,31 +201,42 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
         if (next.length === PIN_LENGTH) {
           setVerifying(true);
           verifyPin(next)
-            .then((correct) => {
+            .then(async (correct) => {
               if (correct) {
                 handleUnlocked();
-              } else {
-                hapticError();
-                const newAttempts = attempts + 1;
-                setAttempts(newAttempts);
-
-                if (newAttempts >= MAX_ATTEMPTS) {
-                  const until = Date.now() + LOCKOUT_SECONDS * 1000;
-                  setLockedUntil(until);
-                  setError(
-                    t("lock.tooManyAttempts", { seconds: LOCKOUT_SECONDS }),
-                  );
-                  startLockoutTimer(until);
-                } else {
-                  const remaining = MAX_ATTEMPTS - newAttempts;
-                  setError(
-                    remaining === 1
-                      ? t("lock.wrongPasscode.one", { count: remaining })
-                      : t("lock.wrongPasscode.other", { count: remaining }),
-                  );
-                }
-                setPin("");
+                setVerifying(false);
+                return;
               }
+              hapticError();
+              // N-3: persist the failure so a force-quit can NOT reset the
+              // counter. `recordPinFailure` also returns the post-update
+              // lockout deadline so the UI uses the same number we wrote to
+              // disk (avoids a render that shows "0 attempts left" while
+              // the store already says "locked").
+              const persisted = await recordPinFailure().catch(() => null);
+              const newAttempts = persisted?.failedAttempts ?? attempts + 1;
+              setAttempts(newAttempts);
+
+              if (newAttempts >= MAX_ATTEMPTS) {
+                const until =
+                  persisted?.lockedUntil ??
+                  Date.now() + lockoutSecondsForAttempts(newAttempts) * 1000;
+                setLockedUntil(until);
+                setError(
+                  t("lock.tooManyAttempts", {
+                    seconds: Math.ceil((until - Date.now()) / 1000),
+                  }),
+                );
+                startLockoutTimer(until);
+              } else {
+                const remaining = MAX_ATTEMPTS - newAttempts;
+                setError(
+                  remaining === 1
+                    ? t("lock.wrongPasscode.one", { count: remaining })
+                    : t("lock.wrongPasscode.other", { count: remaining }),
+                );
+              }
+              setPin("");
               setVerifying(false);
             })
             .catch(() => {
