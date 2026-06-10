@@ -41,6 +41,15 @@ export interface PeerManagerConfig {
    * Defaults to a no-op. Must not throw; it is called from socket callbacks.
    */
   onEvent?: PeerEventSink;
+  /**
+   * Optional list of `host` addresses to seed `knownAddresses` with on
+   * `start()`. Used by the wallet to (a) bootstrap from the persisted
+   * `peers` table so the first connection round isn't blocked on DNS, and
+   * (b) honour user-added peers from the "Add Peer" UI — without this,
+   * `database.insertPeer` was a dead write because the peer manager only
+   * learned addresses from DNS seeds and on-wire `addr` messages (N-5).
+   */
+  initialKnownAddresses?: readonly string[];
 }
 
 export type MessageHandler = (peer: Peer, command: string, payload: Uint8Array) => void;
@@ -84,6 +93,13 @@ export class PeerManager {
     this.targetPeers = config.targetPeers ?? DEFAULT_TARGET_PEERS;
     this.maxPeers = config.maxPeers ?? DEFAULT_MAX_PEERS;
     this.onEvent = config.onEvent ?? noopEventSink;
+    // N-5: load any address the caller wants us to know about before the
+    // first DNS round (persisted "good peers" cache, user-added peers).
+    if (config.initialKnownAddresses) {
+      for (const addr of config.initialKnownAddresses) {
+        this.knownAddresses.add(addr);
+      }
+    }
   }
 
   /**

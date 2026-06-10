@@ -86,6 +86,15 @@ export interface SPVClientConfig {
    * connectivity is observable only when a consumer opts in (review finding L6).
    */
   onPeerEvent?: PeerEventSink;
+  /**
+   * Optional list of `host` addresses to seed the peer manager with before
+   * the first DNS resolution round (N-5). Use it for the persisted
+   * "good peers" cache and for addresses the user added manually via the
+   * "Add Peer" UI — those rows in the `peers` table were previously dead
+   * writes because the peer manager only learned addresses from DNS / on-wire
+   * `addr` messages.
+   */
+  initialKnownAddresses?: readonly string[];
 }
 
 export interface SPVClientEvents {
@@ -241,6 +250,7 @@ export class SPVClient {
       nativeDnsResolver: config.nativeDnsResolver,
       targetPeers: 8,
       onEvent: config.onPeerEvent,
+      initialKnownAddresses: config.initialKnownAddresses,
     };
 
     this.peerManager = new PeerManager(peerManagerConfig);

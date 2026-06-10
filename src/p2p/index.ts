@@ -88,21 +88,6 @@ export {
   hashMasternodeBroadcast,
 } from "./masternode";
 
-export {
-  type TxLockRequest,
-  type Outpoint,
-  type TxLockVote,
-  type FastSendStatus,
-  MSG_TXLOCK_REQUEST,
-  MSG_TXLOCK_VOTE,
-  FASTSEND_MAX_VALUE,
-  SWIFTTX_SIGNATURES_REQUIRED,
-  serializeTxLockRequest,
-  parseTxLockVote,
-  canUseFastSend,
-  FastSendTracker,
-} from "./fastsend";
-
 export { createSocketProvider } from "./socket-provider";
 
 export { DatabaseHeaderStore } from "./header-store";

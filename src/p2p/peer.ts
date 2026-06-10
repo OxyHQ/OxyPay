@@ -62,7 +62,23 @@ export interface PeerEvents {
 // ---------------------------------------------------------------------------
 
 const USER_AGENT = "/FAIRWallet:1.0.0/";
+
+// Service flag advertised by peers in their `version` message. The wallet is
+// an SPV client and depends on the `filterload` / `filteradd` / `filterclear`
+// commands: FairCoin core (Dash-derived) hard-disconnects (and applies a
+// Misbehaving(100) ban) any peer that sends `filterload` to a node which has
+// not advertised NODE_BLOOM. We therefore refuse to use peers missing this
+// flag — without that check the wallet sends `filterload` blindly and gets
+// banned by the very seeds it depends on.
 const NODE_NETWORK = 1n;
+const NODE_BLOOM = 1n << 2n;
+/**
+ * Mask of services the wallet REQUIRES a peer to advertise before we will
+ * use it for SPV (header sync + bloom-filtered merkle blocks + tx broadcast).
+ * Exported so the peer manager can reason about it too.
+ */
+export const REQUIRED_PEER_SERVICES = NODE_NETWORK | NODE_BLOOM;
+
 const PING_INTERVAL_MS = 120_000; // 2 minutes
 const HANDSHAKE_TIMEOUT_MS = 30_000; // 30 seconds
 
@@ -245,6 +261,21 @@ export class Peer {
         clearTimeout(this.handshakeTimer);
         this.handshakeTimer = undefined;
       }
+
+      // Gate: refuse to use a peer that did not advertise NODE_BLOOM. The
+      // wallet is SPV and relies on `filterload` / `filteradd` /
+      // `filterclear`; FairCoin core (Dash-derived) applies Misbehaving(100)
+      // — an outright ban — to any peer that sends those messages without
+      // having NODE_BLOOM advertised on the other side. If we let such a
+      // peer transition to "ready" the SPV client would dutifully send
+      // `filterload`, get us banned, and burn the IP for future
+      // reconnections. Disconnect cleanly here and let peer-manager pick
+      // another candidate from `knownAddresses`.
+      if ((this._services & REQUIRED_PEER_SERVICES) !== REQUIRED_PEER_SERVICES) {
+        this.handleDisconnect("peer does not advertise NODE_BLOOM");
+        return;
+      }
+
       this._state = "ready";
       this.startPingTimer();
       this.events.onReady(this);
