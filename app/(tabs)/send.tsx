@@ -108,19 +108,6 @@ export default function SendScreen() {
   const getContactByAddress = useContactsStore((s) => s.getContactByAddress);
   const theme = useTheme();
 
-  // Watch-only wallets cannot send transactions
-  if (isWatchOnly) {
-    return (
-      <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-        <EmptyState
-          icon="lock"
-          title={t("send.watchOnly.title")}
-          subtitle={t("send.watchOnly.subtitle")}
-        />
-      </View>
-    );
-  }
-
   // Read deep link params (from faircoin: URI or QR scan navigation)
   const params = useLocalSearchParams<{ address?: string; amount?: string }>();
 
@@ -389,6 +376,21 @@ export default function SendScreen() {
   const amountLengthForSizing = amount.length > 0 ? amount.length : 1;
   const amountFontSize = getAmountFontSize(amountLengthForSizing);
   const amountSymbolFontSize = Math.round(amountFontSize * AMOUNT_SYMBOL_RATIO);
+
+  // Watch-only wallets cannot send transactions. This branch must run AFTER
+  // every hook above so that toggling watch-only at runtime (wallet switch)
+  // does not change the hook count between renders (Rules of Hooks).
+  if (isWatchOnly) {
+    return (
+      <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
+        <EmptyState
+          icon="lock"
+          title={t("send.watchOnly.title")}
+          subtitle={t("send.watchOnly.subtitle")}
+        />
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-background" onLayout={loadInitialData}>

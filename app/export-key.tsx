@@ -148,13 +148,17 @@ export default function ExportKeyScreen() {
     if (!canEncrypt || !selectedAddress) return;
 
     setEncrypting(true);
+    // Hold references so we can ALWAYS zeroize them in `finally` (S-1):
+    // BIP38 export expanded the key material across heap; without wipe the
+    // master/private key would survive the export screen indefinitely.
+    let km: KeyManager | null = null;
+    let privateKey: Uint8Array | null = null;
     try {
       const networkConfig = getNetwork(network);
       const { getMnemonic } = await import("../src/storage/secure-store");
       const mnemonic = await getMnemonic();
       if (!mnemonic) {
         showMessage(t("common.error"), t("exportKey.error.noMnemonic"));
-        setEncrypting(false);
         return;
       }
 
@@ -164,18 +168,15 @@ export default function ExportKeyScreen() {
       // nothing to export.
       if (mnemonic.startsWith("xpub:")) {
         showMessage(t("common.error"), t("exportKey.error.noPrivateKey"));
-        setEncrypting(false);
         return;
       }
 
-      const km = KeyManager.fromMnemonic(mnemonic, networkConfig);
-      let privateKey: Uint8Array | null = null;
+      km = KeyManager.fromMnemonic(mnemonic, networkConfig);
 
       try {
         privateKey = km.getPrivateKeyForAddress(selectedAddress);
       } catch {
         showMessage(t("common.error"), t("exportKey.error.noPrivateKey"));
-        setEncrypting(false);
         return;
       }
 
@@ -193,6 +194,20 @@ export default function ExportKeyScreen() {
         err instanceof Error ? err.message : t("exportKey.error.encryptionFailed");
       showMessage(t("common.error"), errorMessage);
     } finally {
+      if (privateKey) {
+        try {
+          privateKey.fill(0);
+        } catch {
+          // best-effort; ignore if buffer is not writable
+        }
+      }
+      if (km) {
+        try {
+          km.wipe();
+        } catch {
+          // best-effort
+        }
+      }
       setEncrypting(false);
     }
   }, [canEncrypt, selectedAddress, passphrase, network, showMessage]);

@@ -104,8 +104,12 @@ export default function ChainScreen() {
   const isSyncing = useWalletStore((s) => s.isSyncing);
   const syncProgress = useWalletStore((s) => s.syncProgress);
   const connectedPeers = useWalletStore((s) => s.connectedPeers);
-  const networkStatus = useWalletStore((s) => s.networkStatus);
+  const networkStatusKey = useWalletStore((s) => s.networkStatusKey);
+  const networkStatusData = useWalletStore((s) => s.networkStatusData);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
+  // Translate at render-time so a language switch updates the line without
+  // requiring the store to re-emit the status (U-2).
+  const networkStatusLabel = t(networkStatusKey, networkStatusData);
 
   const [lastBlockTimestamp, setLastBlockTimestamp] = useState<number | null>(
     null,
@@ -224,7 +228,7 @@ export default function ChainScreen() {
                 className="text-muted-foreground text-xs mt-1"
                 numberOfLines={2}
               >
-                {networkStatus}
+                {networkStatusLabel}
               </Text>
             </View>
           </View>
