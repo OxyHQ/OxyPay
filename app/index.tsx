@@ -15,7 +15,7 @@ import { useLockStore } from "../src/wallet/lock-store";
 import { getMnemonic, hasPin } from "../src/storage/secure-store";
 import { t } from "../src/i18n";
 
-type AppState = "checking" | "onboarding" | "ready" | "error";
+type AppState = "checking" | "onboarding" | "needsPin" | "ready" | "error";
 
 export default function IndexScreen() {
   const [appState, setAppState] = useState<AppState>("checking");
@@ -51,6 +51,23 @@ export default function IndexScreen() {
           // root LockGate overlay covers it and only initializes the wallet
           // after a successful unlock — keys/SPV never come up behind the lock.
           const pinSet = await hasPin();
+
+          // N-7: a persisted wallet WITHOUT a configured PIN is an
+          // onboarding-in-progress state. Previously the boot path treated
+          // it as "unlocked, ready" — meaning anyone who picks up the device
+          // after the user wrote down the mnemonic but before completing
+          // pin-setup has full access to funds AND to the recovery phrase
+          // (Settings → Recovery). Force-redirect to /onboarding/pin-setup
+          // so the configuration completes before any authenticated screen
+          // can render.
+          if (!pinSet) {
+            // Treat this as "no protection yet" for the lock store — the
+            // pin-setup screen will mark it unlocked after savePin().
+            markNoPinUnlocked();
+            if (!cancelled) setAppState("needsPin");
+            return;
+          }
+
           const willLock = resolveInitialLock(pinSet);
           if (!willLock && !initialized) {
             await initialize(mnemonic);
@@ -80,6 +97,11 @@ export default function IndexScreen() {
 
   if (appState === "onboarding") {
     return <Redirect href="/onboarding/welcome" />;
+  }
+
+  if (appState === "needsPin") {
+    // N-7: complete pin-setup before any authenticated screen mounts.
+    return <Redirect href="/onboarding/pin-setup" />;
   }
 
   if (appState === "ready") {

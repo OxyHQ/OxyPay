@@ -87,14 +87,14 @@ function useDeepLinkHandler() {
   const router = useRouter();
   const initialized = useWalletStore((s) => s.initialized);
   const locked = useLockStore((s) => s.locked);
+  const queueDeepLink = useLockStore((s) => s.queueDeepLink);
+  const consumePendingDeepLink = useLockStore(
+    (s) => s.consumePendingDeepLink,
+  );
 
-  const handleDeepLink = useCallback(
-    (event: { url: string }) => {
-      // Never navigate into an authenticated screen while locked or before the
-      // wallet is initialized (review finding C1: a deep link must not bypass
-      // the lock by pushing straight to /(tabs)/send).
-      if (!event.url || !initialized || locked) return;
-      const parsed = parseFairCoinURI(event.url);
+  const navigateFromUrl = useCallback(
+    (url: string) => {
+      const parsed = parseFairCoinURI(url);
       if (parsed) {
         router.push({
           pathname: "/(tabs)/send",
@@ -102,7 +102,24 @@ function useDeepLinkHandler() {
         });
       }
     },
-    [router, initialized, locked],
+    [router],
+  );
+
+  const handleDeepLink = useCallback(
+    (event: { url: string }) => {
+      if (!event.url) return;
+      // Never navigate into an authenticated screen while locked or before the
+      // wallet is initialized (review finding C1). N-10: instead of dropping
+      // the URL, queue it on the lock store so the unlock path can replay
+      // it — losing a `faircoin:` payment URI just because the app was
+      // locked is poor UX.
+      if (!initialized || locked) {
+        queueDeepLink(event.url);
+        return;
+      }
+      navigateFromUrl(event.url);
+    },
+    [initialized, locked, queueDeepLink, navigateFromUrl],
   );
 
   // Register the URL listener in an effect with proper teardown (review finding
@@ -119,6 +136,16 @@ function useDeepLinkHandler() {
       subscription.remove();
     };
   }, [handleDeepLink]);
+
+  // N-10: once the app becomes both initialized AND unlocked, replay any
+  // deep link captured while we were locked. The 5-minute freshness window
+  // (default in `consumePendingDeepLink`) avoids replaying a URL that's
+  // been sitting around since a previous session.
+  useEffect(() => {
+    if (!initialized || locked) return;
+    const pending = consumePendingDeepLink();
+    if (pending) navigateFromUrl(pending);
+  }, [initialized, locked, consumePendingDeepLink, navigateFromUrl]);
 }
 
 function useAutoLock() {

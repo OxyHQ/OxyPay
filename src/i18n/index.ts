@@ -306,6 +306,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.resync.title": "Resync Wallet",
     "settings.resync.description": "This will re-download all blockchain data.",
     "settings.resync.cta": "Resync",
+    "settings.resync.failed": "Resync failed. Try again once you have peers.",
 
     // ---------- Contacts ----------
     "contacts.title": "Contacts",
@@ -1007,6 +1008,8 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.resync.description":
       "Esto volver\u00e1 a descargar todos los datos de la cadena de bloques.",
     "settings.resync.cta": "Resincronizar",
+    "settings.resync.failed":
+      "La resincronizaci\u00f3n fall\u00f3. Int\u00e9ntalo de nuevo cuando tengas pares conectados.",
 
     // ---------- Contacts ----------
     "contacts.title": "Contactos",

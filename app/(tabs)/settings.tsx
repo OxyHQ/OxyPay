@@ -287,6 +287,7 @@ export default function SettingsScreen() {
   const wipeWallet = useWalletStore((s) => s.wipeWallet);
   const markNoPinUnlocked = useLockStore((s) => s.markNoPinUnlocked);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
+  const rescanWallet = useWalletStore((s) => s.rescanWallet);
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
   const wallets = useWalletStore((s) => s.wallets);
   const switchNetwork = useWalletStore((s) => s.switchNetwork);
@@ -566,9 +567,21 @@ export default function SettingsScreen() {
     resyncControl.open();
   }, [resyncControl]);
 
-  const handleConfirmResync = useCallback(() => {
-    refreshBalance();
-  }, [refreshBalance]);
+  // N-4: trigger a real historical rescan (re-request matched merkle blocks
+  // from genesis up to the current tip via the SPV client). The old
+  // `refreshBalance()` only re-read the in-memory UTXO set and did no
+  // networking — the user's "Resync wallet" tap had zero effect. Failures
+  // are surfaced to the user since they pressed an explicit action.
+  const handleConfirmResync = useCallback(async () => {
+    try {
+      await rescanWallet();
+      refreshBalance();
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : t("settings.resync.failed");
+      showMessage(t("common.error"), message);
+    }
+  }, [rescanWallet, refreshBalance, showMessage]);
 
   const handleConfirmWipe = useCallback(async () => {
     await wipeWallet();

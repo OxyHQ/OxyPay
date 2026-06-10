@@ -15,7 +15,6 @@ Built with Expo SDK 55, React Native 0.83, and pure TypeScript cryptography.
 - **Address book** — save and manage contacts
 - **Coin control** — select specific UTXOs for transactions
 - **Masternode** — detect 5,000 FAIR collateral UTXOs, start masternodes
-- **FastSend** — instant confirmation via masternode quorum (SwiftTX)
 - **BIP38** — encrypted private key export/import
 - **Places map** — native MapLibre map of places that accept FairCoin, with category filters, search, minimum-spend and FairCoin-to-fiat exchange metadata per place (native-only; web shows an empty state)
 - **Secure** — keys in OS keychain, per-wallet SQLite databases, edge-to-edge UI
@@ -168,7 +167,6 @@ FAIRWallet/
 │   │   ├── spv-client.ts   # Header sync + Merkle validation
 │   │   ├── dns-seeds.ts    # DNS-over-HTTPS seed resolution
 │   │   ├── masternode.ts   # Masternode broadcast/ping
-│   │   ├── fastsend.ts     # SwiftTX instant confirmations
 │   │   ├── socket-provider.ts # Platform TCP adapter
 │   │   └── header-store.ts # SQLite ↔ SPV bridge
 │   ├── wallet/             # Wallet state

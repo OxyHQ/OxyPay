@@ -107,9 +107,12 @@ export default function ChainScreen() {
   const networkStatusKey = useWalletStore((s) => s.networkStatusKey);
   const networkStatusData = useWalletStore((s) => s.networkStatusData);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
+  const rescanWallet = useWalletStore((s) => s.rescanWallet);
   // Translate at render-time so a language switch updates the line without
   // requiring the store to re-emit the status (U-2).
   const networkStatusLabel = t(networkStatusKey, networkStatusData);
+
+  const [refreshing, setRefreshing] = useState(false);
 
   const [lastBlockTimestamp, setLastBlockTimestamp] = useState<number | null>(
     null,
@@ -196,9 +199,24 @@ export default function ChainScreen() {
     router.push("/peers");
   }, [router]);
 
-  const handleRefresh = useCallback(() => {
-    refreshBalance();
-  }, [refreshBalance]);
+  // N-4: the "Refresh" button on the Chain screen now triggers a real
+  // historical rescan via the SPV client, not just an in-memory balance
+  // re-read. A user who reports "I'm missing a tx" needs SOMETHING that
+  // actually re-asks peers for matched merkle blocks; that's `rescanWallet`.
+  // Best-effort: a failed rescan does not crash the screen — the SPV client
+  // logs the cause and the next tip advance retries.
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await rescanWallet();
+    } catch {
+      // best-effort
+    } finally {
+      refreshBalance();
+      setRefreshing(false);
+    }
+  }, [refreshing, rescanWallet, refreshBalance]);
 
   return (
     <SafeAreaView
