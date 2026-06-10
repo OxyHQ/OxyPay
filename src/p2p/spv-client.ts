@@ -380,17 +380,13 @@ export class SPVClient {
 
   /**
    * Broadcast a signed transaction to all connected peers.
-   * Returns the transaction hash (double-SHA256, hex, reversed for display).
+   * Returns the txid (double-SHA256, hex, reversed for display) together with
+   * the number of peers the `tx` message was actually delivered to. The
+   * caller MUST check `peerCount`: if zero, the transaction was not handed off
+   * to the network and should NOT be treated as sent (H-1).
    */
-  broadcastTransaction(rawTx: Uint8Array): string {
-    const txHash = sha256(sha256(rawTx));
-
-    for (const peer of this.peerManager.getReadyPeers()) {
-      peer.sendMessage("tx", rawTx);
-    }
-
-    // Return txid as hex (reversed byte order for display)
-    return bytesToHexReversed(txHash);
+  broadcastTransaction(rawTx: Uint8Array): { txid: string; peerCount: number } {
+    return broadcastTransactionToPeers(rawTx, this.peerManager.getReadyPeers());
   }
 
   /**
@@ -772,6 +768,50 @@ function bytesToHexReversed(bytes: Uint8Array): string {
     hex += bytes[i].toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+/**
+ * Minimal peer surface that {@link broadcastTransactionToPeers} needs. Lets
+ * tests drive the broadcast helper without spinning up a full {@link SPVClient}
+ * / socket / peer-manager stack.
+ */
+export interface BroadcastTarget {
+  sendMessage(command: string, payload: Uint8Array): void;
+}
+
+/**
+ * Pure helper extracted from {@link SPVClient.broadcastTransaction} so the
+ * "did this actually leave the wallet?" contract is unit-testable. Sends the
+ * raw `tx` message to every peer and returns:
+ *
+ *   - `txid`     — the double-SHA256 hash in display order (reversed hex);
+ *   - `peerCount` — how many peers actually accepted the message.
+ *
+ * Critically, a peer that throws while sending is NOT counted: the caller
+ * (sendTransaction) must be able to trust `peerCount > 0` to mean "at least
+ * one peer received the bytes", or it will mark UTXOs as spent for a
+ * transaction that never reached the network (H-1).
+ */
+export function broadcastTransactionToPeers(
+  rawTx: Uint8Array,
+  readyPeers: readonly BroadcastTarget[],
+): { txid: string; peerCount: number } {
+  const txHash = sha256(sha256(rawTx));
+
+  let delivered = 0;
+  for (const peer of readyPeers) {
+    try {
+      peer.sendMessage("tx", rawTx);
+      delivered++;
+    } catch {
+      // Skip peers that error mid-send; other peers can still relay.
+    }
+  }
+
+  return {
+    txid: bytesToHexReversed(txHash),
+    peerCount: delivered,
+  };
 }
 
 function extractIPv4FromMapped(ip: Uint8Array): string | undefined {
