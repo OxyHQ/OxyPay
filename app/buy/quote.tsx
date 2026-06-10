@@ -67,7 +67,11 @@ function isTerminal(status: BuyOrderStatus | null): boolean {
 function quoteFromStatus(status: BuyStatusResponse): BuyQuoteResponse {
   const decimals = 6;
   const symbol = "USDC";
-  const networkLabel = "Base";
+  // i18n-keyed labels for the synthesised quote so a cold-load via a shared
+  // link still renders localised strings in the PaymentInstructions sheet
+  // (N-8). The status endpoint omits these fields, so we synthesise; the
+  // values are translated at the call site, not captured at module load.
+  const networkLabel = t("buy.quote.networkLabel.base");
   return {
     id: status.id,
     fairAmountSats: status.fairAmountSats,
@@ -81,7 +85,7 @@ function quoteFromStatus(status: BuyStatusResponse): BuyQuoteResponse {
     paymentNetworkLabel: networkLabel,
     cardPaymentUrl: null,
     paymentExpiresAt: status.paymentExpiresAt,
-    estimatedDeliveryTime: "60-180 seconds after payment confirms",
+    estimatedDeliveryTime: t("buy.quote.estimatedDelivery"),
     feeBreakdown: { uniswapBps: 0, bridgeBps: 0, slippageBufferBps: 0 },
   };
 }

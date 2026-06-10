@@ -3,7 +3,7 @@
  * Prompts user to set and confirm a 6-digit PIN.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -15,6 +15,8 @@ import { hapticSuccess } from "../../src/utils/haptics";
 import { t } from "../../src/i18n";
 
 const PIN_LENGTH = 6;
+// Short delay so the last filled dot is visible before phase transition.
+const PHASE_TRANSITION_DELAY_MS = 200;
 
 type PinPhase = "create" | "confirm";
 
@@ -26,6 +28,27 @@ export default function PinSetupScreen() {
   const [firstPin, setFirstPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // N-13: hold the in-flight transition timer so we can clear it on unmount
+  // and on every new digit press. Without it, a user who backs out within
+  // 200 ms of entering the 6th digit would still trigger `setFirstPin` /
+  // `savePin` on an unmounted component — at best a React warning, at
+  // worst (in the "confirm" phase) a PIN persisted for a wallet whose
+  // onboarding the user abandoned mid-flow (compounds N-7).
+  const transitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track mount state so the async savePin().then() handler doesn't call
+  // setState (or worse, navigate) on an unmounted component.
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      if (transitionTimer.current !== null) {
+        clearTimeout(transitionTimer.current);
+        transitionTimer.current = null;
+      }
+    };
+  }, []);
 
   const title =
     phase === "create"
@@ -46,19 +69,29 @@ export default function PinSetupScreen() {
         const next = prev + digit;
 
         if (next.length === PIN_LENGTH) {
+          // Drop any in-flight transition so we don't queue two callbacks
+          // for the same dot-fill moment.
+          if (transitionTimer.current !== null) {
+            clearTimeout(transitionTimer.current);
+          }
           if (phase === "create") {
-            setTimeout(() => {
+            transitionTimer.current = setTimeout(() => {
+              transitionTimer.current = null;
+              if (!mounted.current) return;
               setFirstPin(next);
               setPin("");
               setPhase("confirm");
-            }, 200);
+            }, PHASE_TRANSITION_DELAY_MS);
           } else {
-            setTimeout(() => {
+            transitionTimer.current = setTimeout(() => {
+              transitionTimer.current = null;
+              if (!mounted.current) return;
               if (next === firstPin) {
                 hapticSuccess();
                 setSaving(true);
                 savePin(next)
                   .then(() => {
+                    if (!mounted.current) return;
                     // The wallet was just created and is already initialized;
                     // the user explicitly set this PIN, so unlock immediately
                     // instead of letting the lock overlay shut them out.
@@ -66,6 +99,7 @@ export default function PinSetupScreen() {
                     router.replace("/(tabs)");
                   })
                   .catch((err: unknown) => {
+                    if (!mounted.current) return;
                     const msg =
                       err instanceof Error
                         ? err.message
@@ -80,14 +114,14 @@ export default function PinSetupScreen() {
                 setFirstPin("");
                 setPhase("create");
               }
-            }, 200);
+            }, PHASE_TRANSITION_DELAY_MS);
           }
         }
 
         return next;
       });
     },
-    [phase, firstPin, saving, router],
+    [phase, firstPin, saving, router, unlock],
   );
 
   const handleBackspace = useCallback(() => {

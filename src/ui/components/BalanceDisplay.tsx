@@ -9,7 +9,7 @@ import { useMemo } from "react";
 import { View, Text } from "react-native";
 import { Badge } from "./Badge";
 import { AmountText } from "./AmountText";
-import { formatFiatAmount } from "../../i18n";
+import { formatFiatAmount, t } from "../../i18n";
 import { FONT_PHUDU_LIGHT, FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { COIN_SYMBOL, UNITS_PER_COIN } from "@fairco.in/core";
 
@@ -29,8 +29,11 @@ function coinValueToUsd(value: bigint, priceUsd: number): number {
 }
 
 function formatChange(change: number): string {
+  // i18n-localised "{value}% today" label. The percentage is rendered with
+  // the same fixed precision in every language; only the trailing word
+  // changes — the {percent} placeholder keeps that single concept atomic.
   const sign = change >= 0 ? "+" : "";
-  return `${sign}${change.toFixed(1)}% today`;
+  return t("balance.change24h", { percent: `${sign}${change.toFixed(1)}` });
 }
 
 const SIZE_PRIMARY: Record<BalanceSize, number> = {
