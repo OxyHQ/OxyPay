@@ -11,7 +11,11 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { useLockStore } from "./lock-store";
 
 function resetStore(): void {
-  useLockStore.setState({ locked: true, resolved: false });
+  useLockStore.setState({
+    locked: true,
+    resolved: false,
+    pendingDeepLink: null,
+  });
 }
 
 describe("lock gate: default state", () => {
@@ -63,5 +67,59 @@ describe("lock gate: boot decision tracks PIN existence", () => {
     const willLock = useLockStore.getState().resolveInitialLock(false);
     expect(willLock).toBe(false);
     expect(useLockStore.getState().locked).toBe(false);
+  });
+});
+
+describe("N-10: deep-link queue while locked", () => {
+  beforeEach(resetStore);
+
+  test("queueDeepLink stashes the URL and a capture timestamp", () => {
+    useLockStore.getState().queueDeepLink("faircoin:FabcDEF?amount=1.5");
+    const pending = useLockStore.getState().pendingDeepLink;
+    expect(pending).not.toBeNull();
+    expect(pending?.url).toBe("faircoin:FabcDEF?amount=1.5");
+    expect(typeof pending?.capturedAt).toBe("number");
+  });
+
+  test("consumePendingDeepLink returns and clears the URL", () => {
+    useLockStore.getState().queueDeepLink("faircoin:Fxyz");
+    const popped = useLockStore.getState().consumePendingDeepLink();
+    expect(popped).toBe("faircoin:Fxyz");
+    expect(useLockStore.getState().pendingDeepLink).toBeNull();
+    // A second pop returns null — no replay across unlocks.
+    expect(useLockStore.getState().consumePendingDeepLink()).toBeNull();
+  });
+
+  test("consumePendingDeepLink drops URLs older than the freshness window", () => {
+    // Manually plant an old entry: 1h ago, window default is 5m.
+    useLockStore.setState({
+      pendingDeepLink: {
+        url: "faircoin:Fstale",
+        capturedAt: Date.now() - 60 * 60 * 1000,
+      },
+    });
+    const popped = useLockStore.getState().consumePendingDeepLink();
+    expect(popped).toBeNull();
+    // Stale entry is cleared too — we don't want to keep retrying it.
+    expect(useLockStore.getState().pendingDeepLink).toBeNull();
+  });
+
+  test("a second queued URL supersedes the first (latest wins)", () => {
+    useLockStore.getState().queueDeepLink("faircoin:Fone");
+    useLockStore.getState().queueDeepLink("faircoin:Ftwo");
+    expect(useLockStore.getState().consumePendingDeepLink()).toBe(
+      "faircoin:Ftwo",
+    );
+  });
+
+  test("consumePendingDeepLink honours a caller-supplied maxAgeMs", () => {
+    useLockStore.setState({
+      pendingDeepLink: {
+        url: "faircoin:Fmaybe",
+        capturedAt: Date.now() - 2 * 1000,
+      },
+    });
+    // 1s window → entry is stale.
+    expect(useLockStore.getState().consumePendingDeepLink(1000)).toBeNull();
   });
 });

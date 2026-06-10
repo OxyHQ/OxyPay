@@ -20,6 +20,17 @@ export interface LockState {
   locked: boolean;
   /** Whether the initial lock decision has been made (PIN existence checked). */
   resolved: boolean;
+  /**
+   * Deep link URL captured while the app was locked (N-10). The lock screen
+   * intentionally refuses to navigate into authenticated screens while
+   * locked, but discarding the URL outright is poor UX — receiving a
+   * `faircoin:` URI while locked, unlocking, and landing on Home instead of
+   * the pre-filled Send screen is confusing. We stash the URL here, the
+   * unlock path consumes it, and the deep-link handler navigates after the
+   * unlock transition. Cleared by `consumePendingDeepLink` or implicitly
+   * after a freshness timeout in the consumer.
+   */
+  pendingDeepLink: { url: string; capturedAt: number } | null;
   /** Mark the app unlocked (after a successful PIN / biometric unlock). */
   unlock: () => void;
   /** Lock the app (auto-lock on background, or manual lock). */
@@ -32,11 +43,26 @@ export interface LockState {
   resolveInitialLock: (pinSet: boolean) => boolean;
   /** Unlock without a PIN check, for wallets that have no PIN configured. */
   markNoPinUnlocked: () => void;
+  /**
+   * Queue a deep link URL that arrived while the app was locked. Overwrites
+   * any previous queued URL — only the latest matters (a second incoming
+   * payment URI invalidates the first).
+   */
+  queueDeepLink: (url: string) => void;
+  /**
+   * Pop the queued deep link URL if one is present AND it was queued within
+   * `maxAgeMs` (defaults to 5 minutes). Returns the URL or null. Clears the
+   * pending entry either way so we don't replay it on the next unlock.
+   */
+  consumePendingDeepLink: (maxAgeMs?: number) => string | null;
 }
 
-export const useLockStore = create<LockState>((set) => ({
+const DEFAULT_DEEP_LINK_MAX_AGE_MS = 5 * 60 * 1000;
+
+export const useLockStore = create<LockState>((set, get) => ({
   locked: true,
   resolved: false,
+  pendingDeepLink: null,
 
   unlock: (): void => {
     set({ locked: false, resolved: true });
@@ -53,5 +79,19 @@ export const useLockStore = create<LockState>((set) => ({
 
   markNoPinUnlocked: (): void => {
     set({ locked: false, resolved: true });
+  },
+
+  queueDeepLink: (url: string): void => {
+    set({ pendingDeepLink: { url, capturedAt: Date.now() } });
+  },
+
+  consumePendingDeepLink: (
+    maxAgeMs: number = DEFAULT_DEEP_LINK_MAX_AGE_MS,
+  ): string | null => {
+    const entry = get().pendingDeepLink;
+    set({ pendingDeepLink: null });
+    if (!entry) return null;
+    if (Date.now() - entry.capturedAt > maxAgeMs) return null;
+    return entry.url;
   },
 }));

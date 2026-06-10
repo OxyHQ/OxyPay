@@ -51,6 +51,16 @@ export function startTxNotifier(): void {
   absorb(useWalletStore.getState().transactions);
 
   unsubscribe = useWalletStore.subscribe((state, prevState) => {
+    // Switching wallets (or locking, which clears activeWalletId/transactions)
+    // changes whose txids belong in `seenTxids`. Drop the old set so we don't
+    // accumulate ids across wallets forever (N-15) and so a tx that legitimately
+    // arrived in the new wallet can fire even if it shares a txid with one we
+    // already absorbed from the previous wallet. We re-absorb below when
+    // `initialized` flips back to true for the new wallet.
+    if (state.activeWalletId !== prevState.activeWalletId) {
+      seenTxids.clear();
+    }
+
     // Wallet just finished hydrating from disk / SPV — absorb every tx
     // currently in the store without firing so the restore doesn't look
     // like a burst of incoming payments.

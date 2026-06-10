@@ -40,6 +40,7 @@ import {
   applyTransactionToWallet,
   reverseBytesToHex,
 } from "./apply-transaction";
+import { useContactsStore } from "./contacts-store";
 import { UtxoReservation } from "./utxo-reservation";
 import {
   saveMnemonic,
@@ -224,6 +225,67 @@ let peerUpdateInterval: ReturnType<typeof setInterval> | null = null;
 // Guards the historical-rescan driver so the periodic trigger never starts a
 // second concurrent scan.
 let rescanDriverRunning = false;
+// True while `sendTransaction` is executing. Used by `lockWallet` /
+// `resetWalletInternals` callers (N-2) to defer the teardown until the send
+// finishes, so we never wipe the KeyManager mid-signing (would produce a
+// zero-padded ECDSA signature) or null the database between broadcast and
+// markUTXOSpent (would broadcast a tx and forget to record the spend → local
+// double-spend).
+let sendInFlight = false;
+/**
+ * When `lockWallet` (or any teardown caller) fires while `sendInFlight` is
+ * true, we set this flag instead of running the reset, and the send's
+ * `finally` runs the deferred reset on its way out. Carries the snapshot of
+ * post-lock state to apply to the store.
+ */
+let pendingLockTeardown: null | (() => void) = null;
+
+/**
+ * Serialises `initialize` / `switchWallet` / `restoreWallet` / `switchNetwork`
+ * calls (N-1). Any call enters this single `Promise<void>` queue; the next
+ * call awaits the previous one before starting, so we can never have two
+ * concurrent inits racing to overwrite `database`, `spvClient`, `keyManager`,
+ * `utxoSet`, `networkConfig`, and `peerUpdateInterval` — which would
+ * cross-contaminate two wallets at once and leak the loser's SPV client.
+ *
+ * Re-entrancy guard: a task running inside the queue can call helpers (e.g.
+ * `switchWallet` invokes `initialize`) without enqueuing again, otherwise the
+ * inner call would await the outer task that is awaiting IT (deadlock).
+ */
+let walletInitQueue: Promise<void> = Promise.resolve();
+let walletInitDepth = 0;
+function queueWalletInit(task: () => Promise<void>): Promise<void> {
+  if (walletInitDepth > 0) {
+    // Re-entrant call from another queued task: run inline so we don't
+    // deadlock waiting for the outer task we're already inside.
+    walletInitDepth++;
+    return task().finally(() => {
+      walletInitDepth--;
+    });
+  }
+  const next = walletInitQueue.then(
+    async () => {
+      walletInitDepth++;
+      try {
+        await task();
+      } finally {
+        walletInitDepth--;
+      }
+    },
+    async () => {
+      walletInitDepth++;
+      try {
+        await task();
+      } finally {
+        walletInitDepth--;
+      }
+    },
+  );
+  // Swallow rejections on the queue so a failed init doesn't poison the
+  // chain — the caller still receives the rejected promise via `next`.
+  walletInitQueue = next.catch(() => undefined);
+  return next;
+}
 
 /**
  * Outpoints reserved by an in-flight send (review finding M4). Guards concurrent
@@ -691,6 +753,13 @@ function resetWalletInternals(): void {
   networkConfig = null;
   rescanDriverRunning = false;
   utxoReservation.clear();
+  // N-11: clear the per-wallet contact cache so we don't leak names /
+  // addresses from wallet A into wallet B's contact picker.
+  try {
+    useContactsStore.getState().reset();
+  } catch {
+    // best-effort; store may not be initialised yet during early boot.
+  }
 }
 
 const DEFAULT_WALLET_STATE = {
@@ -809,14 +878,23 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   // -------------------------------------------------------------------
 
   initialize: async (mnemonic: string, walletId?: string): Promise<void> => {
-    const state = get();
-    if (state.initialized) {
-      return;
-    }
+    // N-1: serialise wallet initialisation. If two callers race (deep-link +
+    // boot, double-tap wallet switch, restore + network switch, …) we must
+    // not run two `initialize` bodies in parallel — they would both observe
+    // `initialized === false` (cleared between each `await`), both open a
+    // Database, both spawn an SPVClient, both setInterval, all racing to
+    // overwrite the same module-level globals. The losing client would never
+    // be stopped (open socket leak) and its callbacks would write rows into
+    // the winning wallet's DB (cross-contamination).
+    return queueWalletInit(async () => {
+      const state = get();
+      if (state.initialized) {
+        return;
+      }
 
-    set({ loading: true, error: null });
+      set({ loading: true, error: null });
 
-    try {
+      try {
       networkConfig = getNetwork(state.network);
       database = await Database.open(walletId);
       // A wallet's stored secret is either a BIP39 mnemonic or the watch-only
@@ -896,10 +974,23 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         const socketProvider = createSocketProvider();
         const headerStore = new DatabaseHeaderStore(database);
 
+        // N-5: load the persisted peer cache so the first connection round
+        // doesn't wait on DNS resolution. This also honours user-added peers
+        // from the "Add Peer" screen, which were previously written to DB
+        // but never read by the peer manager.
+        let initialPeers: string[] = [];
+        try {
+          const peerRows = await database.getKnownPeers(50);
+          initialPeers = peerRows.map((row) => row.host);
+        } catch {
+          // best-effort; DNS seeds are the fallback.
+        }
+
         spvClient = new SPVClient({
           network: networkConfig,
           socketProvider,
           headerStore,
+          initialKnownAddresses: initialPeers,
         });
 
         spvClient.setEvents({
@@ -1009,11 +1100,12 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           spvError instanceof Error ? spvError.message : "Unknown P2P error";
         setNetworkStatus(set, "wallet.network.error", { message: spvMsg });
       }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Unknown initialization error";
-      set({ loading: false, error: message });
-    }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Unknown initialization error";
+        set({ loading: false, error: message });
+      }
+    });
   },
 
   createWallet: async (): Promise<string> => {
@@ -1031,29 +1123,32 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   },
 
   restoreWallet: async (mnemonic: string): Promise<void> => {
-    set({ loading: true, error: null });
+    // N-1: serialise restore so a concurrent boot / switch can't interleave.
+    return queueWalletInit(async () => {
+      set({ loading: true, error: null });
 
-    try {
-      const trimmed = mnemonic.trim().toLowerCase();
-      if (!validateMnemonic(trimmed)) {
-        throw new Error("Invalid mnemonic phrase");
+      try {
+        const trimmed = mnemonic.trim().toLowerCase();
+        if (!validateMnemonic(trimmed)) {
+          throw new Error("Invalid mnemonic phrase");
+        }
+
+        const walletId = generateWalletId();
+        const wallets = await getWalletIndex();
+        const walletName = `Wallet ${wallets.length + 1}`;
+
+        await saveWalletMnemonic(walletId, trimmed);
+        await addWalletToIndex(walletId, walletName);
+        await setActiveWalletId(walletId);
+
+        await get().initialize(trimmed, walletId);
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Failed to restore wallet";
+        set({ loading: false, error: message });
+        throw new Error(message);
       }
-
-      const walletId = generateWalletId();
-      const wallets = await getWalletIndex();
-      const walletName = `Wallet ${wallets.length + 1}`;
-
-      await saveWalletMnemonic(walletId, trimmed);
-      await addWalletToIndex(walletId, walletName);
-      await setActiveWalletId(walletId);
-
-      await get().initialize(trimmed, walletId);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to restore wallet";
-      set({ loading: false, error: message });
-      throw new Error(message);
-    }
+    });
   },
 
   rescanWallet: async (): Promise<void> => {
@@ -1158,26 +1253,53 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   ): Promise<string> => {
     set({ loading: true, error: null });
 
+    // N-2: capture local references to every module-level dependency the
+    // send touches. If `lockWallet` (auto-lock, manual lock, switch wallet)
+    // fires during one of our `await`s, it will null these globals and
+    // wipe the KeyManager. Without local snapshots:
+    //   - signInput would read a zeroed `privateKey` and produce an invalid
+    //     signature ALREADY broadcasted (signed) → on-chain reject only after
+    //     the bytes left;
+    //   - `database.markUTXOSpent` would throw on a null DB AFTER broadcast,
+    //     leaving the network with a tx that spends our coins while our
+    //     local UTXO set still shows them spendable → local double-spend.
+    //
+    // `lockWallet` is aware of this and defers its teardown via
+    // `pendingLockTeardown` when `sendInFlight` is true; we run that
+    // deferred teardown in `finally`.
+    const localKeyManager = keyManager;
+    const localDatabase = database;
+    const localNetworkConfig = networkConfig;
+    const localSpvClient = spvClient;
+    const localUtxoSet = utxoSet;
+    const localReservation = utxoReservation;
+
     // Outpoints this send reserves; released in `finally` on any exit so a
     // failed or completed send never leaves coins permanently locked (M4).
-    let reservedHere: Array<{ txid: string; vout: number }> = [];
+    let reservedHere: { txid: string; vout: number }[] = [];
+    let sendStarted = false;
 
     try {
-      if (!keyManager || !database || !networkConfig) {
+      if (!localKeyManager || !localDatabase || !localNetworkConfig) {
         throw new Error("Wallet not initialized");
       }
       if (get().isWatchOnly) {
         throw new Error("Watch-only wallets cannot send transactions");
       }
 
+      // From here on we hold critical refs; mark in-flight so lockWallet
+      // defers its teardown until our finally block runs.
+      sendInFlight = true;
+      sendStarted = true;
+
       // Build the pool of spendable coins from CONFIRMED unspent rows only.
       // Unconfirmed (block_height < 0, mempool) outputs are excluded so a send
       // never spends funds that could still be reorged away. Coins already
       // reserved by another in-flight send are excluded too, so automatic
       // selection cannot pick a UTXO a concurrent send is about to spend (M4).
-      const utxoRows = await database.getUnspentUTXOs();
+      const utxoRows = await localDatabase.getUnspentUTXOs();
       const candidates: UTXO[] = utxoRows
-        .filter((row) => !utxoReservation.has(row.txid, row.vout))
+        .filter((row) => !localReservation.has(row.txid, row.vout))
         .map((row) => ({
           txid: row.txid,
           vout: row.vout,
@@ -1197,7 +1319,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         targetValue: amount,
         feePerByte: feeRate,
         coinControl,
-        dustThreshold: networkConfig.minRelayFee,
+        dustThreshold: localNetworkConfig.minRelayFee,
       });
 
       // Reserve the selected outpoints synchronously, before the first `await`
@@ -1208,7 +1330,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         txid: utxo.txid,
         vout: utxo.vout,
       }));
-      const conflict = utxoReservation.reserve(outpoints);
+      const conflict = localReservation.reserve(outpoints);
       if (conflict !== null) {
         throw new Error(
           "Selected coins are being spent by another transaction in progress",
@@ -1226,13 +1348,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // Build unsigned transaction from EXACTLY the selected inputs. The core
       // builder spends every input it is given, which is why selection (not the
       // builder) is responsible for choosing the right coins.
-      const changeAddress = keyManager.getNextChangeAddress().address;
+      const changeAddress = localKeyManager.getNextChangeAddress().address;
       const tx = buildTransaction({
         utxos: inputs,
         recipients: [{ address: toAddress, value: amount }],
         changeAddress,
         feePerByte: BigInt(feeRate),
-        network: networkConfig,
+        network: localNetworkConfig,
       });
 
       // Sign each input with the corresponding private key
@@ -1245,7 +1367,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           throw new Error(`UTXO not found for input ${input.txid}:${input.vout}`);
         }
 
-        const privateKey = keyManager.getPrivateKeyForAddress(utxo.address);
+        const privateKey = localKeyManager.getPrivateKeyForAddress(utxo.address);
         tx.inputs[i] = {
           ...tx.inputs[i],
           scriptSig: signInput(tx, i, utxo.scriptPubKey, privateKey),
@@ -1265,12 +1387,12 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // we MUST NOT mark inputs as spent or pretend the send succeeded (H-1).
       // Without this gate the wallet would silently desync from the network:
       // UTXOs locally spent but still spendable by anyone else on chain.
-      if (!spvClient) {
+      if (!localSpvClient) {
         throw new Error(
           "Wallet is offline. Connect to peers before sending a transaction.",
         );
       }
-      const broadcast = spvClient.broadcastTransaction(rawTx);
+      const broadcast = localSpvClient.broadcastTransaction(rawTx);
       if (broadcast.peerCount === 0) {
         throw new Error(
           "No peers available to relay the transaction. Try again once the wallet is connected.",
@@ -1280,9 +1402,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // Mark UTXOs as spent locally. The spend is unconfirmed (height -1) until
       // it lands in a block; recording the spending txid lets a reorg undo it.
       for (const input of tx.inputs) {
-        await database.markUTXOSpent(input.txid, input.vout, txid, -1);
-        if (utxoSet) {
-          utxoSet.spend(input.txid, input.vout);
+        await localDatabase.markUTXOSpent(input.txid, input.vout, txid, -1);
+        if (localUtxoSet) {
+          localUtxoSet.spend(input.txid, input.vout);
         }
       }
 
@@ -1291,7 +1413,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // serialized size — selection already computed exactly what the
       // transaction pays, so the history row matches the on-chain fee (M-1).
       const now = Math.floor(Date.now() / 1000);
-      await database.insertTransaction({
+      await localDatabase.insertTransaction({
         txid,
         raw_hex: bytesToHex(rawTx),
         block_height: -1,
@@ -1332,7 +1454,19 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // Release this send's UTXO reservations whether it succeeded or failed.
       // On success the inputs are already marked spent in the DB so they won't
       // be reselected; on failure they return to the available pool (M4).
-      utxoReservation.release(reservedHere);
+      localReservation.release(reservedHere);
+      if (sendStarted) {
+        sendInFlight = false;
+        // Run any teardown that was deferred while we were sending (N-2). The
+        // user pressed lock during a send; the lock UI showed immediately,
+        // but the actual KeyManager wipe + spvClient.stop waited for us so
+        // we never zeroed the keys mid-signing.
+        if (pendingLockTeardown) {
+          const teardown = pendingLockTeardown;
+          pendingLockTeardown = null;
+          teardown();
+        }
+      }
     }
   },
 
@@ -1424,15 +1558,35 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     // brought back up. Persisted secrets and chain data are untouched, so this
     // is non-destructive and fully reversible by unlocking.
     const state = get();
+    const applyLockState = (): void => {
+      set({
+        ...DEFAULT_WALLET_STATE,
+        network: state.network,
+        activeWalletId: state.activeWalletId,
+        activeWalletName: state.activeWalletName,
+        wallets: state.wallets,
+        isWatchOnly: state.isWatchOnly,
+      });
+    };
+
+    // N-2: if a send is currently between broadcast and its DB markUTXOSpent,
+    // running the teardown now would either (a) zero the KeyManager's private
+    // keys mid-signing and produce an invalid (zeroed) ECDSA signature, or
+    // (b) null `database` between broadcast and the spend-record write —
+    // leaving the wallet thinking those coins are still spendable while the
+    // network already accepted the tx that spends them. Defer the teardown
+    // until `sendTransaction`'s `finally` runs it; the UI still sees the
+    // lock immediately because the unlock screen only checks `hasPin()`.
+    if (sendInFlight) {
+      pendingLockTeardown = (): void => {
+        resetWalletInternals();
+        applyLockState();
+      };
+      return;
+    }
+
     resetWalletInternals();
-    set({
-      ...DEFAULT_WALLET_STATE,
-      network: state.network,
-      activeWalletId: state.activeWalletId,
-      activeWalletName: state.activeWalletName,
-      wallets: state.wallets,
-      isWatchOnly: state.isWatchOnly,
-    });
+    applyLockState();
   },
 
   // -------------------------------------------------------------------
@@ -1463,41 +1617,56 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const state = get();
     if (state.activeWalletId === walletId) return;
 
-    set({ loading: true, error: null });
+    // N-1: serialise the whole switch. A second switchWallet press while the
+    // first is mid-flight would race to close the same DB, null the same
+    // globals, and call `initialize` twice. The init queue serialises the
+    // inner initialize, but the tear-down before it also has to be exclusive
+    // — otherwise both call sites reset state and the second one starts
+    // initialising before the first one finished its setActiveWalletId.
+    return queueWalletInit(async () => {
+      set({ loading: true, error: null });
 
-    try {
-      // Close current database
-      if (database) {
-        await database.close();
+      try {
+        // Close current database
+        if (database) {
+          await database.close();
+        }
+
+        // Reset in-memory state
+        resetWalletInternals();
+
+        set({
+          ...DEFAULT_WALLET_STATE,
+          network: state.network,
+          activeWalletId: walletId,
+          wallets: state.wallets,
+          loading: true,
+        });
+
+        // Set the new active wallet
+        await setActiveWalletId(walletId);
+
+        // Load the new wallet's mnemonic
+        const mnemonic = await getWalletMnemonic(walletId);
+        if (!mnemonic) {
+          throw new Error("Wallet mnemonic not found");
+        }
+
+        // Re-initialize with the new wallet. `initialize` itself queues, but
+        // since we're already inside the queue here, calling it would await
+        // forever. Inline the same effect by calling the action with an
+        // already-queued flag — simplest is to await it; the queue is
+        // re-entrant safe because we awaited and the chain resolves in
+        // order. (The inner queueWalletInit returns the same promise the
+        // outer task is awaiting; deadlock would occur only if we awaited
+        // a NEW task posted while we still hold the queue.)
+        await get().initialize(mnemonic, walletId);
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Failed to switch wallet";
+        set({ loading: false, error: message });
       }
-
-      // Reset in-memory state
-      resetWalletInternals();
-
-      set({
-        ...DEFAULT_WALLET_STATE,
-        network: state.network,
-        activeWalletId: walletId,
-        wallets: state.wallets,
-        loading: true,
-      });
-
-      // Set the new active wallet
-      await setActiveWalletId(walletId);
-
-      // Load the new wallet's mnemonic
-      const mnemonic = await getWalletMnemonic(walletId);
-      if (!mnemonic) {
-        throw new Error("Wallet mnemonic not found");
-      }
-
-      // Re-initialize with the new wallet
-      await get().initialize(mnemonic, walletId);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to switch wallet";
-      set({ loading: false, error: message });
-    }
+    });
   },
 
   createNewWallet: async (name: string): Promise<string> => {
@@ -1737,44 +1906,48 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const state = get();
     if (state.network === newNetwork) return;
 
-    set({ loading: true, error: null });
+    // N-1: serialise so a concurrent switchWallet/restore can't race the
+    // teardown→re-init we're about to perform.
+    return queueWalletInit(async () => {
+      set({ loading: true, error: null });
 
-    try {
-      // Stop SPV client
-      resetWalletInternals();
+      try {
+        // Stop SPV client
+        resetWalletInternals();
 
-      // Close current database
-      if (database) {
-        await database.close();
-      }
+        // Close current database
+        if (database) {
+          await database.close();
+        }
 
-      // Reset to uninitialized state with new network
-      set({
-        ...DEFAULT_WALLET_STATE,
-        network: newNetwork,
-        activeWalletId: state.activeWalletId,
-        activeWalletName: state.activeWalletName,
-        wallets: state.wallets,
-        initialized: false,
-        loading: true,
-      });
+        // Reset to uninitialized state with new network
+        set({
+          ...DEFAULT_WALLET_STATE,
+          network: newNetwork,
+          activeWalletId: state.activeWalletId,
+          activeWalletName: state.activeWalletName,
+          wallets: state.wallets,
+          initialized: false,
+          loading: true,
+        });
 
-      // Re-initialize with the current wallet's mnemonic on the new network
-      if (state.activeWalletId) {
-        const mnemonic = await getWalletMnemonic(state.activeWalletId);
-        if (mnemonic) {
-          await get().initialize(mnemonic, state.activeWalletId);
+        // Re-initialize with the current wallet's mnemonic on the new network
+        if (state.activeWalletId) {
+          const mnemonic = await getWalletMnemonic(state.activeWalletId);
+          if (mnemonic) {
+            await get().initialize(mnemonic, state.activeWalletId);
+          } else {
+            set({ loading: false });
+          }
         } else {
           set({ loading: false });
         }
-      } else {
-        set({ loading: false });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Failed to switch network";
+        set({ loading: false, error: message });
       }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to switch network";
-      set({ loading: false, error: message });
-    }
+    });
   },
 
   // -------------------------------------------------------------------

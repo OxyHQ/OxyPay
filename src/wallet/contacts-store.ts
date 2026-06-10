@@ -14,6 +14,12 @@ interface ContactsState {
   contacts: ContactRow[];
   loading: boolean;
 
+  /**
+   * Clear the in-memory contacts list. Called from `lockWallet` /
+   * `switchWallet` / `resetWalletInternals` so data from the previous
+   * wallet can't leak to the next one through the shared store (N-11).
+   */
+  reset: () => void;
   loadContacts: (db: Database) => Promise<void>;
   addContact: (
     db: Database,
@@ -58,6 +64,10 @@ function generateContactId(): string {
 export const useContactsStore = create<ContactsState>((set, get) => ({
   contacts: [],
   loading: false,
+
+  reset: (): void => {
+    set({ contacts: [], loading: false });
+  },
 
   loadContacts: async (db: Database): Promise<void> => {
     set({ loading: true });
