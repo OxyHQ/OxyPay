@@ -1,0 +1,87 @@
+{
+  "app": {
+    "name": "Oxy Pay"
+  },
+  "tabs": {
+    "money": "Money",
+    "pay": "Pay",
+    "activity": "Activity",
+    "profile": "Profile"
+  },
+  "home": {
+    "label": "Oxy Cash",
+    "addCash": "Add Cash",
+    "cashOut": "Cash Out",
+    "scan": "Scan",
+    "tapToPay": "Tap to Pay",
+    "request": "Request",
+    "send": "Send",
+    "recentActivity": "Recent activity",
+    "viewAll": "View all",
+    "noActivity": "No activity yet"
+  },
+  "pay": {
+    "title": "Pay",
+    "to": "To",
+    "toPlaceholder": "Search $oxytag or @username",
+    "amount": "Amount",
+    "note": "What's this for?",
+    "actionPay": "Pay",
+    "actionRequest": "Request",
+    "submit": "Pay {{amount}}",
+    "submitRequest": "Request {{amount}}",
+    "success": "Sent",
+    "failed": "Failed: {{message}}"
+  },
+  "activity": {
+    "title": "Activity",
+    "filterAll": "All",
+    "filterIn": "Incoming",
+    "filterOut": "Outgoing",
+    "loadMore": "Load more",
+    "empty": "Nothing here yet",
+    "loading": "Loading\u2026"
+  },
+  "profile": {
+    "title": "Profile",
+    "cashtag": "$oxytag",
+    "settings": "Settings",
+    "language": "Language",
+    "about": "About",
+    "version": "Version {{version}}",
+    "signOut": "Sign out",
+    "devTopUpTitle": "Dev tools",
+    "devTopUpHint": "Available in development only.",
+    "devTopUp": "Top up {{amount}} {{currency}}"
+  },
+  "history": {
+    "types": {
+      "deposit": "Top up",
+      "withdrawal": "Withdrawal",
+      "transfer_in": "From {{name}}",
+      "transfer_out": "To {{name}}",
+      "payment_in": "Payment from {{name}}",
+      "payment_out": "Paid {{name}}",
+      "refund_in": "Refund received",
+      "refund_out": "Refund sent",
+      "fee": "Fee"
+    }
+  },
+  "receive": {
+    "title": "Add Cash",
+    "yourQR": "Your Oxy Pay QR",
+    "username": "Username",
+    "topUpFaircoin": "Top up with FairCoin",
+    "depositAddress": "FairCoin deposit address",
+    "copy": "Copy",
+    "copied": "Copied to clipboard",
+    "loadingAddress": "Generating address\u2026"
+  },
+  "errors": {
+    "unauthorized": "Sign in to use Oxy Pay.",
+    "signIn": "Sign in with Oxy",
+    "generic": "Something went wrong",
+    "insufficient_funds": "Insufficient funds",
+    "invalid_amount": "Enter a valid amount"
+  }
+}

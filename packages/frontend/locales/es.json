@@ -1,0 +1,87 @@
+{
+  "app": {
+    "name": "Oxy Pay"
+  },
+  "tabs": {
+    "money": "Dinero",
+    "pay": "Pagar",
+    "activity": "Actividad",
+    "profile": "Perfil"
+  },
+  "home": {
+    "label": "Oxy Cash",
+    "addCash": "Añadir",
+    "cashOut": "Retirar",
+    "scan": "Escanear",
+    "tapToPay": "Tocar para pagar",
+    "request": "Solicitar",
+    "send": "Enviar",
+    "recentActivity": "Actividad reciente",
+    "viewAll": "Ver todo",
+    "noActivity": "Aún no hay actividad"
+  },
+  "pay": {
+    "title": "Pagar",
+    "to": "A",
+    "toPlaceholder": "Busca $oxytag o @usuario",
+    "amount": "Importe",
+    "note": "¿Concepto?",
+    "actionPay": "Pagar",
+    "actionRequest": "Solicitar",
+    "submit": "Pagar {{amount}}",
+    "submitRequest": "Solicitar {{amount}}",
+    "success": "Enviado",
+    "failed": "Error: {{message}}"
+  },
+  "activity": {
+    "title": "Actividad",
+    "filterAll": "Todo",
+    "filterIn": "Entrantes",
+    "filterOut": "Salientes",
+    "loadMore": "Cargar más",
+    "empty": "Aún no hay nada",
+    "loading": "Cargando\u2026"
+  },
+  "profile": {
+    "title": "Perfil",
+    "cashtag": "$oxytag",
+    "settings": "Ajustes",
+    "language": "Idioma",
+    "about": "Acerca de",
+    "version": "Versión {{version}}",
+    "signOut": "Cerrar sesión",
+    "devTopUpTitle": "Herramientas de desarrollo",
+    "devTopUpHint": "Solo disponible en desarrollo.",
+    "devTopUp": "Recargar {{amount}} {{currency}}"
+  },
+  "history": {
+    "types": {
+      "deposit": "Recarga",
+      "withdrawal": "Retirada",
+      "transfer_in": "De {{name}}",
+      "transfer_out": "A {{name}}",
+      "payment_in": "Pago de {{name}}",
+      "payment_out": "Pagado a {{name}}",
+      "refund_in": "Reembolso recibido",
+      "refund_out": "Reembolso enviado",
+      "fee": "Comisión"
+    }
+  },
+  "receive": {
+    "title": "Añadir dinero",
+    "yourQR": "Tu QR de Oxy Pay",
+    "username": "Usuario",
+    "topUpFaircoin": "Recargar con FairCoin",
+    "depositAddress": "Dirección de depósito FairCoin",
+    "copy": "Copiar",
+    "copied": "Copiado al portapapeles",
+    "loadingAddress": "Generando dirección\u2026"
+  },
+  "errors": {
+    "unauthorized": "Inicia sesión para usar Oxy Pay.",
+    "signIn": "Iniciar sesión con Oxy",
+    "generic": "Algo salió mal",
+    "insufficient_funds": "Saldo insuficiente",
+    "invalid_amount": "Introduce un importe válido"
+  }
+}
