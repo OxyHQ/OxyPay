@@ -12,10 +12,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "co.oxy.pay"
+      "bundleIdentifier": "so.oxy.pay"
     },
     "android": {
-      "package": "co.oxy.pay",
+      "package": "so.oxy.pay",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0B0B0B"

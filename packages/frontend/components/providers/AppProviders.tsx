@@ -34,7 +34,7 @@ export function AppProviders({ children }: AppProvidersProps) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PersistQueryClientProvider client={queryClient} persistOptions={PERSIST_OPTIONS}>
-        <OxyProvider baseURL={config.oxyApiBaseUrl}>
+        <OxyProvider baseURL={config.oxyApiBaseUrl} clientId={config.oxyClientId}>
           {children}
           <Toaster position="top-center" />
         </OxyProvider>

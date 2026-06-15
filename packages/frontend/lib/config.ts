@@ -17,4 +17,12 @@ export const config = {
     process.env.EXPO_PUBLIC_OXY_API_BASE_URL ||
     fromExtra('oxyApiBaseUrl') ||
     'https://api.oxy.so',
+  /**
+   * Oxy Pay's registered Oxy OAuth client id (ApplicationCredential publicKey).
+   * Required by @oxyhq/services for the cross-app device sign-in flow.
+   */
+  oxyClientId:
+    process.env.EXPO_PUBLIC_OXY_CLIENT_ID ||
+    fromExtra('oxyClientId') ||
+    'oxy_dk_e57506739475e4c3e6038428e768089f7e81b16986e691c5',
 };

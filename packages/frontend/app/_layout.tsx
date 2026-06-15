@@ -1,7 +1,6 @@
 import 'react-native-url-polyfill/auto';
 import 'react-native-reanimated';
 import '@/lib/i18n';
-import '@/styles/global.css';
 
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
