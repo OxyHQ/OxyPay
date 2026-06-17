@@ -1,7 +1,7 @@
 import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import type { Currency } from '@oxypay/shared-types';
 
-export interface WalletDocument extends Document {
+export interface WalletDocument extends Document<string> {
   _id: string;
   userId: string;
   currency: Currency;

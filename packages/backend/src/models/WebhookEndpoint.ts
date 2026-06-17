@@ -1,7 +1,7 @@
 import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import type { WebhookEventType } from '@oxypay/shared-types';
 
-export interface WebhookEndpointDocument extends Document {
+export interface WebhookEndpointDocument extends Document<string> {
   _id: string;
   /** Oxy developer-app id that owns this endpoint. */
   appId: string;
