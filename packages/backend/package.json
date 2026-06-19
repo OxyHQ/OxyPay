@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@oxypay/shared-types": "*",
-    "@oxyhq/core": "^3.4.3",
+    "@oxyhq/core": "^3.4.13",
     "bignumber.js": "^9.1.2",
     "body-parser": "^1.20.5",
     "cors": "^2.8.6",

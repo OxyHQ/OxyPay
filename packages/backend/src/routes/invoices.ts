@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authMiddleware, type AuthRequest } from '../middleware/auth';
+import { getRequiredOxyUserId, requireOxyAuth, type OxyAuthRequest as AuthRequest } from '@oxyhq/core/server';
 import { validate } from '../middleware/validate';
 import { HttpError } from '../middleware/errorHandler';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../services/invoice.service';
 
 const router = Router();
-router.use(authMiddleware);
+router.use(requireOxyAuth);
 
 const moneySchema = z.object({
   amount: z.string().regex(/^\d+$/, 'Amount must be a non-negative integer string in base units'),
@@ -43,8 +43,7 @@ const createSchema = z.object({
 router.post('/', validate(createSchema), async (req: AuthRequest, res, next) => {
   try {
     const body = req.body as z.infer<typeof createSchema>;
-    const merchantId = req.user?.id ?? req.user?._id;
-    if (!merchantId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const merchantId = getRequiredOxyUserId(req);
     const doc = await createInvoice({ merchantId, ...body });
     res.status(201).json({ success: true, data: toInvoiceDto(doc) });
   } catch (err) {
@@ -54,8 +53,7 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res, next) => 
 
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const merchantId = req.user?.id ?? req.user?._id;
-    if (!merchantId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const merchantId = getRequiredOxyUserId(req);
     const items = await listMerchantInvoices(merchantId);
     res.json({ success: true, data: { items } });
   } catch (err) {
@@ -66,7 +64,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 router.get('/:invoiceId', async (req: AuthRequest, res, next) => {
   try {
     const doc = await getInvoice(req.params.invoiceId);
-    const userId = req.user?.id ?? req.user?._id;
+    const userId = getRequiredOxyUserId(req);
     if (doc.merchantId !== userId && doc.customerId && doc.customerId !== userId) {
       // Allow open invoices to be fetched by any signed-in user (they may pay).
       if (doc.status !== 'open' || doc.customerId) {
@@ -81,8 +79,7 @@ router.get('/:invoiceId', async (req: AuthRequest, res, next) => {
 
 router.post('/:invoiceId/cancel', async (req: AuthRequest, res, next) => {
   try {
-    const merchantId = req.user?.id ?? req.user?._id;
-    if (!merchantId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const merchantId = getRequiredOxyUserId(req);
     const doc = await cancelInvoice(req.params.invoiceId, merchantId);
     res.json({ success: true, data: toInvoiceDto(doc) });
   } catch (err) {

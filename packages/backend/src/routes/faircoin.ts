@@ -1,17 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authMiddleware, type AuthRequest } from '../middleware/auth';
+import { getRequiredOxyUserId, requireOxyAuth, type OxyAuthRequest as AuthRequest } from '@oxyhq/core/server';
 import { validate } from '../middleware/validate';
-import { HttpError } from '../middleware/errorHandler';
 import { getDepositAddress, estimateWithdrawalFee, isLive } from '../services/faircoin.service';
 
 const router = Router();
-router.use(authMiddleware);
+router.use(requireOxyAuth);
 
 router.get('/deposit-address', async (req: AuthRequest, res, next) => {
   try {
-    const userId = req.user?.id ?? req.user?._id;
-    if (!userId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const userId = getRequiredOxyUserId(req);
     const addr = await getDepositAddress(userId);
     res.json({ success: true, data: { ...addr, live: isLive() } });
   } catch (err) {

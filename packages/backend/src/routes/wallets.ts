@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authMiddleware, type AuthRequest } from '../middleware/auth';
+import { getRequiredOxyUserId, requireOxyAuth, type OxyAuthRequest as AuthRequest } from '@oxyhq/core/server';
 import { validate } from '../middleware/validate';
-import { HttpError } from '../middleware/errorHandler';
 import {
   devTopUp,
   getOrCreateWallet,
@@ -12,7 +11,7 @@ import {
 } from '../services/wallet.service';
 
 const router = Router();
-router.use(authMiddleware);
+router.use(requireOxyAuth);
 
 const currencyEnum = z.enum(['FAIR', 'EUR', 'USD']);
 
@@ -65,9 +64,7 @@ router.post('/dev/top-up', validate(devTopUpSchema), async (req: AuthRequest, re
 });
 
 function getUserId(req: AuthRequest): string {
-  const id = req.user?.id ?? req.user?._id;
-  if (!id) throw new HttpError(401, 'unauthorized', 'Missing user');
-  return id;
+  return getRequiredOxyUserId(req);
 }
 
 export default router;

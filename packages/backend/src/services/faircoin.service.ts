@@ -2,10 +2,8 @@
  * FairCoin node integration. This is the boundary between Oxy Pay's custodial
  * ledger and the on-chain FairCoin network.
  *
- * In dev (when `FAIRCOIN_RPC_URL` is not set) this service runs in **mock
- * mode**: addresses are random base58-looking strings and `watch()` is a
- * no-op. In production, this should be wired up to a real FairCoin RPC
- * endpoint (e.g. `fairwalletd`).
+ * In dev (when `FAIRCOIN_RPC_URL` is not set) this service runs in mock mode:
+ * addresses are random base58-looking strings and no chain watcher is started.
  *
  * The deposit address strategy is one fresh address per user (HD-derived),
  * watched by a poller that calls `creditWallet({ type: 'deposit', externalRef:
@@ -33,9 +31,10 @@ export function isLive(): boolean {
 
 /**
  * Returns a deposit address for the given user. Reuses the previously-issued
- * address (FairCoin addresses are reusable). In live mode, this calls
- * `getnewaddress` on the FairCoin node and stores the mapping; in mock mode,
- * it just returns a random base58 string.
+ * address (FairCoin addresses are reusable). Mock mode returns a deterministic
+ * in-process address for the user. Live mode is intentionally disabled until a
+ * real FairCoin RPC client is wired in; refusing is safer than issuing fake
+ * addresses while `FAIRCOIN_RPC_URL` is configured.
  */
 export async function getDepositAddress(userId: string): Promise<FairCoinDepositAddress> {
   const cached = inMemoryAddresses.get(userId);
@@ -45,8 +44,6 @@ export async function getDepositAddress(userId: string): Promise<FairCoinDeposit
     inMemoryAddresses.set(userId, addr);
     return addr;
   }
-  // TODO: wire RPC call to faircoind `getnewaddress "oxypay-${userId}"`.
-  // For now refuse to issue real addresses without an explicit implementation.
   throw new HttpError(
     503,
     'faircoin_not_configured',

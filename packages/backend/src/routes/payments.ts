@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authMiddleware, type AuthRequest } from '../middleware/auth';
+import { getRequiredOxyUserId, requireOxyAuth, type OxyAuthRequest as AuthRequest } from '@oxyhq/core/server';
 import { validate } from '../middleware/validate';
-import { HttpError } from '../middleware/errorHandler';
 import {
   getPayment,
   payInvoice,
@@ -11,7 +10,7 @@ import {
 } from '../services/payment.service';
 
 const router = Router();
-router.use(authMiddleware);
+router.use(requireOxyAuth);
 
 const moneySchema = z.object({
   amount: z.string().regex(/^\d+$/),
@@ -26,8 +25,7 @@ const payInvoiceSchema = z.object({
 router.post('/pay-invoice', validate(payInvoiceSchema), async (req: AuthRequest, res, next) => {
   try {
     const { invoiceId, method } = req.body as z.infer<typeof payInvoiceSchema>;
-    const payerId = req.user?.id ?? req.user?._id;
-    if (!payerId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const payerId = getRequiredOxyUserId(req);
     const doc = await payInvoice({ payerId, invoiceId, method });
     res.status(201).json({ success: true, data: toPaymentDto(doc) });
   } catch (err) {
@@ -44,8 +42,7 @@ const transferSchema = z.object({
 router.post('/transfer', validate(transferSchema), async (req: AuthRequest, res, next) => {
   try {
     const body = req.body as z.infer<typeof transferSchema>;
-    const fromUserId = req.user?.id ?? req.user?._id;
-    if (!fromUserId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const fromUserId = getRequiredOxyUserId(req);
     const doc = await transfer({ fromUserId, ...body });
     res.status(201).json({ success: true, data: toPaymentDto(doc) });
   } catch (err) {
@@ -55,8 +52,7 @@ router.post('/transfer', validate(transferSchema), async (req: AuthRequest, res,
 
 router.get('/:paymentId', async (req: AuthRequest, res, next) => {
   try {
-    const userId = req.user?.id ?? req.user?._id;
-    if (!userId) throw new HttpError(401, 'unauthorized', 'Missing user');
+    const userId = getRequiredOxyUserId(req);
     const doc = await getPayment(req.params.paymentId, userId);
     res.json({ success: true, data: toPaymentDto(doc) });
   } catch (err) {
