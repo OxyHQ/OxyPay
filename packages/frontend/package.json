@@ -16,9 +16,9 @@
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@gorhom/bottom-sheet": "^5.2.14",
-    "@oxyhq/bloom": "^0.8.5",
-    "@oxyhq/core": "^3.4.13",
-    "@oxyhq/services": "^10.2.10",
+    "@oxyhq/bloom": "^0.9.1",
+    "@oxyhq/core": "^3.7.1",
+    "@oxyhq/services": "^10.3.3",
     "@oxypay/shared-types": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "^11.4.1",
