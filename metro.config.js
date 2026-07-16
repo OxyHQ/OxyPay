@@ -47,4 +47,10 @@ config.resolver = {
   },
 };
 
-module.exports = withNativeWind(config, { input: "./global.css" });
+// NativeWind 5 (built on react-native-css) compiles both the app's own Tailwind
+// classes and Bloom's — a single wrapper, no separate `withReactNativeCSS`.
+module.exports = withNativeWind(config, {
+  input: "./global.css",
+  inlineRem: 16,
+  inlineVariables: false,
+});

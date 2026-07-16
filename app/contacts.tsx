@@ -24,7 +24,7 @@ import type { ContactRow } from "../src/storage/database";
 import { ContactAvatar, EmptyState } from "../src/ui/components";
 import { QRScanner } from "../src/ui/components/QRScanner";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 
 // ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ function ContactForm({
   const [notes, setNotes] = useState("");
   const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const clipboardErrorControl = Prompt.usePromptControl();
+  const clipboardErrorControl = useDialogControl();
 
   const handleOpen = useCallback(() => {
     if (editingContact) {
@@ -317,13 +317,12 @@ function ContactForm({
         onClose={() => setShowQRScanner(false)}
       />
 
-      <Prompt.Basic
+      <Dialog
         control={clipboardErrorControl}
+        placement="bottom"
         title={t("contacts.clipboardError.title")}
         description={t("contacts.clipboardError.description")}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => {}}
-        showCancel={false}
+        actions={[{ label: t("common.ok") }]}
       />
     </Modal>
   );
@@ -391,8 +390,8 @@ export default function ContactsScreen() {
     useState<ContactRow | null>(null);
   const [longPressContact, setLongPressContact] =
     useState<ContactRow | null>(null);
-  const deleteContactControl = Prompt.usePromptControl();
-  const longPressMenuControl = Prompt.usePromptControl();
+  const deleteContactControl = useDialogControl();
+  const longPressMenuControl = useDialogControl();
 
   const handleLayout = useCallback(() => {
     const db = getDatabase();
@@ -606,39 +605,30 @@ export default function ContactsScreen() {
       />
 
       {/* Long-press action menu prompt */}
-      <Prompt.Outer
+      <Dialog
         control={longPressMenuControl}
         onClose={() => setLongPressContact(null)}
-      >
-        <Prompt.Content>
-          <Prompt.TitleText>{longPressContact?.name ?? ""}</Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {longPressContact ? truncateAddress(longPressContact.address) : ""}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.edit")}
-            onPress={handleLongPressEdit}
-            color="primary"
-          />
-          <Prompt.Action
-            cta={t("contacts.copyAddress")}
-            onPress={handleLongPressCopy}
-            color="primary_subtle"
-          />
-          <Prompt.Action
-            cta={t("common.delete")}
-            onPress={handleLongPressDelete}
-            color="negative"
-          />
-          <Prompt.Cancel />
-        </Prompt.Actions>
-      </Prompt.Outer>
+        placement="bottom"
+        title={longPressContact?.name ?? ""}
+        description={
+          longPressContact ? truncateAddress(longPressContact.address) : ""
+        }
+        actions={[
+          { label: t("common.edit"), onPress: handleLongPressEdit },
+          { label: t("contacts.copyAddress"), onPress: handleLongPressCopy },
+          {
+            label: t("common.delete"),
+            onPress: handleLongPressDelete,
+            color: "destructive",
+          },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
+      />
 
       {/* Delete contact confirmation prompt */}
-      <Prompt.Basic
+      <Dialog
         control={deleteContactControl}
+        placement="bottom"
         title={t("contacts.delete.title")}
         description={
           pendingDeleteContact
@@ -647,17 +637,22 @@ export default function ContactsScreen() {
               })
             : ""
         }
-        confirmButtonCta={t("common.delete")}
-        confirmButtonColor="negative"
-        onConfirm={() => {
-          if (pendingDeleteContact) {
-            const db = getDatabase();
-            if (db) {
-              deleteContact(db, pendingDeleteContact.id);
-            }
-            setPendingDeleteContact(null);
-          }
-        }}
+        actions={[
+          {
+            label: t("common.delete"),
+            color: "destructive",
+            onPress: () => {
+              if (pendingDeleteContact) {
+                const db = getDatabase();
+                if (db) {
+                  deleteContact(db, pendingDeleteContact.id);
+                }
+                setPendingDeleteContact(null);
+              }
+            },
+          },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
     </SafeAreaView>
   );

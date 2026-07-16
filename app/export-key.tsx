@@ -26,7 +26,7 @@ import {
 import { PinDots } from "../src/ui/components/PinDots";
 import { PinPad } from "../src/ui/components/PinPad";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 
 const PIN_LENGTH = 6;
@@ -57,7 +57,7 @@ export default function ExportKeyScreen() {
   const [encryptedKey, setEncryptedKey] = useState<string | null>(null);
   const [encrypting, setEncrypting] = useState(false);
 
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
   const [message, setMessage] = useState<{
     title: string;
     description: string;
@@ -375,13 +375,12 @@ export default function ExportKeyScreen() {
           />
         </ScrollView>
 
-        <Prompt.Basic
+        <Dialog
           control={messageControl}
+          placement="bottom"
           title={message?.title ?? ""}
           description={message?.description ?? ""}
-          confirmButtonCta={t("common.ok")}
-          onConfirm={() => setMessage(null)}
-          showCancel={false}
+          actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
         />
       </SafeAreaView>
     );
@@ -438,13 +437,12 @@ export default function ExportKeyScreen() {
         </Card>
       </ScrollView>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => setMessage(null)}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
       />
     </SafeAreaView>
   );

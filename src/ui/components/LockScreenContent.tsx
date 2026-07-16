@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Image } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../safe-area-view";
 import * as LocalAuthentication from "expo-local-authentication";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { verifyPin, isBiometricsEnabled } from "../../storage/secure-store";

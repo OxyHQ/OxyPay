@@ -27,7 +27,7 @@ import {
 } from "../../src/ui/components";
 import type { ContactRow } from "../../src/storage/database";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { formatUnits, COIN_TICKER, explorerTxUrl } from "@fairco.in/core";
 import { t } from "../../src/i18n";
 
@@ -91,7 +91,7 @@ export default function TransactionDetailScreen() {
   const [contact, setContact] = useState<ContactRow | null>(null);
   const [contactChecked, setContactChecked] = useState(false);
 
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
   const [message, setMessage] = useState<{
     title: string;
     description: string;
@@ -358,13 +358,12 @@ export default function TransactionDetailScreen() {
         </View>
       </ScrollView>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => setMessage(null)}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
       />
     </SafeAreaView>
   );

@@ -3,10 +3,16 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
-    "types": ["bun-types"],
+    "types": [
+      "bun-types"
+    ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@app/*": ["./app/*"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@app/*": [
+        "./app/*"
+      ]
     }
   },
   "include": [

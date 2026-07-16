@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { View, Text, ScrollView, TextInput } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { getDatabase } from "../../src/wallet/wallet-store";
 import { Card } from "../../src/ui/components/Card";
 import { Button } from "../../src/ui/components/Button";
@@ -57,7 +57,7 @@ export default function AddPeerScreen() {
     description: string;
     onConfirm?: () => void;
   } | null>(null);
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string, onConfirm?: () => void) => {
@@ -162,17 +162,21 @@ export default function AddPeerScreen() {
         />
       </ScrollView>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => {
-          const cb = message?.onConfirm;
-          setMessage(null);
-          cb?.();
-        }}
-        showCancel={false}
+        actions={[
+          {
+            label: t("common.ok"),
+            onPress: () => {
+              const cb = message?.onConfirm;
+              setMessage(null);
+              cb?.();
+            },
+          },
+        ]}
       />
     </>
   );

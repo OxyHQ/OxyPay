@@ -25,7 +25,7 @@ import {
   ScreenHeader,
 } from "../src/ui/components";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 
 function truncateTxid(txid: string): string {
@@ -43,7 +43,7 @@ export default function MasternodeScreen() {
 
   // Masternode start is not yet implemented (no P2P mnb relay). Tapping the
   // action explains this instead of pretending the broadcast succeeded.
-  const notAvailableControl = Prompt.usePromptControl();
+  const notAvailableControl = useDialogControl();
 
   useFocusEffect(
     useCallback(() => {
@@ -129,23 +129,13 @@ export default function MasternodeScreen() {
       </ScrollView>
 
       {/* Not-yet-available prompt: honest status instead of a fake success. */}
-      <Prompt.Outer control={notAvailableControl}>
-        <Prompt.Content>
-          <Prompt.TitleText>
-            {t("masternode.notAvailable.title")}
-          </Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {t("masternode.notAvailable.description")}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.ok")}
-            onPress={() => notAvailableControl.close()}
-            color="primary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+      <Dialog
+        control={notAvailableControl}
+        placement="bottom"
+        title={t("masternode.notAvailable.title")}
+        description={t("masternode.notAvailable.description")}
+        actions={[{ label: t("common.ok") }]}
+      />
     </SafeAreaView>
   );
 }

@@ -1,25 +1,33 @@
 /**
- * Reusable button component with multiple variants and sizes.
+ * Button — FAIRWallet's button, styled by Bloom's design system.
+ *
+ * Keeps the app's call-site API (a `title` string + FairCoin variant names) and
+ * delegates all rendering/theming to Bloom's `Button`, so every button matches
+ * the shared Bloom/Oxy look while inheriting the active `faircoin` preset. The
+ * two behaviors Bloom's Button doesn't provide — a haptic tick on the primary
+ * action and full-width sizing on native — are layered on here.
  */
 
-import { useMemo, useCallback } from "react";
-import {
-  Text,
-  View,
-  Pressable,
-  ActivityIndicator,
-  type GestureResponderEvent,
-  type ViewStyle,
-} from "react-native";
-import { useTheme } from "@oxyhq/bloom/theme";
+import { useCallback } from "react";
+import type { ViewStyle } from "react-native";
+import { Button as BloomButton } from "@oxyhq/bloom/button";
+import type { ButtonVariant as BloomButtonVariant } from "@oxyhq/bloom/button";
 import { hapticImpact } from "../../utils/haptics";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "outline" | "ghost";
 type ButtonSize = "sm" | "md" | "lg";
 
+const VARIANT_MAP: Record<ButtonVariant, BloomButtonVariant> = {
+  primary: "primary",
+  secondary: "secondary",
+  danger: "destructive",
+  outline: "outline",
+  ghost: "ghost",
+};
+
 interface ButtonProps {
   title: string;
-  onPress: (event: GestureResponderEvent) => void;
+  onPress: () => void;
   variant?: ButtonVariant;
   size?: ButtonSize;
   disabled?: boolean;
@@ -29,34 +37,6 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
 }
-
-const VARIANT_CONTAINER_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-primary",
-  secondary: "bg-surface",
-  danger: "bg-red-600",
-  outline: "border border-primary bg-transparent",
-  ghost: "bg-transparent",
-};
-
-const VARIANT_TEXT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "text-primary-foreground",
-  secondary: "text-foreground",
-  danger: "text-destructive-foreground",
-  outline: "text-primary",
-  ghost: "text-primary",
-};
-
-const SIZE_CONTAINER_CLASSES: Record<ButtonSize, string> = {
-  sm: "py-2 px-4",
-  md: "py-3 px-6",
-  lg: "py-4 px-8",
-};
-
-const SIZE_TEXT_CLASSES: Record<ButtonSize, string> = {
-  sm: "text-sm",
-  md: "text-base",
-  lg: "text-lg",
-};
 
 export function Button({
   title,
@@ -70,67 +50,23 @@ export function Button({
   fullWidth = true,
   style,
 }: ButtonProps) {
-  const isDisabled = disabled || loading;
-  const theme = useTheme();
-
-  const spinnerColors: Record<ButtonVariant, string> = useMemo(
-    () => ({
-      primary: theme.colors.background,
-      secondary: theme.colors.text,
-      danger: theme.colors.text,
-      outline: theme.colors.primary,
-      ghost: theme.colors.primary,
-    }),
-    [theme],
-  );
-
-  const containerClassName = useMemo(() => {
-    const base = "rounded-full items-center justify-center flex-row";
-    const variantClass = VARIANT_CONTAINER_CLASSES[variant];
-    const sizeClass = SIZE_CONTAINER_CLASSES[size];
-    const widthClass = fullWidth ? "w-full" : "";
-    const disabledClass = isDisabled ? "opacity-50" : "";
-    return `${base} ${variantClass} ${sizeClass} ${widthClass} ${disabledClass}`.trim();
-  }, [variant, size, fullWidth, isDisabled]);
-
-  const textClassName = useMemo(() => {
-    const base = "font-semibold";
-    const variantClass = VARIANT_TEXT_CLASSES[variant];
-    const sizeClass = SIZE_TEXT_CLASSES[size];
-    return `${base} ${variantClass} ${sizeClass}`;
-  }, [variant, size]);
-
-  const handlePress = useCallback(
-    (event: GestureResponderEvent) => {
-      if (!isDisabled) {
-        if (variant === "primary") {
-          hapticImpact();
-        }
-        onPress(event);
-      }
-    },
-    [isDisabled, variant, onPress],
-  );
-
-  const spinnerColor = spinnerColors[variant];
+  const handlePress = useCallback(() => {
+    if (variant === "primary") hapticImpact();
+    onPress();
+  }, [variant, onPress]);
 
   return (
-    <Pressable
-      className={containerClassName}
+    <BloomButton
+      variant={VARIANT_MAP[variant]}
+      size={size}
       onPress={handlePress}
-      disabled={isDisabled}
-      style={style}
+      disabled={disabled}
+      loading={loading}
+      icon={icon}
+      iconPosition={iconPosition}
+      style={fullWidth ? [{ width: "100%" }, style] : style}
     >
-      {loading ? (
-        <ActivityIndicator color={spinnerColor} className="mr-2" />
-      ) : null}
-      {icon && iconPosition === "left" && !loading ? (
-        <View className="mr-2">{icon}</View>
-      ) : null}
-      <Text className={textClassName}>{title}</Text>
-      {icon && iconPosition === "right" && !loading ? (
-        <View className="ml-2">{icon}</View>
-      ) : null}
-    </Pressable>
+      {title}
+    </BloomButton>
   );
 }

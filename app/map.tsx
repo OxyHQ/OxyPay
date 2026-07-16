@@ -66,7 +66,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import * as Location from "expo-location";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 import {
   PLACES,
@@ -310,7 +310,7 @@ export default function MapScreen() {
 
   const cameraRef = useRef<CameraRef>(null);
   const sheetRef = useRef<BottomSheet>(null);
-  const locationDeniedPrompt = Prompt.usePromptControl();
+  const locationDeniedPrompt = useDialogControl();
 
   // Official replacement (gorhom v5) for the deprecated BottomSheetFlashList
   // wrapper: a `renderScrollComponent` that wires FlashList into the sheet's
@@ -825,21 +825,13 @@ export default function MapScreen() {
         )}
       </BottomSheet>
 
-      <Prompt.Outer control={locationDeniedPrompt}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("map.permissionDenied.title")}</Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {t("map.permissionDenied.subtitle")}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.ok")}
-            onPress={() => locationDeniedPrompt.close()}
-            color="primary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+      <Dialog
+        control={locationDeniedPrompt}
+        placement="bottom"
+        title={t("map.permissionDenied.title")}
+        description={t("map.permissionDenied.subtitle")}
+        actions={[{ label: t("common.ok") }]}
+      />
     </View>
   );
 }

@@ -11,7 +11,6 @@ export { Button } from "./Button";
 export { Card } from "./Card";
 export { ContactAvatar } from "./ContactAvatar";
 export { ContactPicker } from "./ContactPicker";
-export { Divider } from "./Divider";
 export { EmptyState } from "./EmptyState";
 export { ListItem } from "./ListItem";
 export { PinDots } from "./PinDots";

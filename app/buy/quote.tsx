@@ -22,7 +22,7 @@ import {
 } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useTheme } from "@oxyhq/bloom/theme";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { explorerTxUrl } from "@fairco.in/core";
@@ -118,7 +118,7 @@ export default function BuyQuoteScreen() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
 
-  const cancelControl = Prompt.usePromptControl();
+  const cancelControl = useDialogControl();
 
   const refreshStatus = useCallback(async (): Promise<BuyStatusResponse | null> => {
     if (!orderId) return null;
@@ -351,13 +351,15 @@ export default function BuyQuoteScreen() {
         </View>
       </View>
 
-      <Prompt.Basic
+      <Dialog
         control={cancelControl}
+        placement="bottom"
         title={t("buy.instructions.cancel")}
         description={t("buy.status.expired.subtitle")}
-        confirmButtonCta={t("buy.instructions.cancel")}
-        cancelButtonCta={t("common.cancel")}
-        onConfirm={handleConfirmCancel}
+        actions={[
+          { label: t("buy.instructions.cancel"), onPress: handleConfirmCancel },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
     </View>
   );

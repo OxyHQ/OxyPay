@@ -9,7 +9,7 @@ import { View, Text, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useWalletStore, getDatabase } from "../src/wallet/wallet-store";
 import {
   AmountText,
@@ -73,7 +73,7 @@ export default function CoinControlScreen() {
     title: string;
     description: string;
   } | null>(null);
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string) => {
@@ -286,16 +286,20 @@ export default function CoinControlScreen() {
         />
       </View>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => {
-          setMessage(null);
-          router.back();
-        }}
-        showCancel={false}
+        actions={[
+          {
+            label: t("common.ok"),
+            onPress: () => {
+              setMessage(null);
+              router.back();
+            },
+          },
+        ]}
       />
     </SafeAreaView>
   );

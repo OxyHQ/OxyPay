@@ -27,7 +27,6 @@ import {
   Button,
   ContactAvatar,
   ListItem,
-  Divider,
   EmptyState,
 } from "../../src/ui/components";
 import { QRScanner } from "../../src/ui/components/QRScanner";
@@ -35,7 +34,8 @@ import { ContactPicker } from "../../src/ui/components/ContactPicker";
 import { getCachedPrice } from "../../src/services/price";
 import type { RecentRecipientRow, ContactRow } from "../../src/storage/database";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Divider } from "@oxyhq/bloom/divider";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { hapticSuccess, hapticError } from "../../src/utils/haptics";
 import { playSent } from "../../src/services/sounds";
 import { FONT_PHUDU_BLACK, FONT_PHUDU_LIGHT } from "../../src/utils/fonts";
@@ -130,9 +130,9 @@ export default function SendScreen() {
     null,
   );
   const [sentTxid, setSentTxid] = useState<string | null>(null);
-  const confirmControl = Prompt.usePromptControl();
-  const saveContactControl = Prompt.usePromptControl();
-  const sentControl = Prompt.usePromptControl();
+  const confirmControl = useDialogControl();
+  const saveContactControl = useDialogControl();
+  const sentControl = useDialogControl();
 
   const explorerUrl = sentTxid ? explorerTxUrl(sentTxid) : "";
 
@@ -677,10 +677,16 @@ export default function SendScreen() {
       </View>
 
       {/* Confirmation prompt */}
-      <Prompt.Outer control={confirmControl}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("send.confirm.title")}</Prompt.TitleText>
-          <View className="mt-2">
+      <Dialog
+        control={confirmControl}
+        placement="bottom"
+        title={t("send.confirm.title")}
+        actions={[
+          { label: t("send.confirm.cta"), onPress: handleConfirmSend },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
+      >
+        <View className="mt-2">
             <ListItem
               title={t("send.confirm.to")}
               subtitle={matchedContact ? matchedContact.name : toAddress}
@@ -710,7 +716,7 @@ export default function SendScreen() {
               }
               showChevron={false}
             />
-            <Divider className="mx-4" />
+            <Divider style={{ marginHorizontal: 16 }} />
             <ListItem
               title={t("send.confirm.total")}
               value={
@@ -724,54 +730,41 @@ export default function SendScreen() {
               showChevron={false}
               isLast
             />
-          </View>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("send.confirm.cta")}
-            onPress={handleConfirmSend}
-            color="primary"
-          />
-          <Prompt.Action
-            cta={t("common.cancel")}
-            onPress={() => confirmControl.close()}
-            color="secondary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+        </View>
+      </Dialog>
 
       {/* Transaction sent prompt */}
-      <Prompt.Outer control={sentControl} onClose={handleSentDismiss}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("send.sent.title")}</Prompt.TitleText>
-          <Prompt.DescriptionText selectable>
-            {explorerUrl}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("send.sent.copy")}
-            onPress={handleCopyExplorerLink}
-            color="primary"
-            shouldCloseOnPress={false}
-          />
-          <Prompt.Action
-            cta={t("send.sent.share")}
-            onPress={handleShareExplorerLink}
-            color="primary_subtle"
-            shouldCloseOnPress={false}
-          />
-          <Prompt.Action
-            cta={t("common.done")}
-            onPress={handleSentDismiss}
-            color="secondary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+      <Dialog
+        control={sentControl}
+        onClose={handleSentDismiss}
+        placement="bottom"
+        title={t("send.sent.title")}
+        actions={[
+          {
+            label: t("send.sent.copy"),
+            onPress: handleCopyExplorerLink,
+            shouldCloseOnPress: false,
+          },
+          {
+            label: t("send.sent.share"),
+            onPress: handleShareExplorerLink,
+            shouldCloseOnPress: false,
+          },
+          { label: t("common.done"), color: "cancel" },
+        ]}
+      >
+        <Text
+          selectable
+          className="text-muted-foreground text-sm text-center"
+        >
+          {explorerUrl}
+        </Text>
+      </Dialog>
 
       {/* Save contact prompt */}
-      <Prompt.Basic
+      <Dialog
         control={saveContactControl}
+        placement="bottom"
         title={t("send.saveContact.title")}
         description={
           pendingSaveAddress
@@ -783,12 +776,16 @@ export default function SendScreen() {
               })
             : ""
         }
-        confirmButtonCta={t("send.saveContact.cta")}
-        cancelButtonCta={t("common.no")}
-        onConfirm={() => {
-          router.push("/contacts");
-          setPendingSaveAddress(null);
-        }}
+        actions={[
+          {
+            label: t("send.saveContact.cta"),
+            onPress: () => {
+              router.push("/contacts");
+              setPendingSaveAddress(null);
+            },
+          },
+          { label: t("common.no"), color: "cancel" },
+        ]}
       />
 
       {/* QR Scanner */}

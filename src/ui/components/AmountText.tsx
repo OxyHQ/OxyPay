@@ -45,7 +45,16 @@ export function AmountText({
   prefix,
   ...rest
 }: AmountTextProps) {
-  const decimalString = unitsToDecimalString(value);
+  let decimalString = unitsToDecimalString(value);
+  if (!fixedDecimalScale) {
+    // `unitsToDecimalString` always emits 8 fraction digits; strip trailing
+    // zeros (and a bare trailing dot) so read-only amounts render compactly
+    // (`0` not `0.00000000`, `1.5` not `1.50000000`). Only zeros AFTER the
+    // decimal point are removed — the whole part is never touched.
+    decimalString = decimalString
+      .replace(/(\.\d*?)0+$/, "$1")
+      .replace(/\.$/, "");
+  }
 
   return (
     <NumericFormat

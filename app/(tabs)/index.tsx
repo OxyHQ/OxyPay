@@ -30,11 +30,11 @@ import { useWalletStore } from "../../src/wallet/wallet-store";
 import {
   BalanceDisplay,
   ActionButton,
-  Divider,
   EmptyState,
   Badge,
 } from "../../src/ui/components";
 import { TransactionItem } from "../../src/ui/components/TransactionItem";
+import { Divider } from "@oxyhq/bloom/divider";
 import {
   startPricePolling,
   stopPricePolling,
@@ -49,9 +49,13 @@ import { t } from "../../src/i18n";
 // Constants
 // ---------------------------------------------------------------------------
 
-const HERO_HEIGHT = 280;
-/** Pixels of overlap between the hero image bottom and the scroll content top. */
-const HERO_OVERLAP = 60;
+const HERO_HEIGHT = 380;
+/**
+ * Pixels of overlap between the hero image bottom and the scroll content top.
+ * Sized so the image extends down behind the balance and fades out right above
+ * the quick-actions row (rather than cutting off above the amount).
+ */
+const HERO_OVERLAP = 150;
 /** Maximum scale applied when overscrolling (pulling the list down). */
 const OVERSCROLL_MAX_SCALE = 1.4;
 /** Pull distance (px) at which the overscroll zoom reaches its maximum. */
@@ -168,7 +172,7 @@ export default function HomeScreen() {
         />
         <LinearGradient
           colors={gradientColors}
-          locations={[0.4, 1]}
+          locations={[0.4, 0.9]}
           style={StyleSheet.absoluteFillObject}
         />
       </Animated.View>
@@ -264,7 +268,7 @@ export default function HomeScreen() {
 
           {/* ---- Activity ---- */}
           <View className="px-5">
-            <Divider className="mb-5" />
+            <Divider style={{ marginBottom: 20 }} />
 
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-foreground text-lg font-semibold">

@@ -5,7 +5,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../../src/ui/safe-area-view";
 import * as Clipboard from "expo-clipboard";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../../src/wallet/wallet-store";

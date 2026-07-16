@@ -27,7 +27,8 @@ import {
   ScreenHeader,
 } from "../src/ui/components";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
+import type { DialogControlProps } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 
 // ---------------------------------------------------------------------------
@@ -364,7 +365,7 @@ function CreateModal({ visible, onCancel, onCreate }: CreateModalProps) {
 // ---------------------------------------------------------------------------
 
 interface MnemonicModalProps {
-  control: Prompt.PromptControlProps;
+  control: DialogControlProps;
   mnemonic: string;
   onDismiss: () => void;
 }
@@ -373,34 +374,28 @@ function MnemonicModal({ control, mnemonic, onDismiss }: MnemonicModalProps) {
   const words = useMemo(() => mnemonic.split(" "), [mnemonic]);
 
   return (
-    <Prompt.Outer control={control} onClose={onDismiss}>
-      <Prompt.Content>
-        <Prompt.TitleText>{t("wallets.mnemonic.title")}</Prompt.TitleText>
-        <Prompt.DescriptionText>
-          {t("wallets.mnemonic.description")}
-        </Prompt.DescriptionText>
-        <View className="flex-row flex-wrap justify-center gap-2 mt-2">
-          {words.map((word, idx) => (
-            <View
-              key={`word-${idx}`}
-              className="bg-background rounded-lg px-3 py-1.5"
-            >
-              <Text className="text-foreground text-sm">
-                <Text className="text-muted-foreground">{idx + 1}. </Text>
-                {word}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </Prompt.Content>
-      <Prompt.Actions>
-        <Prompt.Action
-          cta={t("wallets.mnemonic.cta")}
-          onPress={onDismiss}
-          color="primary"
-        />
-      </Prompt.Actions>
-    </Prompt.Outer>
+    <Dialog
+      control={control}
+      onClose={onDismiss}
+      placement="bottom"
+      title={t("wallets.mnemonic.title")}
+      description={t("wallets.mnemonic.description")}
+      actions={[{ label: t("wallets.mnemonic.cta"), onPress: onDismiss }]}
+    >
+      <View className="flex-row flex-wrap justify-center gap-2 mt-2">
+        {words.map((word, idx) => (
+          <View
+            key={`word-${idx}`}
+            className="bg-background rounded-lg px-3 py-1.5"
+          >
+            <Text className="text-foreground text-sm">
+              <Text className="text-muted-foreground">{idx + 1}. </Text>
+              {word}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Dialog>
   );
 }
 
@@ -435,10 +430,10 @@ export default function WalletsScreen() {
     description: string;
   } | null>(null);
 
-  const mnemonicControl = Prompt.usePromptControl();
-  const deleteWalletControl = Prompt.usePromptControl();
-  const cannotDeleteControl = Prompt.usePromptControl();
-  const messageControl = Prompt.usePromptControl();
+  const mnemonicControl = useDialogControl();
+  const deleteWalletControl = useDialogControl();
+  const cannotDeleteControl = useDialogControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string) => {
@@ -669,8 +664,9 @@ export default function WalletsScreen() {
         onDismiss={handleMnemonicDismiss}
       />
 
-      <Prompt.Basic
+      <Dialog
         control={deleteWalletControl}
+        placement="bottom"
         title={t("wallets.delete.title")}
         description={
           pendingDeleteWallet
@@ -679,39 +675,35 @@ export default function WalletsScreen() {
               })
             : ""
         }
-        confirmButtonCta={t("common.delete")}
-        confirmButtonColor="negative"
-        onConfirm={async () => {
-          if (pendingDeleteWallet) {
-            await deleteWallet(pendingDeleteWallet.id);
-            setPendingDeleteWallet(null);
-          }
-        }}
+        actions={[
+          {
+            label: t("common.delete"),
+            color: "destructive",
+            onPress: async () => {
+              if (pendingDeleteWallet) {
+                await deleteWallet(pendingDeleteWallet.id);
+                setPendingDeleteWallet(null);
+              }
+            },
+          },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
 
-      <Prompt.Outer control={cannotDeleteControl}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("wallets.cannotDelete.title")}</Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {t("wallets.cannotDelete.description")}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.ok")}
-            onPress={() => cannotDeleteControl.close()}
-            color="primary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+      <Dialog
+        control={cannotDeleteControl}
+        placement="bottom"
+        title={t("wallets.cannotDelete.title")}
+        description={t("wallets.cannotDelete.description")}
+        actions={[{ label: t("common.ok") }]}
+      />
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => setMessage(null)}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
       />
     </SafeAreaView>
   );

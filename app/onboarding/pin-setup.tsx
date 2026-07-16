@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Image } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { savePin } from "../../src/storage/secure-store";
 import { useLockStore } from "../../src/wallet/lock-store";
 import { PinPad } from "../../src/ui/components/PinPad";

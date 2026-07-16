@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../../src/ui/safe-area-view";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../../src/wallet/wallet-store";
 import { Button } from "../../src/ui/components/Button";

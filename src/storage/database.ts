@@ -215,7 +215,6 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_utxos_address ON utxos(address);
   CREATE INDEX IF NOT EXISTS idx_utxos_unspent ON utxos(spent, address);
   CREATE INDEX IF NOT EXISTS idx_utxos_block_height ON utxos(block_height);
-  CREATE INDEX IF NOT EXISTS idx_utxos_spent_height ON utxos(spent_height);
   CREATE INDEX IF NOT EXISTS idx_transactions_block_height ON transactions(block_height);
   CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp);
   CREATE INDEX IF NOT EXISTS idx_addresses_change_used ON addresses(is_change, used);
@@ -294,6 +293,15 @@ export class Database {
       }
       await this.db.execAsync(column.ddl);
     }
+
+    // The `spent_height` index lives here, NOT in SCHEMA_SQL, because it depends
+    // on the migrated `spent_height` column. On a wallet created before reorg
+    // tracking, the column is added just above; creating the index inside the
+    // schema batch (which runs before this migration) would fail the whole batch
+    // with "no such column: spent_height" and abort wallet initialization.
+    await this.db.execAsync(
+      "CREATE INDEX IF NOT EXISTS idx_utxos_spent_height ON utxos(spent_height)",
+    );
   }
 
   async close(): Promise<void> {

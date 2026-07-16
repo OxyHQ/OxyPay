@@ -18,7 +18,7 @@ import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import QRCode from "react-native-qrcode-svg";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useWalletStore } from "../../src/wallet/wallet-store";
 import { Card, Button, ListItem } from "../../src/ui/components";
 import { t } from "../../src/i18n";
@@ -48,7 +48,7 @@ export default function ReceiveScreen() {
     title: string;
     description: string;
   } | null>(null);
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string) => {
@@ -309,13 +309,12 @@ export default function ReceiveScreen() {
         </View>
       </View>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => setMessage(null)}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
       />
     </View>
   );
