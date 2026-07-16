@@ -208,6 +208,32 @@ describe("createPushRegistration reconcile", () => {
 
     expect(h.registerCalls).toHaveLength(0);
   });
+
+  test("does not register with zero events selected (server rejects an empty set)", async () => {
+    // The Explorer validates `events` as a NON-EMPTY subset; registering with
+    // [] is a guaranteed 400. Enabled-but-no-events means "nothing to notify",
+    // so treat it as off: never POST, and tear down any existing subscription.
+    const h = makeHarness();
+    h.prefs.events = [];
+    const controller = createPushRegistration(h.deps);
+
+    await controller.reconcile();
+    expect(h.registerCalls).toHaveLength(0);
+  });
+
+  test("unregisters when the last event is toggled off", async () => {
+    const h = makeHarness();
+    const controller = createPushRegistration(h.deps);
+
+    await controller.reconcile();
+    expect(h.registerCalls).toHaveLength(1);
+
+    h.prefs.events = [];
+    await controller.reconcile();
+
+    expect(h.unregisterCalls).toHaveLength(1);
+    expect(h.subscriptions.has("wallet-1")).toBe(false);
+  });
 });
 
 describe("createPushRegistration start()", () => {

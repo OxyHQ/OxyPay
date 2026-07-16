@@ -159,6 +159,20 @@ function mapExplorerTransaction(raw: RawTransaction): PushTransaction {
 }
 
 /**
+ * Bounded retry for the tx read. A silent push (especially `incoming_pending`)
+ * fires on mempool first-seen, so the Explorer node can briefly 5xx or return
+ * `transaction: null` before it resolves the txid. A few short retries close
+ * that propagation gap while staying well inside the OS's background-execution
+ * budget.
+ */
+const MAX_TX_FETCH_ATTEMPTS = 3;
+const TX_FETCH_BACKOFF_MS = 600;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Handle a silent push in production: sync the txid against the configured
  * server and post the composed local notification. Safe to call from the
  * notification-received listener / background task. Never throws — a failed
@@ -181,22 +195,34 @@ export async function handleIncomingPush(data: {
 
   const handler = createPushHandler({
     fetchTransaction: async (txid) => {
+      let url: string;
       try {
         const prefs = await settings.getNotificationPrefs();
         const base = normalizeServerUrl(prefs.serverUrl);
         const network = useWalletStore.getState().network;
-        const response = await fetch(
-          `${base}/api/transaction/${encodeURIComponent(txid)}?network=${network}`,
-        );
-        if (!response.ok) return null;
-        const body: unknown = await response.json();
-        if (body === null || typeof body !== "object") return null;
-        const raw = (body as { transaction?: unknown }).transaction;
-        if (raw === null || typeof raw !== "object") return null;
-        return mapExplorerTransaction(raw as RawTransaction);
+        url = `${base}/api/transaction/${encodeURIComponent(txid)}?network=${network}`;
       } catch {
         return null;
       }
+
+      // Retry on a transient failure / not-yet-resolved tx (propagation gap).
+      for (let attempt = 0; attempt < MAX_TX_FETCH_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          await delay(TX_FETCH_BACKOFF_MS * attempt);
+        }
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const body: unknown = await response.json();
+          if (body === null || typeof body !== "object") continue;
+          const raw = (body as { transaction?: unknown }).transaction;
+          if (raw === null || typeof raw !== "object") continue;
+          return mapExplorerTransaction(raw as RawTransaction);
+        } catch {
+          // Network hiccup — retry within the attempt budget.
+        }
+      }
+      return null;
     },
     getWalletAddresses: getActiveWalletAddresses,
     notifyReceived: notifications.scheduleReceivedNotification,

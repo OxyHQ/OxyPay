@@ -125,9 +125,11 @@ export function createPushRegistration(
     const prefs = await deps.getPrefs();
     const wallet = deps.getWallet();
 
-    // Desired: OFF (disabled, or no wallet up). Ensure no live subscription for
-    // the current wallet; leave storage clean.
-    if (!prefs.enabled || !wallet) {
+    // Desired: OFF — disabled, no wallet up, or no events selected. The server
+    // rejects an empty `events` set (strict validation), and "enabled with zero
+    // events" means nothing to notify, so it collapses to off: ensure no live
+    // subscription for the current wallet and leave storage clean.
+    if (!prefs.enabled || !wallet || prefs.events.length === 0) {
       if (wallet) {
         const existing = await deps.loadSubscription(wallet.walletId);
         if (existing) {
