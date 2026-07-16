@@ -59,6 +59,9 @@ import {
   isWatchOnly as checkIsWatchOnly,
   setWalletBirthdayHeight,
   getWalletBirthdayHeight,
+  getCachedWalletSeed,
+  cacheWalletSeed,
+  deleteCachedWalletSeed,
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
@@ -302,6 +305,22 @@ const utxoReservation = new UtxoReservation();
  */
 export function getDatabase(): Database | null {
   return database;
+}
+
+/**
+ * The account-level watch-only xpub (m/44'/coinType'/0') of the active wallet,
+ * or null when no wallet is initialized (e.g. while PIN-locked). Read by the
+ * push-registration lifecycle to register for background notifications; it is a
+ * PUBLIC key, so this never exposes spend capability. Returns null rather than
+ * throwing so callers can treat "no wallet up yet" as "nothing to register".
+ */
+export function getActiveAccountXpub(): string | null {
+  if (!keyManager) return null;
+  try {
+    return keyManager.accountXpub();
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -924,7 +943,16 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
         keyManager = KeyManager.fromXpub(xpub, networkConfig);
       } else {
-        keyManager = KeyManager.fromMnemonic(mnemonic, networkConfig);
+        // Reuse the cached BIP39 seed when present so unlock skips the
+        // multi-second PBKDF2 mnemonic→seed derivation; derive + cache it on the
+        // first run. Keyed by the same wallet identity the mnemonic belongs to.
+        const seedCacheId = walletId ?? (await getActiveWalletId()) ?? "default";
+        let seed = await getCachedWalletSeed(seedCacheId);
+        if (!seed) {
+          seed = KeyManager.deriveSeed(mnemonic);
+          await cacheWalletSeed(seedCacheId, seed);
+        }
+        keyManager = KeyManager.fromSeed(seed, networkConfig);
       }
       utxoSet = new UTXOSet();
 
@@ -1792,9 +1820,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       const state = get();
       const isActive = state.activeWalletId === walletId;
 
-      // Remove from index and delete mnemonic
+      // Remove from index and delete mnemonic + its cached seed
       await removeWalletFromIndex(walletId);
       await deleteWalletMnemonic(walletId);
+      await deleteCachedWalletSeed(walletId);
 
       // Reload wallet list
       const remainingWallets = await getWalletIndex();

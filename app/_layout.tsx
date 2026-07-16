@@ -14,13 +14,12 @@
 import "../src/crypto-polyfill";
 import "../global.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
-import { vars } from "nativewind";
 import * as Linking from "expo-linking";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -35,11 +34,7 @@ const KeyboardProvider =
   Platform.OS === "web"
     ? ({ children }: { children: React.ReactNode }) => <>{children}</>
     : NativeKeyboardProvider;
-import {
-  BloomThemeProvider,
-  useBloomTheme,
-  APP_COLOR_PRESETS,
-} from "@oxyhq/bloom/theme";
+import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
 import { useWalletStore } from "../src/wallet/wallet-store";
@@ -50,6 +45,8 @@ import { initLanguage } from "../src/i18n";
 import { useLanguageStore } from "../src/i18n/store";
 import { getItemAsync, setItemAsync } from "../src/storage/kv-store";
 import { startTxNotifier } from "../src/services/tx-notifier";
+import { startSyncNotifier } from "../src/services/sync-notifier";
+import { startPushRegistration } from "../src/services/push-registration";
 import { registerBackgroundSync } from "../src/services/background-sync";
 
 // Module-level initialization. Resolves the persisted or device language,
@@ -67,6 +64,15 @@ const languageInitPromise = initLanguage()
 // before any wallet state is hydrated so the subscriber sees every new tx
 // beyond the initial snapshot.
 startTxNotifier();
+
+// Mirror sync progress into an ongoing notification while the wallet syncs.
+startSyncNotifier();
+
+// Keep the background-notification subscription in sync with the wallet + prefs
+// (registers the watch-only xpub when the user enables payment notifications).
+// No-op on web/electron and until the user opts in. Safe at module scope: the
+// native modules it needs are required lazily inside the call.
+startPushRegistration();
 
 // Best-effort background task registration for wake-up payment alerts.
 // Safe on platforms that don't support background tasks (web / electron).
@@ -187,28 +193,6 @@ function useAutoLock() {
   }, [handleStateChange]);
 }
 
-/**
- * Bridges Bloom preset CSS tokens into NativeWind vars().
- * This makes Tailwind classes (bg-background, text-primary, etc.)
- * resolve to the active Bloom theme colors.
- */
-function useThemeVars() {
-  const { theme, colorPreset } = useBloomTheme();
-  const tokens = theme.isDark
-    ? APP_COLOR_PRESETS[colorPreset].dark
-    : APP_COLOR_PRESETS[colorPreset].light;
-
-  return useMemo(() => {
-    const entries: Record<`--${string}`, string> = {};
-    for (const [key, value] of Object.entries(tokens)) {
-      entries[key as `--${string}`] = value;
-    }
-    entries["--success"] = tokens["--primary"] ?? "92 96% 65%";
-    entries["--warning"] = "45 93% 47%";
-    return vars(entries);
-  }, [tokens]);
-}
-
 // ---------------------------------------------------------------------------
 // Root layout
 // ---------------------------------------------------------------------------
@@ -256,6 +240,7 @@ export default function RootLayout() {
             mode={mode}
             colorPreset="faircoin"
             onModeChange={handleModeChange}
+            fonts={false}
           >
             <BottomSheetModalProvider>
               <AppContent
@@ -272,7 +257,6 @@ export default function RootLayout() {
 
 function AppContent({ ready }: { ready: boolean }) {
   const { theme } = useBloomTheme();
-  const themeVars = useThemeVars();
 
   // Hide splash screen once fonts and theme are loaded
   const splashHidden = useRef(false);
@@ -282,7 +266,7 @@ function AppContent({ ready }: { ready: boolean }) {
   }
 
   return (
-    <View style={[{ flex: 1 }, themeVars]}>
+    <View style={{ flex: 1 }}>
       <StatusBar style={theme.isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
