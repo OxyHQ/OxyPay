@@ -4,6 +4,28 @@ A code-only audit of the FairCoin SPV (Simple Payment Verification) implementati
 
 No network / integration tests were run: there is no local FairCoin test network available. The audit focuses on reading the source, identifying gaps versus a complete SPV wallet, flagging bugs that a human reviewer should look at next, and adding unit tests for the pure cryptographic and parsing modules.
 
+> ## Update — 2026-07-16 (verified against live mainnet)
+> The wallet was tested end-to-end against the live node `187.33.154.215` and
+> three root causes that made **receiving impossible** were fixed (all on `main`):
+> 1. **Protocol mismatch.** faircoin Core 3.0.5 does **not** implement
+>    `getheaders`/`headers`; it uses the legacy block-announcement path. The SPV
+>    client was rewritten from headers-first to `getblocks → inv →
+>    getdata(MSG_FILTERED_BLOCK) → merkleblock`, building the header chain from
+>    the header carried in each merkle block. New blocks (`inv` MSG_BLOCK) are now
+>    requested as filtered blocks too, so a payment confirms the instant its block
+>    arrives (live confirmation).
+> 2. **Broken Quark block hash.** `@fairco.in/core`'s Quark computed the wrong id
+>    for every block (BMW-512 `add_elt` double-offset + Groestl-512 table/rotation/
+>    Q-constant/IV bugs). Fixed and released as `@fairco.in/core@0.1.1`, verified
+>    byte-for-byte against `FairCoin/src` and real mainnet block ids.
+> 3. **Dead peers.** DNS seeds didn't resolve and every hardcoded fallback was
+>    offline; the fallback list now points at live NODE_BLOOM nodes and the
+>    `seed1/seed2.fairco.in` DNS seeds were repointed to live A-records.
+>
+> Sections below describing the headers-first sync (esp. §1 rows 3–5 and the
+> `spv-client.ts` header-sync notes) are **historical** — the live sync path is
+> now block-first as above.
+
 ---
 
 ## 1. Completeness versus a complete SPV wallet
