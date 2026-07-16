@@ -447,6 +447,24 @@ export function serializeGetHeaders(
 }
 
 // ---------------------------------------------------------------------------
+// getblocks
+// ---------------------------------------------------------------------------
+
+/**
+ * Serialize a `getblocks` request. Wire format is identical to `getheaders`
+ * (version + block locator + hash_stop); only the command differs. FairCoin
+ * Core (3.0.5) does NOT answer `getheaders` with a `headers` message — it uses
+ * the legacy block-announcement path, replying to `getblocks` with an `inv` of
+ * block hashes, which the SPV client then requests as filtered (merkle) blocks.
+ */
+export function serializeGetBlocks(
+  locatorHashes: Uint8Array[],
+  stopHash: Uint8Array,
+): Uint8Array {
+  return serializeGetHeaders(locatorHashes, stopHash);
+}
+
+// ---------------------------------------------------------------------------
 // headers (response)
 // ---------------------------------------------------------------------------
 

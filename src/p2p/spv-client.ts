@@ -7,7 +7,7 @@
 
 import { sha256 } from "@noble/hashes/sha256";
 import type { NetworkConfig, BlockHeader } from "@fairco.in/core";
-import { hashBlockHeader as quarkHashBlockHeader, getCheckpointHash } from "@fairco.in/core";
+import { hashBlockHeader as quarkHashBlockHeader, getCheckpointHash, hexToBytes } from "@fairco.in/core";
 import { BloomFilter } from "./bloom-filter";
 import { validateMerkleProof } from "./merkle-proof";
 import {
@@ -29,6 +29,7 @@ import {
   type MerkleBlockMsg,
   type ParsedTransaction,
   INV_TX,
+  INV_BLOCK,
   INV_FILTERED_BLOCK,
   parseAddr,
   parseHeaders,
@@ -37,7 +38,7 @@ import {
   parseTx,
   serializeFilterLoad,
   serializeGetData,
-  serializeGetHeaders,
+  serializeGetBlocks,
 } from "./messages";
 import type { Peer, SocketProvider } from "./peer";
 import {
@@ -136,6 +137,16 @@ const LOCATOR_STEP_MULTIPLIER = 2;
 const BLOOM_FALSE_POSITIVE_RATE = 0.0001;
 /** Time to wait for peers to answer one rescan window of merkle-block requests. */
 const RESCAN_WINDOW_DELAY_MS = 8000;
+/** Delay before retrying `getblocks` when no peer is ready yet. */
+const NO_PEER_RETRY_MS = 5000;
+/** Extra window granted once before concluding a locator round made no progress. */
+const SYNC_STALL_RETRY_MS = 15000;
+/** How often {@link SPVClient.waitForBatch} samples the chain height. */
+const BATCH_POLL_MS = 400;
+/** Consecutive idle samples (no new block) that mark a merkle-block batch drained (~2s). */
+const BATCH_IDLE_TICKS = 5;
+/** Hard cap on how long one batch is awaited (~60s) before re-issuing `getblocks`. */
+const BATCH_MAX_TICKS = 150;
 
 // ---------------------------------------------------------------------------
 // Utility: Quark hash of an 80-byte block header (FairCoin uses Quark, not SHA256d)
@@ -271,10 +282,41 @@ export class SPVClient {
     }
     this.running = true;
 
+    // Seed the genesis header (height 0) before anything else. The chain is
+    // built from merkle blocks whose first entry links to genesis via
+    // `prevBlock`; without genesis in the store there is no anchor and header
+    // validation rejects block 1, so sync (and therefore receiving) never
+    // starts.
+    await this.ensureGenesis();
+
     // Load current chain height from store
     this.chainHeight = await this.headerStore.getChainHeight();
 
     await this.peerManager.start();
+  }
+
+  /**
+   * Persist the genesis header at height 0 if the store is empty. Its hash and
+   * fields come straight from the network config; the stored hash is in the
+   * internal (wire) byte order the header store and `prevBlock` linkage use —
+   * i.e. the reverse of the display genesis hash.
+   */
+  private async ensureGenesis(): Promise<void> {
+    const existing = await this.headerStore.getLatestHeader();
+    if (existing) {
+      return;
+    }
+    const genesis: StoredBlockHeader = {
+      hash: hexToBytes(this.network.genesisHash).reverse(),
+      height: 0,
+      version: 1,
+      prevBlock: new Uint8Array(32),
+      merkleRoot: hexToBytes(this.network.genesisMerkle).reverse(),
+      timestamp: this.network.genesisTime,
+      bits: this.network.genesisBits,
+      nonce: this.network.genesisNonce,
+    };
+    await this.headerStore.saveHeaders([genesis]);
   }
 
   /**
@@ -302,9 +344,9 @@ export class SPVClient {
       peer.sendMessage("filterload", filterPayload);
     }
 
-    // Begin header sync on first ready peer
+    // Begin chain sync on first ready peer
     if (this.running && !this.syncing) {
-      void this.syncHeaders();
+      void this.syncChain();
     }
   }
 
@@ -316,9 +358,16 @@ export class SPVClient {
   }
 
   /**
-   * Begin syncing the header chain from peers.
+   * Sync the chain from peers using the legacy block-announcement protocol.
+   *
+   * FairCoin Core does not implement `getheaders`/`headers`. Instead we send
+   * `getblocks` (a block locator); the peer replies with an `inv` of up to 500
+   * block hashes. {@link processInv} requests each as a *filtered* (merkle)
+   * block, and {@link processMerkleBlock} validates the proof, stores the block
+   * header (advancing the chain), and tags the matching transactions with their
+   * block. We then advance the locator and repeat until caught up.
    */
-  async syncHeaders(): Promise<void> {
+  async syncChain(): Promise<void> {
     if (this.syncing) {
       return;
     }
@@ -329,22 +378,21 @@ export class SPVClient {
 
       while (this.syncing && this.running) {
         const locator = await buildLocator(this.headerStore);
-        const stopHash = new Uint8Array(32); // all zeros = give me everything
+        const stopHash = new Uint8Array(32); // all zeros = to the tip
 
-        const payload = serializeGetHeaders(locator, stopHash);
-
-        const sent = this.peerManager.sendToOne("getheaders", payload);
+        const sent = this.peerManager.sendToOne(
+          "getblocks",
+          serializeGetBlocks(locator, stopHash),
+        );
         if (!sent) {
           // No ready peers, wait and retry
-          await delay(5000);
+          await delay(NO_PEER_RETRY_MS);
           continue;
         }
 
-        // Wait for headers response (handled via message handler)
-        // The message handler will call processHeadersResponse which
-        // updates chainHeight. We poll until no more progress or caught up.
+        // Wait for the inv'd merkle blocks to stream back and advance the chain.
         const heightBefore = this.chainHeight;
-        await delay(10000); // Allow time for response processing
+        await this.waitForBatch();
 
         // Update target from peers (they may have advanced)
         this.syncTargetHeight = Math.max(
@@ -358,9 +406,10 @@ export class SPVClient {
         }
 
         if (this.chainHeight === heightBefore) {
-          // No progress — peers may not have more headers
-          // Try again after a longer delay
-          await delay(15000);
+          // No progress this round — give the peer one more window, then stop.
+          // A live `inv` for a freshly mined block will resume us via
+          // processInv, so we do not need to spin here.
+          await delay(SYNC_STALL_RETRY_MS);
           if (this.chainHeight === heightBefore) {
             break;
           }
@@ -368,6 +417,30 @@ export class SPVClient {
       }
     } finally {
       this.syncing = false;
+    }
+  }
+
+  /**
+   * Wait for the current batch of merkle blocks to drain: poll the chain height
+   * until it stops advancing for a short idle window, or a hard cap elapses.
+   * Merkle blocks stream in and advance `chainHeight` asynchronously, so this
+   * paces the locator loop without a fixed, wasteful sleep.
+   */
+  private async waitForBatch(): Promise<void> {
+    let last = this.chainHeight;
+    let idleTicks = 0;
+    for (
+      let tick = 0;
+      tick < BATCH_MAX_TICKS && this.syncing && this.running;
+      tick++
+    ) {
+      await delay(BATCH_POLL_MS);
+      if (this.chainHeight > last) {
+        last = this.chainHeight;
+        idleTicks = 0;
+      } else if (++idleTicks >= BATCH_IDLE_TICKS) {
+        return;
+      }
     }
   }
 
@@ -535,16 +608,25 @@ export class SPVClient {
       // allow the sync loop to request again from a different peer.
       return;
     }
+    await this.applyHeaderBatch(headers);
+  }
 
+  /**
+   * Validate and store a batch of block headers, advancing the tip (or
+   * rewinding on a reorg). Shared by the legacy `headers` message path and the
+   * merkle-block sync path (each merkle block carries its 80-byte header, fed
+   * here as a one-element batch). Must be run serialised via `headerProcessing`
+   * so batches never interleave.
+   */
+  private async applyHeaderBatch(headers: BlockHeaderMsg[]): Promise<void> {
     if (headers.length === 0) {
       return;
     }
 
     // -------------------------------------------------------------------
-    // 1. Find where this batch connects to the chain we already have.
-    //    A peer answering `getheaders` returns headers starting just after a
-    //    matched locator hash; that anchor may be the current tip (a simple
-    //    extension) or an earlier block (a competing branch / reorg).
+    // 1. Find where this batch connects to the chain we already have. The
+    //    first header links to the tip (a simple extension) or to an earlier
+    //    block we know (a competing branch / reorg).
     // -------------------------------------------------------------------
     const firstPrev = headers[0].prevBlock;
     const tip = await this.headerStore.getLatestHeader();
@@ -656,12 +738,21 @@ export class SPVClient {
       return;
     }
 
-    // Request data for interesting items
+    // Request data for interesting items.
     const wanted: InvItem[] = [];
 
     for (const item of items) {
-      if (item.type === INV_TX || item.type === INV_FILTERED_BLOCK) {
+      if (item.type === INV_TX) {
+        // A loose (mempool) transaction matching our filter — fetch it for
+        // zero-conf display.
         wanted.push(item);
+      } else if (item.type === INV_BLOCK || item.type === INV_FILTERED_BLOCK) {
+        // Blocks are announced as `inv` MSG_BLOCK — both during `getblocks`
+        // sync and when a new block is mined. Always fetch them as a *filtered*
+        // (merkle) block so the peer returns just our matching transactions plus
+        // the header and a proof. This single path drives both historical sync
+        // and instant confirmation of a freshly mined block.
+        wanted.push({ type: INV_FILTERED_BLOCK, hash: item.hash });
       }
     }
 
@@ -690,13 +781,12 @@ export class SPVClient {
       return;
     }
 
-    if (matchedHashes.length === 0) {
-      return;
-    }
-
-    // Record the block hash for each matched tx so the following `tx` messages
-    // can be tagged with their containing block.
-    const blockHash = hashBlockHeader({
+    // Every merkle block carries its full 80-byte header. Feed it through the
+    // shared, serialised header pipeline so the chain advances (and heights are
+    // assigned) even for blocks that contain none of our transactions — which
+    // is the vast majority. Without this the chain would never move and no
+    // payment could ever confirm.
+    const header: BlockHeaderMsg = {
       version: merkleBlock.version,
       prevBlock: merkleBlock.prevBlock,
       merkleRoot: merkleBlock.merkleRoot,
@@ -704,7 +794,21 @@ export class SPVClient {
       bits: merkleBlock.bits,
       nonce: merkleBlock.nonce,
       txCount: 0,
-    });
+    };
+    this.headerProcessing = this.headerProcessing
+      .then(() => this.applyHeaderBatch([header]))
+      .catch(() => {
+        // A single block failing to link is non-fatal: the sync loop re-issues
+        // `getblocks` from the current tip. Swallow so the serial chain lives on.
+      });
+
+    if (matchedHashes.length === 0) {
+      return;
+    }
+
+    // Record the block hash for each matched tx so the following `tx` messages
+    // can be tagged with their containing block (drives confirmation).
+    const blockHash = hashBlockHeader(header);
     for (const hash of matchedHashes) {
       this.pendingTxBlock.set(bytesToHex(hash), blockHash);
     }

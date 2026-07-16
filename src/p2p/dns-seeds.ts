@@ -29,11 +29,17 @@ interface DoHResponse {
 // Hardcoded fallback peers
 // ---------------------------------------------------------------------------
 
+// Last-resort peers, used only when DNS seeds fail to resolve (as they
+// currently do). Keep this list pointing at nodes that are actually reachable
+// on the P2P port and advertise NODE_BLOOM — an SPV wallet is refused by any
+// peer without it. Verified reachable on 187.33.154.215:46372
+// (/faircoin Core:3.0.5/, NODE_BLOOM). The fcnode1..3 hosts are included so the
+// wallet picks them up automatically once their P2P port is opened.
 const FALLBACK_PEERS: ReadonlyArray<string> = [
-  "185.117.75.34",
-  "185.117.75.35",
-  "45.32.144.91",
-  "104.238.159.110",
+  "187.33.154.215", // fcexplorer — verified live, serves filtered blocks
+  "80.240.127.240", // fcnode1
+  "187.33.155.242", // fcnode2
+  "187.33.156.120", // fcnode3
 ];
 
 // ---------------------------------------------------------------------------
