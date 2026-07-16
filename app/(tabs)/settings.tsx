@@ -35,7 +35,8 @@ import { Card, Button, PinDots, PinPad, ScreenHeader } from "../../src/ui/compon
 import type { NetworkType } from "@fairco.in/core";
 import { useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
+import type { DialogControlProps } from "@oxyhq/bloom/dialog";
 import {
   SettingsListGroup,
   SettingsListItem,
@@ -189,7 +190,7 @@ function PinModal({ visible, title, onCancel, onSuccess }: PinModalProps) {
 // ---------------------------------------------------------------------------
 
 interface RecoveryModalProps {
-  control: Prompt.PromptControlProps;
+  control: DialogControlProps;
   mnemonic: string;
   onDismiss: () => void;
 }
@@ -198,30 +199,28 @@ function RecoveryModal({ control, mnemonic, onDismiss }: RecoveryModalProps) {
   const words = useMemo(() => mnemonic.split(" "), [mnemonic]);
 
   return (
-    <Prompt.Outer control={control} onClose={onDismiss}>
-      <Prompt.Content>
-        <Prompt.TitleText>{t("settings.recovery.title")}</Prompt.TitleText>
-        <Prompt.DescriptionText>
-          {t("settings.recovery.description")}
-        </Prompt.DescriptionText>
-        <View className="flex-row flex-wrap justify-center gap-2 mt-2">
-          {words.map((word, idx) => (
-            <View
-              key={`recovery-word-${idx}`}
-              className="bg-background rounded-lg px-3 py-1.5"
-            >
-              <Text className="text-foreground text-sm">
-                <Text className="text-muted-foreground">{idx + 1}. </Text>
-                {word}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </Prompt.Content>
-      <Prompt.Actions>
-        <Prompt.Action cta={t("common.done")} onPress={onDismiss} color="primary" />
-      </Prompt.Actions>
-    </Prompt.Outer>
+    <Dialog
+      control={control}
+      onClose={onDismiss}
+      placement="bottom"
+      title={t("settings.recovery.title")}
+      description={t("settings.recovery.description")}
+      actions={[{ label: t("common.done"), onPress: onDismiss }]}
+    >
+      <View className="flex-row flex-wrap justify-center gap-2 mt-2">
+        {words.map((word, idx) => (
+          <View
+            key={`recovery-word-${idx}`}
+            className="bg-background rounded-lg px-3 py-1.5"
+          >
+            <Text className="text-foreground text-sm">
+              <Text className="text-muted-foreground">{idx + 1}. </Text>
+              {word}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Dialog>
   );
 }
 
@@ -301,11 +300,11 @@ export default function SettingsScreen() {
     [language],
   );
 
-  const wipeControl = Prompt.usePromptControl();
-  const switchNetworkControl = Prompt.usePromptControl();
-  const resyncControl = Prompt.usePromptControl();
-  const recoveryControl = Prompt.usePromptControl();
-  const messageControl = Prompt.usePromptControl();
+  const wipeControl = useDialogControl();
+  const switchNetworkControl = useDialogControl();
+  const resyncControl = useDialogControl();
+  const recoveryControl = useDialogControl();
+  const messageControl = useDialogControl();
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -471,6 +470,10 @@ export default function SettingsScreen() {
 
   const handleExportKey = useCallback(() => {
     router.push("/export-key");
+  }, [router]);
+
+  const handleNotifications = useCallback(() => {
+    router.push("/notifications-settings");
   }, [router]);
 
   const handleCoinControl = useCallback(() => {
@@ -685,6 +688,17 @@ export default function SettingsScreen() {
             }
             onPress={handleExportKey}
           />
+          <SettingsListItem
+            title={t("settings.notifications")}
+            icon={
+              <SettingsRowIcon
+                name="bell-ring"
+                color="#f472b6"
+                bgClassName="bg-pink-500/10"
+              />
+            }
+            onPress={handleNotifications}
+          />
         </SettingsListGroup>
 
         {/* Appearance */}
@@ -879,33 +893,45 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* Wipe confirmation prompt */}
-      <Prompt.Basic
+      <Dialog
         control={wipeControl}
+        placement="bottom"
         title={t("settings.wipe.title")}
         description={t("settings.wipe.description")}
-        confirmButtonCta={t("settings.wipe.cta")}
-        confirmButtonColor="negative"
-        onConfirm={handleConfirmWipe}
+        actions={[
+          {
+            label: t("settings.wipe.cta"),
+            onPress: handleConfirmWipe,
+            color: "destructive",
+          },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
 
       {/* Switch network prompt */}
-      <Prompt.Basic
+      <Dialog
         control={switchNetworkControl}
+        placement="bottom"
         title={t("settings.switchNetwork.title")}
         description={t("settings.switchNetwork.description", {
           target: isMainnet ? t("settings.testnet") : t("settings.mainnet"),
         })}
-        confirmButtonCta={t("settings.switchNetwork.cta")}
-        onConfirm={handleConfirmSwitchNetwork}
+        actions={[
+          { label: t("settings.switchNetwork.cta"), onPress: handleConfirmSwitchNetwork },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
 
       {/* Resync wallet prompt */}
-      <Prompt.Basic
+      <Dialog
         control={resyncControl}
+        placement="bottom"
         title={t("settings.resync.title")}
         description={t("settings.resync.description")}
-        confirmButtonCta={t("settings.resync.cta")}
-        onConfirm={handleConfirmResync}
+        actions={[
+          { label: t("settings.resync.cta"), onPress: handleConfirmResync },
+          { label: t("common.cancel"), color: "cancel" },
+        ]}
       />
 
       {/* Recovery phrase display prompt */}
@@ -916,13 +942,12 @@ export default function SettingsScreen() {
       />
 
       {/* Shared info/error message prompt */}
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={messageDialog?.title ?? ""}
         description={messageDialog?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={handleMessageDismiss}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: handleMessageDismiss }]}
       />
     </View>
   );

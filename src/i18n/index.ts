@@ -748,6 +748,24 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "notifications.sent.confirmed.body": "Your {amount} {ticker} transfer confirmed",
     "notifications.sync.title": "Syncing wallet",
     "notifications.sync.body": "{progress}% · block {block}",
+
+    // ---------- Payment notification settings ----------
+    "settings.notifications": "Payment notifications",
+    "notificationsSettings.title": "Payment notifications",
+    "notificationsSettings.enable.title": "Enable notifications",
+    "notificationsSettings.enable.description": "Get alerted when you receive or send FAIR, even while the app is closed.",
+    "notificationsSettings.server.group": "Notification server",
+    "notificationsSettings.server.label": "Server URL",
+    "notificationsSettings.server.hint": "Use the official Explorer, or point this at your own node for maximum privacy.",
+    "notificationsSettings.server.reset": "Reset to default server",
+    "notificationsSettings.confirmations.group": "Confirmations",
+    "notificationsSettings.confirmations.title": "Confirmation depth",
+    "notificationsSettings.confirmations.description": "Blocks before a payment counts as confirmed.",
+    "notificationsSettings.confirmations.value": "{count} blocks",
+    "notificationsSettings.events.group": "Events",
+    "notificationsSettings.events.incomingPending": "Incoming (pending)",
+    "notificationsSettings.events.incomingConfirmed": "Incoming (confirmed)",
+    "notificationsSettings.events.outgoingConfirmed": "Sent (confirmed)",
   },
   es: {
     // ---------- Common ----------
@@ -1486,6 +1504,24 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "notifications.sent.confirmed.body": "Tu envío de {amount} {ticker} se confirmó",
     "notifications.sync.title": "Sincronizando billetera",
     "notifications.sync.body": "{progress}% · bloque {block}",
+
+    // ---------- Ajustes de notificaciones de pago ----------
+    "settings.notifications": "Notificaciones de pago",
+    "notificationsSettings.title": "Notificaciones de pago",
+    "notificationsSettings.enable.title": "Activar notificaciones",
+    "notificationsSettings.enable.description": "Recibe alertas cuando recibas o envíes FAIR, incluso con la app cerrada.",
+    "notificationsSettings.server.group": "Servidor de notificaciones",
+    "notificationsSettings.server.label": "URL del servidor",
+    "notificationsSettings.server.hint": "Usa el Explorer oficial, o apunta a tu propio nodo para máxima privacidad.",
+    "notificationsSettings.server.reset": "Restablecer al servidor por defecto",
+    "notificationsSettings.confirmations.group": "Confirmaciones",
+    "notificationsSettings.confirmations.title": "Profundidad de confirmación",
+    "notificationsSettings.confirmations.description": "Bloques antes de considerar un pago confirmado.",
+    "notificationsSettings.confirmations.value": "{count} bloques",
+    "notificationsSettings.events.group": "Eventos",
+    "notificationsSettings.events.incomingPending": "Entrante (pendiente)",
+    "notificationsSettings.events.incomingConfirmed": "Entrante (confirmado)",
+    "notificationsSettings.events.outgoingConfirmed": "Enviado (confirmado)",
   },
 };
 

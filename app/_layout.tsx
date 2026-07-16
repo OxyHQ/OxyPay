@@ -319,6 +319,7 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="peers" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="chain" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="language" options={{ headerShown: false, presentation: "modal" }} />
+        <Stack.Screen name="notifications-settings" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="map" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="transaction/[txid]" options={{ headerShown: false }} />
         <Stack.Screen name="buy" options={{ headerShown: false }} />
