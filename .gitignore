@@ -17,6 +17,12 @@ electron/out/
 .env
 .env.local
 
+# Push notification credentials — never commit the real ones.
+# A `google-services.json.example` template IS committed; the real file is not.
+google-services.json
+GoogleService-Info.plist
+*.p8
+
 # Build artifacts
 *.apk
 *.ipa
