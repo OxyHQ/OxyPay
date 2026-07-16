@@ -42,8 +42,10 @@ import {
 } from "@oxyhq/bloom/settings-list";
 import { findLanguageOption, t } from "../../src/i18n";
 import { useLanguageStore } from "../../src/i18n/store";
+import Constants from "expo-constants";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION: string =
+  Constants.expoConfig?.version ?? Constants.manifest2?.extra?.expoClient?.version ?? "1.0.0";
 const PIN_LENGTH = 6;
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];

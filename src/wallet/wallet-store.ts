@@ -57,6 +57,8 @@ import {
   deleteWalletMnemonic,
   saveWalletXpub,
   isWatchOnly as checkIsWatchOnly,
+  setWalletBirthdayHeight,
+  getWalletBirthdayHeight,
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
@@ -605,9 +607,19 @@ async function runHistoricalRescan(set: WalletSet, get: WalletGet): Promise<void
       }
     : null;
 
-  // No wallet-birthday tracking yet: scan from genesis. The FairCoin chain is
-  // young, so a full scan is acceptable; a future birthday field can narrow it.
-  const birthday = 0;
+  // N-14: use the persisted wallet birthday (chain height at creation) so
+  // newly-created wallets skip the genesis–to-birthday range. Restored
+  // wallets and legacy wallets without a recorded birthday fall back to 0
+  // (full rescan from genesis) — a safe default even if slower.
+  const activeWalletId = get().activeWalletId;
+  let birthday = 0;
+  if (activeWalletId) {
+    try {
+      birthday = await getWalletBirthdayHeight(activeWalletId);
+    } catch {
+      // best-effort — missing birthday just means genesis scan.
+    }
+  }
   const plan = planRescan(persisted, birthday, chainTip);
   if (!plan) {
     return;
@@ -719,7 +731,13 @@ async function reconcileConfirmations(
 // Fee estimation constants (satoshis per byte)
 // ---------------------------------------------------------------------------
 
-const FEE_RATES: Record<FeeLevel, number> = {
+/**
+ * Per-byte fee rate (base units/byte) for each user-selectable fee level.
+ * Exported so the Send screen renders the SAME number it would actually
+ * pass to {@link sendTransaction}, instead of duplicating the values
+ * inline and risking drift between display and on-chain fee.
+ */
+export const FEE_RATES: Record<FeeLevel, number> = {
   low: 1,
   medium: 5,
   high: 10,
@@ -1704,6 +1722,14 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       // Initialize with the new wallet
       await get().initialize(mnemonic, walletId);
+
+      // N-14: record the chain tip at creation time so future rescans can
+      // skip blocks that existed before this wallet was born.
+      const tip = get().chainHeight;
+      await setWalletBirthdayHeight(walletId, tip).catch(() => {
+        // Best-effort. Not being able to record a birthday just means
+        // rescans start from 0 (same as today's behaviour).
+      });
 
       // Reload wallet list
       await get().loadWalletList();

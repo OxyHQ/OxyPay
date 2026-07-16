@@ -35,6 +35,14 @@ export interface WalletInfo {
   id: string;
   name: string;
   createdAt: number;
+  /**
+   * Chain height the wallet was created at (N-14). Used as the lower bound
+   * of historical rescans so a freshly-created wallet does not scan from
+   * genesis when the chain is large. `undefined` for legacy wallets (no
+   * birthday recorded) and for restored wallets where the user did not
+   * supply a creation date — those still scan from height 0 to be safe.
+   */
+  birthdayHeight?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +88,36 @@ export async function renameWallet(id: string, name: string): Promise<void> {
     wallet.name = name;
     await saveWalletIndex(wallets);
   }
+}
+
+/**
+ * Record the wallet's birthday height (N-14). Idempotent: only writes the
+ * first non-zero height observed, so a re-init does not push the birthday
+ * forward (which would prune already-recorded transactions from rescan
+ * range). Pass `chainHeight = 0` on a fresh chain → nothing is written and
+ * the rescan continues to start from genesis.
+ */
+export async function setWalletBirthdayHeight(
+  id: string,
+  chainHeight: number,
+): Promise<void> {
+  if (!Number.isFinite(chainHeight) || chainHeight <= 0) return;
+  const wallets = await getWalletIndex();
+  const wallet = wallets.find((w) => w.id === id);
+  if (!wallet) return;
+  // First-write-wins to avoid creeping the birthday forward on re-init.
+  if (wallet.birthdayHeight !== undefined && wallet.birthdayHeight > 0) return;
+  wallet.birthdayHeight = chainHeight;
+  await saveWalletIndex(wallets);
+}
+
+/**
+ * Get the birthday height of a wallet, or 0 if not recorded.
+ */
+export async function getWalletBirthdayHeight(id: string): Promise<number> {
+  const wallets = await getWalletIndex();
+  const wallet = wallets.find((w) => w.id === id);
+  return wallet?.birthdayHeight ?? 0;
 }
 
 // ---------------------------------------------------------------------------

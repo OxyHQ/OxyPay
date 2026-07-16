@@ -40,49 +40,61 @@ import {
   type PaymentCurrency,
 } from "../../src/api/buy";
 import { useWalletStore } from "../../src/wallet/wallet-store";
+import { useLanguageStore } from "../../src/i18n/store";
 import { FONT_PHUDU_BLACK } from "../../src/utils/fonts";
 import { t } from "../../src/i18n";
 
 const CONTENT_MAX_WIDTH = 600;
 const PRESETS = ["10", "50", "100", "500"] as const;
 
-const PAYMENT_OPTIONS: ReadonlyArray<PaymentMethodOption> = [
-  {
-    currency: "USDC_BASE",
-    label: t("buy.payment.usdcBase.label"),
-    description: t("buy.payment.usdcBase.description"),
-    icon: "currency-usd",
-    recommended: true,
-  },
-  {
-    currency: "ETH_BASE",
-    label: t("buy.payment.ethBase.label"),
-    description: t("buy.payment.ethBase.description"),
-    icon: "ethereum",
-    comingSoon: true,
-  },
-  {
-    currency: "ETH_MAINNET",
-    label: t("buy.payment.ethMainnet.label"),
-    description: t("buy.payment.ethMainnet.description"),
-    icon: "ethereum",
-    comingSoon: true,
-  },
-  {
-    currency: "BTC",
-    label: t("buy.payment.btc.label"),
-    description: t("buy.payment.btc.description"),
-    icon: "bitcoin",
-    comingSoon: true,
-  },
-  {
-    currency: "CARD",
-    label: t("buy.payment.card.label"),
-    description: t("buy.payment.card.description"),
-    icon: "credit-card-outline",
-    comingSoon: true,
-  },
-];
+/**
+ * Build the payment-method list at render time so the labels reflect the
+ * CURRENT language (N-8). The previous module-level constant captured
+ * `t()` once at first import and never updated: changing language at
+ * runtime translated the rest of the Buy screen but left the method labels
+ * in whatever language was active at app launch. `_layout.tsx` remounts the
+ * tree with `key={language}` on switch, which re-runs components but does
+ * NOT re-execute module bodies; this hook does.
+ */
+function buildPaymentOptions(): readonly PaymentMethodOption[] {
+  return [
+    {
+      currency: "USDC_BASE",
+      label: t("buy.payment.usdcBase.label"),
+      description: t("buy.payment.usdcBase.description"),
+      icon: "currency-usd",
+      recommended: true,
+    },
+    {
+      currency: "ETH_BASE",
+      label: t("buy.payment.ethBase.label"),
+      description: t("buy.payment.ethBase.description"),
+      icon: "ethereum",
+      comingSoon: true,
+    },
+    {
+      currency: "ETH_MAINNET",
+      label: t("buy.payment.ethMainnet.label"),
+      description: t("buy.payment.ethMainnet.description"),
+      icon: "ethereum",
+      comingSoon: true,
+    },
+    {
+      currency: "BTC",
+      label: t("buy.payment.btc.label"),
+      description: t("buy.payment.btc.description"),
+      icon: "bitcoin",
+      comingSoon: true,
+    },
+    {
+      currency: "CARD",
+      label: t("buy.payment.card.label"),
+      description: t("buy.payment.card.description"),
+      icon: "credit-card-outline",
+      comingSoon: true,
+    },
+  ];
+}
 
 function truncateMid(value: string, head: number, tail: number): string {
   if (value.length <= head + tail + 1) return value;
@@ -102,6 +114,11 @@ export default function BuyScreen() {
     useState<PaymentCurrency>("USDC_BASE");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-derive the payment method list whenever language changes so labels
+  // and descriptions stay localised at runtime (N-8).
+  const language = useLanguageStore((s) => s.language);
+  const paymentOptions = useMemo(() => buildPaymentOptions(), [language]);
 
   const amountSats = useMemo(() => parseFairToUnits(amount), [amount]);
   const canSubmit =
@@ -222,7 +239,7 @@ export default function BuyScreen() {
               {t("buy.method.label")}
             </Text>
             <PaymentMethodPicker
-              options={PAYMENT_OPTIONS}
+              options={paymentOptions}
               value={paymentCurrency}
               onChange={setPaymentCurrency}
             />

@@ -28,6 +28,7 @@ import {
   serializeFilterLoad,
   serializeGetData,
   serializeGetHeaders,
+  serializeGetBlocks,
   serializeHeader,
   serializePing,
   serializeVersion,
@@ -231,6 +232,28 @@ describe("serializeGetHeaders", () => {
     expect(bytes[1]).toBe((71000 >> 8) & 0xff);
     expect(bytes[2]).toBe((71000 >> 16) & 0xff);
     expect(bytes[3]).toBe((71000 >> 24) & 0xff);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeGetBlocks
+// ---------------------------------------------------------------------------
+
+describe("serializeGetBlocks", () => {
+  test("wire format is identical to getheaders (only the command differs)", () => {
+    // FairCoin Core answers `getblocks` (not `getheaders`) with an `inv` of
+    // block hashes, which the SPV client requests as filtered blocks. The
+    // payload layout is the shared block-locator request.
+    const locator = [new Uint8Array(32).fill(7), new Uint8Array(32).fill(9)];
+    const stop = new Uint8Array(32);
+    expect(serializeGetBlocks(locator, stop)).toEqual(
+      serializeGetHeaders(locator, stop),
+    );
+  });
+
+  test("length matches 4 + varint + n*32 + 32", () => {
+    const bytes = serializeGetBlocks([new Uint8Array(32)], new Uint8Array(32));
+    expect(bytes.length).toBe(4 + 1 + 32 + 32);
   });
 });
 

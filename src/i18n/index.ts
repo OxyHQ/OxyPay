@@ -164,6 +164,8 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "buy.payment.btc.description": "Slower confirmations (~10-30 min)",
     "buy.payment.card.label": "Card / Apple Pay / Google Pay",
     "buy.payment.card.description": "Powered by a regulated partner",
+    "buy.quote.networkLabel.base": "Base",
+    "buy.quote.estimatedDelivery": "60-180 seconds after payment confirms",
     "buy.cta.getInstructions": "Get payment instructions",
     "buy.error.belowMinimum": "Minimum order is {min} FAIR",
     "buy.error.aboveMaximum": "Maximum order is {max} FAIR",
@@ -689,6 +691,9 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.network.connectedPlural": "Connected to {count} peers",
     "wallet.network.error": "P2P error: {message}",
 
+    // ---------- Balance display ----------
+    "balance.change24h": "{percent}% today",
+
     // ---------- Language picker ----------
     "language.title": "Language",
     "language.searchPlaceholder": "Search languages...",
@@ -861,6 +866,8 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "buy.payment.btc.description": "Confirmaciones m\u00e1s lentas (~10-30 min)",
     "buy.payment.card.label": "Tarjeta / Apple Pay / Google Pay",
     "buy.payment.card.description": "A trav\u00e9s de un partner regulado",
+    "buy.quote.networkLabel.base": "Base",
+    "buy.quote.estimatedDelivery": "60-180 segundos tras confirmarse el pago",
     "buy.cta.getInstructions": "Ver instrucciones de pago",
     "buy.error.belowMinimum": "El m\u00ednimo es {min} FAIR",
     "buy.error.aboveMaximum": "El m\u00e1ximo es {max} FAIR",
@@ -1417,6 +1424,9 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.network.connectedSingular": "Conectado a 1 par",
     "wallet.network.connectedPlural": "Conectado a {count} pares",
     "wallet.network.error": "Error P2P: {message}",
+
+    // ---------- Balance display ----------
+    "balance.change24h": "{percent}% hoy",
 
     // ---------- Language picker ----------
     "language.title": "Idioma",

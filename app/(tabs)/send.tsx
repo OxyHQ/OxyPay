@@ -16,6 +16,7 @@ import { File, Paths } from "expo-file-system";
 import {
   useWalletStore,
   getDatabase,
+  FEE_RATES,
   type FeeLevel,
 } from "../../src/wallet/wallet-store";
 import { useContactsStore } from "../../src/wallet/contacts-store";
@@ -163,12 +164,10 @@ export default function SendScreen() {
     setSentTxid(null);
   }, []);
 
-  // Numeric fee rate (base units per byte) for the selected level. Must match
-  // the rate sendTransaction is called with so the displayed fee is the real one.
-  const feeRate = useMemo(
-    () => (feeLevel === "high" ? 10 : feeLevel === "medium" ? 5 : 1),
-    [feeLevel],
-  );
+  // Numeric fee rate (base units per byte) from the canonical FEE_RATES map
+  // so the displayed fee is always the real one (no inline magic numbers that
+  // could diverge from what sendTransaction actually uses).
+  const feeRate = FEE_RATES[feeLevel];
 
   const amountSats = useMemo<bigint | null>(
     () => parseFairToUnits(amount),
@@ -230,14 +229,15 @@ export default function SendScreen() {
     amountSats > 0n &&
     validationError === null;
 
-  const usdEquivalent = useMemo(() => {
-    const price = getCachedPrice();
-    if (price && amountSats !== null && amountSats > 0n) {
-      const fair = Number(amountSats) / Number(UNITS_PER_COIN);
-      return (fair * price.usd).toFixed(2);
-    }
-    return null;
-  }, [amountSats]);
+  // Computed inline (not memoised): `getCachedPrice()` is module state, not a
+  // reactive dependency, so a useMemo keyed only on amountSats would freeze
+  // the first price it saw. Reading it every render keeps the fiat estimate
+  // in sync with the latest poll, and the arithmetic is trivially cheap.
+  const cachedPrice = getCachedPrice();
+  const usdEquivalent =
+    cachedPrice && amountSats !== null && amountSats > 0n
+      ? ((Number(amountSats) / Number(UNITS_PER_COIN)) * cachedPrice.usd).toFixed(2)
+      : null;
 
   const matchedContact = useMemo<ContactRow | null>(() => {
     if (toAddress.length < 25) return null;
