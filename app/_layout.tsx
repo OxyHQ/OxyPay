@@ -21,6 +21,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import * as Linking from "expo-linking";
+import * as Notifications from "expo-notifications";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { KeyboardProvider as NativeKeyboardProvider } from "react-native-keyboard-controller";
@@ -47,6 +48,7 @@ import { getItemAsync, setItemAsync } from "../src/storage/kv-store";
 import { startTxNotifier } from "../src/services/tx-notifier";
 import { startSyncNotifier } from "../src/services/sync-notifier";
 import { startPushRegistration } from "../src/services/push-registration";
+import { handleIncomingPush } from "../src/services/push-handler";
 import { registerBackgroundSync } from "../src/services/background-sync";
 
 // Module-level initialization. Resolves the persisted or device language,
@@ -154,6 +156,33 @@ function useDeepLinkHandler() {
   }, [initialized, locked, consumePendingDeepLink, navigateFromUrl]);
 }
 
+/**
+ * Route a silent payment push to the on-device handler. The server sends a
+ * data-only push carrying `{ txid, event }` (never an amount, spec §4.2); this
+ * listener wakes the handler, which syncs the txid and posts a LOCAL
+ * notification with the amount composed on-device.
+ *
+ * Our own local notifications (received / sent / sync) carry no `txid`, so the
+ * guard below skips them — this only acts on server pushes.
+ */
+function usePushNotificationHandler() {
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const data = notification.request.content.data;
+        const txid = data?.txid;
+        if (typeof txid !== "string" || txid.length === 0) return;
+        const event =
+          typeof data?.event === "string" ? data.event : "incoming_confirmed";
+        void handleIncomingPush({ txid, event });
+      },
+    );
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+}
+
 function useAutoLock() {
   const initialized = useWalletStore((s) => s.initialized);
   const lockWallet = useWalletStore((s) => s.lockWallet);
@@ -200,6 +229,7 @@ function useAutoLock() {
 export default function RootLayout() {
   useDeepLinkHandler();
   useAutoLock();
+  usePushNotificationHandler();
 
   const [fontsLoaded] = useFonts({
     "Phudu-Light": require("../assets/fonts/Phudu-Light.ttf"),

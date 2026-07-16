@@ -744,6 +744,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     // ---------- Notifications ----------
     "notifications.received.title": "Payment received",
     "notifications.received.body": "You received {amount} {ticker}",
+    "notifications.sent.confirmed.title": "Payment sent",
+    "notifications.sent.confirmed.body": "Your {amount} {ticker} transfer confirmed",
+    "notifications.sync.title": "Syncing wallet",
+    "notifications.sync.body": "{progress}% · block {block}",
   },
   es: {
     // ---------- Common ----------
@@ -1478,6 +1482,10 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     // ---------- Notifications ----------
     "notifications.received.title": "Pago recibido",
     "notifications.received.body": "Recibiste {amount} {ticker}",
+    "notifications.sent.confirmed.title": "Pago enviado",
+    "notifications.sent.confirmed.body": "Tu envío de {amount} {ticker} se confirmó",
+    "notifications.sync.title": "Sincronizando billetera",
+    "notifications.sync.body": "{progress}% · bloque {block}",
   },
 };
 

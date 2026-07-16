@@ -323,6 +323,16 @@ export function getActiveAccountXpub(): string | null {
   }
 }
 
+/**
+ * Every address the active wallet watches (external + change + lookahead), or an
+ * empty array when no wallet is initialized (e.g. while PIN-locked). Used by the
+ * silent-push handler to decide whether a pushed txid actually pays this wallet
+ * before composing the on-device notification.
+ */
+export function getActiveWalletAddresses(): string[] {
+  return keyManager?.getAllAddresses() ?? [];
+}
+
 // ---------------------------------------------------------------------------
 // Incoming transaction processing (SPV receive path)
 // ---------------------------------------------------------------------------
