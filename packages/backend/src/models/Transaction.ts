@@ -33,7 +33,7 @@ const TransactionSchema = new Schema<TransactionDocument>(
     fee: { type: String },
     counterpartyUserId: { type: String, index: true },
     counterpartyUsername: { type: String },
-    externalRef: { type: String, index: true, sparse: true },
+    externalRef: { type: String },
     note: { type: String, maxlength: 280 },
     paymentId: { type: String, index: true, sparse: true },
     invoiceId: { type: String, index: true, sparse: true },
@@ -44,6 +44,14 @@ const TransactionSchema = new Schema<TransactionDocument>(
 
 TransactionSchema.index({ userId: 1, createdAt: -1 });
 TransactionSchema.index({ walletId: 1, createdAt: -1 });
+// Idempotency backstop: at most one transaction per external reference
+// (on-chain txid:vout deposits, etc.). Partial so non-externalRef txns are
+// exempt. This is the DB-level guarantee against double-credit across the
+// multiple ECS tasks each running a deposit watcher.
+TransactionSchema.index(
+  { externalRef: 1 },
+  { unique: true, partialFilterExpression: { externalRef: { $type: 'string' } } }
+);
 
 export const Transaction: Model<TransactionDocument> =
   (mongoose.models.Transaction as Model<TransactionDocument>) ||

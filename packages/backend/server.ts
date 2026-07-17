@@ -13,6 +13,7 @@ import transactionsRouter from './src/routes/transactions';
 import invoicesRouter from './src/routes/invoices';
 import paymentsRouter from './src/routes/payments';
 import faircoinRouter from './src/routes/faircoin';
+import { isLive as isFairCoinLive, startFairCoinWatcher } from './src/services/faircoin.service';
 
 const app = express();
 const PORT = Number.parseInt(process.env.PORT || '3001', 10);
@@ -87,6 +88,11 @@ const server = http.createServer(app);
 
 if (require.main === module) {
   server.listen(PORT);
+  // Start the FairCoin deposit watcher only when the live integration is
+  // configured. No-op in mock mode and when FAIRCOIN_WATCHER_ENABLED=false.
+  if (isFairCoinLive()) {
+    startFairCoinWatcher();
+  }
 }
 
 export default app;

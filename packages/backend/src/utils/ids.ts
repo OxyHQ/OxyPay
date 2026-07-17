@@ -10,3 +10,4 @@ export const newTransactionId = () => newId('txn');
 export const newInvoiceId = () => newId('inv');
 export const newPaymentId = () => newId('pay');
 export const newWebhookId = () => newId('whe');
+export const newFaircoinAddressId = () => newId('fca');

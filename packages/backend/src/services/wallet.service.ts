@@ -14,6 +14,16 @@ import type {
 
 const SUPPORTED_CURRENCIES: Currency[] = ['FAIR', 'EUR', 'USD'];
 
+/** True for a MongoDB duplicate-key (E11000) error, used for idempotency. */
+function isDuplicateKeyError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: unknown }).code === 11000
+  );
+}
+
 export function toWalletDto(doc: WalletDocument): WalletDto {
   return {
     id: doc._id,
@@ -91,9 +101,10 @@ export async function creditWallet(opts: CreditOptions): Promise<WalletDocument>
       if (wallet.frozen) {
         throw new HttpError(409, 'wallet_frozen', 'Wallet is frozen');
       }
-      const next = add({ amount: wallet.balance, currency: wallet.currency }, opts.amount);
-      wallet.balance = next.amount;
-      await wallet.save({ session });
+      // Insert the transaction FIRST: the unique partial index on `externalRef`
+      // rejects a duplicate (e.g. the same on-chain txid:vout observed by two
+      // ECS watcher instances) BEFORE any balance is moved, aborting the whole
+      // Mongo transaction. This is the atomic guarantee against double-credit.
       await Transaction.create(
         [
           {
@@ -115,8 +126,18 @@ export async function creditWallet(opts: CreditOptions): Promise<WalletDocument>
         ],
         { session }
       );
+      const next = add({ amount: wallet.balance, currency: wallet.currency }, opts.amount);
+      wallet.balance = next.amount;
+      await wallet.save({ session });
     });
     return wallet;
+  } catch (err) {
+    // A duplicate `externalRef` means this credit was already applied — return
+    // the current wallet snapshot as an idempotent no-op (no double-credit).
+    if (opts.externalRef && isDuplicateKeyError(err)) {
+      return getOrCreateWallet(opts.userId, opts.currency);
+    }
+    throw err;
   } finally {
     session.endSession();
   }

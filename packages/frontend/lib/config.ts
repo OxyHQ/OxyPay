@@ -24,5 +24,5 @@ export const config = {
   oxyClientId:
     process.env.EXPO_PUBLIC_OXY_CLIENT_ID ||
     fromExtra('oxyClientId') ||
-    'oxy_dk_e57506739475e4c3e6038428e768089f7e81b16986e691c5',
+    'oxy_dk_857cabdaba3f79ec5c931706424f439b67f3bc7b7bc34fca',
 };

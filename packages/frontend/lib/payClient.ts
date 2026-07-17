@@ -1,5 +1,6 @@
 import { oxyClient } from '@oxyhq/core';
 import type {
+  ApiError,
   ApiResponse,
   Currency,
   Invoice,
@@ -50,7 +51,7 @@ function getHttpErrorShape(error: unknown): HttpErrorShape | null {
   };
 }
 
-function isApiErrorPayload(value: unknown): value is ApiResponse<unknown> {
+function isApiErrorPayload(value: unknown): value is ApiError {
   return isRecord(value) && value.success === false && isRecord(value.error);
 }
 
@@ -72,7 +73,7 @@ async function unwrap<T>(promise: Promise<ApiResponse<T>>): Promise<T> {
     const httpError = getHttpErrorShape(err);
     const payload = httpError?.response?.data;
     if (isApiErrorPayload(payload)) {
-      throw toPayApiError(payload.error.message, payload.error.code, httpError.response?.status);
+      throw toPayApiError(payload.error.message, payload.error.code, httpError?.response?.status);
     }
     throw err;
   }
