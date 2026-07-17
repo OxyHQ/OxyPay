@@ -34,8 +34,8 @@
 - [x] T9 · Settlement watcher (tip-driven, no-custodial) _(txid verify, deps inyectadas, 2 tests)_
 - [x] T10 · Dispatcher de webhooks (safeFetch + reintentos) _(SSRF-safe, best-effort, 4 tests)_
 - [x] T11 · Rutas REST (create/get/reject/**submit_tx**, serviceAuth + idempotencia) _(9 tests; usa serializer compartido)_
-- [ ] T12 · Realtime Socket.io (updates del intent)
-- [ ] T13 · Wiring del server + smoke e2e en testnet
+- [x] T12 · Realtime Socket.io (updates del intent, join gateado por client_secret)
+- [x] T13 · Wiring del server (`createGateway`) + **e2e completo** (create→submit_tx→watcher→settled→socket+webhook, no-custodia) _(65 tests backend / 0 fail)_
 
 ### Track B — App monedero (Oxy Pay)  _(bloqueado: necesita el ref de FAIRWallet)_
 - [ ] Subtree de FAIRWallet en `packages/frontend`

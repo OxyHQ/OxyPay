@@ -1,9 +1,152 @@
 /**
  * Oxy Pay Gateway — backend entry point.
  *
- * Scaffolded here; the express app, Socket.io, and settlement watcher are wired
- * up in Task 13 of docs/superpowers/plans/2026-07-18-oxypay-gateway-backend-f1a.md.
- *
  * Non-custodial by construction: this server never holds private keys or funds.
+ * It orchestrates the PaymentIntent lifecycle — REST commands, realtime state
+ * over Socket.io, a tip-driven settlement watcher, and signed webhooks — while
+ * the payer's self-custody wallet signs and broadcasts the on-chain transaction.
  */
-export {};
+import { createServer, type Server as HttpServer } from "node:http";
+import express, {
+  type ErrorRequestHandler,
+  type RequestHandler,
+} from "express";
+import { Server as SocketServer } from "socket.io";
+import { oxyClient } from "@oxyhq/core";
+import { createOxyCors, createOxyRateLimit } from "@oxyhq/core/server";
+import type {
+  PaymentIntentStatus,
+  WebhookEventType,
+} from "@oxypay/shared-types";
+import { config } from "./config";
+import { connectDb } from "./db";
+import { Merchant } from "./models/Merchant";
+import { createPaymentIntentsRouter } from "./routes/paymentIntents";
+import {
+  SettlementWatcher,
+  type HydratedPaymentIntentDoc,
+} from "./services/settlementWatcher";
+import { getTransaction } from "./services/explorer";
+import {
+  buildEvent,
+  deliver,
+  type SafeFetchFn,
+} from "./services/webhookDispatcher";
+import {
+  initSocket,
+  emitIntentUpdate,
+  type SocketAuth,
+} from "./realtime/socket";
+import { toPaymentIntentDTO } from "./lib/serialize";
+
+/** Date-based API version, echoed on every response (Stripe-parity). */
+const OXY_PAY_VERSION = "2026-07-18";
+
+/** Which statuses emit a webhook, and the Stripe-parity event type for each. */
+const WEBHOOK_EVENT_FOR: Partial<
+  Record<PaymentIntentStatus, WebhookEventType>
+> = {
+  confirming: "payment_intent.confirming",
+  settled: "payment_intent.settled",
+  failed: "payment_intent.failed",
+  rejected: "payment_intent.rejected",
+  expired: "payment_intent.expired",
+};
+
+export interface GatewayDeps {
+  /** Merchant service-auth middleware (default `oxyClient.serviceAuth()`). */
+  requireMerchant?: RequestHandler;
+  /** Socket connection auth (default `oxyClient.authSocket()`). */
+  socketAuth?: SocketAuth;
+  /** On-chain reader (default the real Explorer client). */
+  getTransaction?: typeof getTransaction;
+  /** SSRF-safe fetch used for webhook delivery (default the real one). */
+  safeFetch?: SafeFetchFn;
+}
+
+export interface Gateway {
+  httpServer: HttpServer;
+  io: SocketServer;
+  watcher: SettlementWatcher;
+}
+
+/**
+ * When the watcher advances an intent, fan the change out to both transports:
+ * the payer's realtime socket room AND the merchant's signed webhook. Webhook
+ * delivery is best-effort (never throws) so it cannot stall the watcher.
+ */
+async function onIntentChange(
+  io: SocketServer,
+  intent: HydratedPaymentIntentDoc,
+  safeFetch: SafeFetchFn | undefined,
+): Promise<void> {
+  emitIntentUpdate(io, intent);
+
+  const eventType = WEBHOOK_EVENT_FOR[intent.status];
+  if (eventType === undefined) return;
+
+  const merchant = await Merchant.findById(intent.merchantId);
+  if (!merchant || !merchant.webhookUrl || !merchant.webhookSecret) return;
+
+  const event = buildEvent(eventType, toPaymentIntentDTO(intent));
+  await deliver(
+    event,
+    { url: merchant.webhookUrl, secret: merchant.webhookSecret },
+    safeFetch ? { safeFetch } : {},
+  );
+}
+
+/**
+ * Assemble the gateway (Express app + HTTP server + Socket.io + watcher) WITHOUT
+ * starting it. Dependencies are injectable so integration tests can stub auth,
+ * the on-chain reader, and webhook delivery, and drive `watcher.check()` by hand.
+ */
+export function createGateway(deps: GatewayDeps = {}): Gateway {
+  const app = express();
+  app.use(createOxyCors());
+  app.use(createOxyRateLimit(oxyClient));
+  app.use(express.json());
+  app.use(((_req, res, next) => {
+    res.setHeader("Oxy-Pay-Version", OXY_PAY_VERSION);
+    next();
+  }) as RequestHandler);
+  app.use(
+    createPaymentIntentsRouter({ requireMerchant: deps.requireMerchant }),
+  );
+
+  const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+    const message = err instanceof Error ? err.message : "internal error";
+    res.status(500).json({ error: { type: "api_error", message } });
+  };
+  app.use(errorHandler);
+
+  const httpServer = createServer(app);
+  const io = new SocketServer(httpServer, {
+    cors: { origin: true, credentials: true },
+  });
+  initSocket(io, { socketAuth: deps.socketAuth });
+
+  const watcher = new SettlementWatcher({
+    getTransaction: deps.getTransaction ?? getTransaction,
+    onChange: (intent) => onIntentChange(io, intent, deps.safeFetch),
+  });
+
+  return { httpServer, io, watcher };
+}
+
+/** Production entry: connect the DB, boot the watcher, and listen. */
+export async function start(): Promise<void> {
+  await connectDb();
+  const gateway = createGateway();
+  gateway.watcher.start();
+  gateway.httpServer.listen(config.port);
+}
+
+if (import.meta.main) {
+  start().catch((error: unknown) => {
+    process.emitWarning(
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    process.exitCode = 1;
+  });
+}
