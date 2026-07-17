@@ -31,6 +31,8 @@ import {
 } from "../../src/ui/components";
 import { TransactionItem } from "../../src/ui/components/TransactionItem";
 import { HomeOverview } from "../../src/ui/components/HomeOverview";
+import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
+import { HubIcon } from "../../src/ui/components/HubIcon";
 import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
@@ -351,6 +353,9 @@ export default function HomeScreen() {
             icon="arrow-down"
             label={t("wallet.receive")}
             onPress={() => receiveControl.open()}
+            renderIcon={({ color, size }) => (
+              <ArrowCircleDownIcon color={color} size={size} />
+            )}
           />
           <ActionButton
             icon="credit-card-plus"
@@ -361,6 +366,9 @@ export default function HomeScreen() {
             icon="server-network"
             label={t("wallet.nodes")}
             onPress={() => router.push("/masternode")}
+            renderIcon={({ color, size }) => (
+              <HubIcon color={color} size={size} />
+            )}
           />
         </View>
 
