@@ -26,7 +26,7 @@
 - [x] T1 · Repo prep: rama, archivar backend WIP, scaffold `@oxypay/backend` + reset `shared-types` _(bun-native/ESM; xpub testnet vector generado; typecheck limpio)_
 - [ ] T2 · `shared-types`: contrato `PaymentIntent` + eventos webhook
 - [x] T3 · Generador de IDs prefijados (`pi_`, `evt_`) _(4 tests verdes)_
-- [ ] T4 · Derivación watch-only desde xpub del merchant
+- [x] T4 · Derivación watch-only desde xpub del merchant _(vector testnet real, guard no-custodia, 3 tests verdes)_
 - [ ] T5 · Máquina de estados del intent (pura)
 - [ ] T6 · Firmador HMAC de webhooks
 - [ ] T7 · Modelos Mongoose (Merchant + PaymentIntent, watch-only enforced)
