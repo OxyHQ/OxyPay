@@ -34,6 +34,7 @@ import { HomeOverview } from "../../src/ui/components/HomeOverview";
 import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
 import { HubIcon } from "../../src/ui/components/HubIcon";
 import { SendIcon } from "../../src/ui/components/SendIcon";
+import { WalletSwitcherSheet } from "../../src/ui/sheets/WalletSwitcherSheet";
 import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
@@ -149,6 +150,8 @@ export default function HomeScreen() {
   // Send / Receive open as Bloom bottom-sheet dialogs (not separate screens).
   const sendControl = useDialogControl();
   const receiveControl = useDialogControl();
+  // Tapping the wallet name opens a quick wallet-switcher sheet.
+  const walletSwitcherControl = useDialogControl();
 
   useFocusEffect(
     useCallback(() => {
@@ -287,7 +290,7 @@ export default function HomeScreen() {
       >
         <Pressable
           className="flex-row items-center active:opacity-60"
-          onPress={() => router.push("/wallets")}
+          onPress={() => walletSwitcherControl.open()}
           accessibilityRole="button"
           accessibilityLabel={t("wallet.switchAccessibility")}
         >
@@ -444,6 +447,13 @@ export default function HomeScreen() {
         title={t("receive.title")}
       >
         <ReceiveSheet heading={false} />
+      </Dialog>
+      <Dialog
+        control={walletSwitcherControl}
+        placement="bottom"
+        title={t("wallets.title")}
+      >
+        <WalletSwitcherSheet onDone={() => walletSwitcherControl.close()} />
       </Dialog>
     </View>
   );
