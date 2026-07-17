@@ -33,6 +33,7 @@ import { TransactionItem } from "../../src/ui/components/TransactionItem";
 import { HomeOverview } from "../../src/ui/components/HomeOverview";
 import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
 import { HubIcon } from "../../src/ui/components/HubIcon";
+import { SendIcon } from "../../src/ui/components/SendIcon";
 import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
@@ -348,6 +349,9 @@ export default function HomeScreen() {
             icon="arrow-up"
             label={t("wallet.send")}
             onPress={() => sendControl.open()}
+            renderIcon={({ color, size }) => (
+              <SendIcon color={color} size={size} />
+            )}
           />
           <ActionButton
             icon="arrow-down"
