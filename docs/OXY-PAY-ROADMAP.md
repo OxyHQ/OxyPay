@@ -29,7 +29,7 @@
 - [x] T4 · Derivación watch-only desde xpub del merchant _(vector testnet real, guard no-custodia, 3 tests verdes)_
 - [x] T5 · Máquina de estados del intent (pura) _(reorg exception + idempotencia, 18 tests)_
 - [x] T6 · Firmador HMAC de webhooks _(constant-time, 8 tests verdes)_
-- [ ] T7 · Modelos Mongoose (Merchant + PaymentIntent, watch-only enforced)
+- [x] T7 · Modelos Mongoose (Merchant + PaymentIntent, watch-only enforced) _(reserva atómica, idempotency index, 8 tests)_
 - [x] T8 · Cliente HTTP del Explorer (tip + `getTransaction`/`verifyPayment`, zod) _(8 tests + live mainnet)_
 - [ ] T9 · Settlement watcher (tip-driven, no-custodial)
 - [ ] T10 · Dispatcher de webhooks (safeFetch + reintentos)
