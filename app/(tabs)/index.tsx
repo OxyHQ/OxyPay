@@ -39,8 +39,7 @@ import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
 } from "../../src/ui/components/RefreshRainbowBar";
-import { ReceiveSheet } from "../../src/ui/sheets/ReceiveSheet";
-import { SendSheet } from "../../src/ui/sheets/SendSheet";
+import { SendReceiveSheet } from "../../src/ui/sheets/SendReceiveSheet";
 import { hapticSelection, hapticSuccess } from "../../src/utils/haptics";
 import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
@@ -147,9 +146,10 @@ export default function HomeScreen() {
   const [price, setPrice] = useState<PriceData | null>(getCachedPrice);
   const [tab, setTab] = useState<HomeTab>("activity");
 
-  // Send / Receive open as Bloom bottom-sheet dialogs (not separate screens).
-  const sendControl = useDialogControl();
-  const receiveControl = useDialogControl();
+  // Send / Receive share ONE bottom-sheet with a Send|Receive toggle; the pills
+  // just open it on the right side.
+  const sheetControl = useDialogControl();
+  const [sheetMode, setSheetMode] = useState<"send" | "receive">("send");
   // Tapping the wallet name opens a quick wallet-switcher sheet.
   const walletSwitcherControl = useDialogControl();
 
@@ -351,7 +351,10 @@ export default function HomeScreen() {
           <ActionButton
             icon="arrow-up"
             label={t("wallet.send")}
-            onPress={() => sendControl.open()}
+            onPress={() => {
+              setSheetMode("send");
+              sheetControl.open();
+            }}
             renderIcon={({ color, size }) => (
               <SendIcon color={color} size={size} />
             )}
@@ -359,7 +362,10 @@ export default function HomeScreen() {
           <ActionButton
             icon="arrow-down"
             label={t("wallet.receive")}
-            onPress={() => receiveControl.open()}
+            onPress={() => {
+              setSheetMode("receive");
+              sheetControl.open();
+            }}
             renderIcon={({ color, size }) => (
               <ArrowCircleDownIcon color={color} size={size} />
             )}
@@ -437,16 +443,11 @@ export default function HomeScreen() {
         </Animated.ScrollView>
       </GestureDetector>
 
-      {/* Send / Receive as bottom-sheet dialogs (title makes the sheet scroll) */}
-      <Dialog control={sendControl} placement="bottom" title={t("send.title")}>
-        <SendSheet />
-      </Dialog>
-      <Dialog
-        control={receiveControl}
-        placement="bottom"
-        title={t("receive.title")}
-      >
-        <ReceiveSheet heading={false} />
+      {/* Send / Receive: one bottom-sheet with a Send|Receive toggle. title=""
+          turns ON the sheet's own scroll (for the tall Send form) without
+          rendering a header row — the sheet's toggle is the header. */}
+      <Dialog control={sheetControl} placement="bottom" title="">
+        <SendReceiveSheet mode={sheetMode} onModeChange={setSheetMode} />
       </Dialog>
       <Dialog
         control={walletSwitcherControl}
