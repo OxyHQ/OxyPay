@@ -9,14 +9,19 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "echo \"No tests specified\" && exit 0",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "prepublishOnly": "bun run build"
   },
   "author": "Oxy Pay",
   "license": "UNLICENSED",
+  "dependencies": {
+    "@fairco.in/core": "^0.1.1"
+  },
   "devDependencies": {
     "typescript": "~5.9.2",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@types/bun": "latest"
   },
   "files": [
     "dist/**/*"

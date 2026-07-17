@@ -23,7 +23,7 @@
 ## Fase 1 — Cimiento (flujo atómico no-custodial)
 
 ### Track A — Gateway backend + shared-types  _(independiente del ref; en curso)_
-- [ ] T1 · Repo prep: rama, archivar backend WIP, scaffold `@oxypay/backend` + reset `shared-types`
+- [x] T1 · Repo prep: rama, archivar backend WIP, scaffold `@oxypay/backend` + reset `shared-types` _(bun-native/ESM; xpub testnet vector generado; typecheck limpio)_
 - [ ] T2 · `shared-types`: contrato `PaymentIntent` + eventos webhook
 - [ ] T3 · Generador de IDs prefijados (`pi_`, `evt_`)
 - [ ] T4 · Derivación watch-only desde xpub del merchant
