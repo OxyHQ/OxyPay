@@ -19,6 +19,8 @@ import { useWalletStore } from "../../wallet/wallet-store";
 import {
   fetchPriceHistory,
   fetchNetworkStats,
+  getCachedPriceHistory,
+  getCachedNetworkStats,
   type PriceHistoryPoint,
   type NetworkStats,
 } from "../../services/market";
@@ -48,8 +50,14 @@ export function HomeOverview(): React.JSX.Element {
   const network = useWalletStore((s) => s.network);
   const transactions = useWalletStore((s) => s.transactions);
 
-  const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null);
-  const [stats, setStats] = useState<NetworkStats | null>(null);
+  // Seed from the module cache so re-opening the Overview tab shows the last
+  // data instantly (no flash of empty state); the focus effect revalidates.
+  const [history, setHistory] = useState<PriceHistoryPoint[] | null>(() =>
+    getCachedPriceHistory(network),
+  );
+  const [stats, setStats] = useState<NetworkStats | null>(() =>
+    getCachedNetworkStats(network),
+  );
 
   // Poll the Explorer market endpoints (price history + network stats) while the
   // home screen is focused. Both fetches are non-throwing (they return cached
