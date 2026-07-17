@@ -15,19 +15,13 @@ import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useBloomTheme } from "@oxyhq/bloom/theme";
-import {
-  SettingsListGroup,
-  SettingsListItem,
-} from "@oxyhq/bloom/settings-list";
 import { useWalletStore, getDatabase } from "../src/wallet/wallet-store";
-import { Button, ScreenHeader } from "../src/ui/components";
+import { Button, ListItem, ScreenHeader } from "../src/ui/components";
 import { t } from "../src/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 type SyncVariant = "success" | "warning" | "error";
 
@@ -40,11 +34,9 @@ interface SyncState {
   text: string;
 }
 
-interface SettingsRowIconProps {
-  name: IconName;
-  color: string;
-  bgClassName: string;
-}
+/** Uppercase section header — matches the redesigned Settings screen. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,19 +66,25 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Small building blocks
+// Settings section — an uppercase label above a card-less group of rows on a
+// subtle bordered surface with hairline dividers (matches the Settings screen).
 // ---------------------------------------------------------------------------
 
-/**
- * Circular colored icon badge used as the `icon` slot for Bloom's
- * SettingsListItem — matches the pattern used on the Settings screen.
- */
-function SettingsRowIcon({ name, color, bgClassName }: SettingsRowIconProps) {
+function SettingsSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <View
-      className={`w-9 h-9 rounded-full items-center justify-center ${bgClassName}`}
-    >
-      <MaterialCommunityIcons name={name} size={20} color={color} />
+    <View className="mb-6">
+      {/* Full-bleed rows: the label carries px-4 so it aligns with the row
+          content, which Bloom's Item pads 16px internally. */}
+      <Text className={`${SECTION_LABEL} mb-1 px-4`}>{title}</Text>
+      <View>
+        {children}
+      </View>
     </View>
   );
 }
@@ -227,11 +225,12 @@ export default function ChainScreen() {
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="px-4 pt-2 pb-8 gap-4"
+        contentContainerClassName="pt-3 pb-10"
+        showsVerticalScrollIndicator={false}
       >
-        {/* ---- Status pill card ---- */}
+        {/* ---- Status pill card ---- (non-row block: keeps its own side inset) */}
         <View
-          className={`rounded-2xl p-5 border ${syncState.border} ${syncState.bg}`}
+          className={`rounded-2xl p-5 border mb-6 mx-4 ${syncState.border} ${syncState.bg}`}
         >
           <View className="flex-row items-center">
             <View className={`w-3 h-3 rounded-full ${syncState.dot} mr-3`} />
@@ -267,71 +266,52 @@ export default function ChainScreen() {
         </View>
 
         {/* ---- Network info group ---- */}
-        <SettingsListGroup title={t("chain.group.network")}>
-          <SettingsListItem
+        <SettingsSection title={t("chain.group.network")}>
+          <ListItem
             title={t("chain.row.network")}
             value={networkLabel}
-            icon={
-              <SettingsRowIcon
-                name="earth"
-                color="#22d3ee"
-                bgClassName="bg-cyan-500/10"
-              />
-            }
+            icon="earth"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             showChevron={false}
           />
-          <SettingsListItem
+          <ListItem
             title={t("chain.row.blockHeight")}
             value={blockHeightLabel}
-            icon={
-              <SettingsRowIcon
-                name="cube-outline"
-                color={themeColors.primary}
-                bgClassName="bg-primary/10"
-              />
-            }
+            icon="cube-outline"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             showChevron={false}
           />
-          <SettingsListItem
+          <ListItem
             title={t("chain.row.connectedPeers")}
             value={peersLabel}
-            icon={
-              <SettingsRowIcon
-                name="server-network"
-                color="#818cf8"
-                bgClassName="bg-indigo-500/10"
-              />
-            }
+            icon="server-network"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleGoToPeers}
           />
-          <SettingsListItem
+          <ListItem
             title={t("chain.row.syncProgress")}
             value={syncProgressLabel}
-            icon={
-              <SettingsRowIcon
-                name="progress-download"
-                color="#38bdf8"
-                bgClassName="bg-sky-500/10"
-              />
-            }
+            icon="progress-download"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             showChevron={false}
           />
-          <SettingsListItem
+          <ListItem
             title={t("chain.row.lastBlock")}
             value={lastBlockLabel}
-            icon={
-              <SettingsRowIcon
-                name="clock-outline"
-                color="#fb923c"
-                bgClassName="bg-orange-500/10"
-              />
-            }
+            icon="clock-outline"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             showChevron={false}
+            isLast
           />
-        </SettingsListGroup>
+        </SettingsSection>
 
-        {/* ---- Refresh button ---- */}
-        <View className="mt-2">
+        {/* ---- Refresh button ---- (non-row block: keeps its own side inset) */}
+        <View className="px-4">
           <Button
             title={t("chain.refresh")}
             onPress={handleRefresh}

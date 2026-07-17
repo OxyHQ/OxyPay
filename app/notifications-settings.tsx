@@ -7,18 +7,20 @@
  * confirmation depth, and per-event switches. All changes persist through the
  * observable prefs store, which the registration lifecycle subscribes to and
  * re-registers on.
+ *
+ * Card-less design matching the main Settings screen: uppercase section labels
+ * above flat groups of rows that sit directly on the background, separated by
+ * the shared `ListItem`'s own edge-to-edge hairline dividers, plus filled
+ * inputs — no surface boxes, no borders around row groups.
  */
 
 import { useCallback, useState } from "react";
 import { View, Text, TextInput, ScrollView, Switch } from "react-native";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useTheme } from "@oxyhq/bloom/theme";
-import {
-  SettingsListGroup,
-  SettingsListItem,
-} from "@oxyhq/bloom/settings-list";
-import { ScreenHeader } from "../src/ui/components";
+import { ListItem, ScreenHeader } from "../src/ui/components";
 import { t } from "../src/i18n";
 import {
   getNotificationPrefs,
@@ -34,16 +36,65 @@ const CONTENT_MAX_WIDTH_CLASS = "w-full max-w-[600px] mx-auto";
 /** Selectable confirmation depths, cycled on tap (BIP44 default 1). */
 const CONFIRMATION_OPTIONS = [1, 2, 3, 6];
 
+/** Uppercase section header — matches the main Settings screen's section labels. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
+
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+
 interface EventRow {
   event: NotificationEvent;
   labelKey: string;
+  icon: IconName;
 }
 
 const EVENT_ROWS: EventRow[] = [
-  { event: "incoming_pending", labelKey: "notificationsSettings.events.incomingPending" },
-  { event: "incoming_confirmed", labelKey: "notificationsSettings.events.incomingConfirmed" },
-  { event: "outgoing_confirmed", labelKey: "notificationsSettings.events.outgoingConfirmed" },
+  {
+    event: "incoming_pending",
+    labelKey: "notificationsSettings.events.incomingPending",
+    icon: "arrow-down-circle-outline",
+  },
+  {
+    event: "incoming_confirmed",
+    labelKey: "notificationsSettings.events.incomingConfirmed",
+    icon: "arrow-down-circle",
+  },
+  {
+    event: "outgoing_confirmed",
+    labelKey: "notificationsSettings.events.outgoingConfirmed",
+    icon: "arrow-up-circle",
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// Settings section — an uppercase label above a flat, card-less group of rows
+// that sit directly on the background, separated by the ListItem's own hairline
+// dividers (matches the main Settings screen's `SettingsSection`). The label and
+// footer carry px-4 so they align with the row content, which Bloom's Item pads
+// 16px internally. An optional footer renders muted helper text below the group.
+// ---------------------------------------------------------------------------
+
+function SettingsSection({
+  title,
+  footer,
+  children,
+}: {
+  title: string;
+  footer?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View className="mb-6">
+      <Text className={`${SECTION_LABEL} mb-1 px-4`}>{title}</Text>
+      <View>
+        {children}
+      </View>
+      {footer ? (
+        <Text className="text-muted-foreground text-xs mt-2 px-4">{footer}</Text>
+      ) : null}
+    </View>
+  );
+}
 
 export default function NotificationsSettingsScreen() {
   const router = useRouter();
@@ -151,16 +202,21 @@ export default function NotificationsSettingsScreen() {
 
         <ScrollView
           className="flex-1"
-          contentContainerClassName="pt-2 pb-10 gap-2"
+          contentContainerClassName="pt-3 pb-10"
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Master toggle */}
-          <SettingsListGroup>
-            <SettingsListItem
+          {/* Master toggle — a label-less bordered surface, mirroring the
+              Settings screen's identity hero row. */}
+          <View className="mb-6">
+            <ListItem
               title={t("notificationsSettings.enable.title")}
-              description={t("notificationsSettings.enable.description")}
+              subtitle={t("notificationsSettings.enable.description")}
+              icon="bell-ring"
+              iconColor={colors.primary}
+              iconBg="bg-primary/10"
               showChevron={false}
-              rightElement={
+              trailing={
                 <Switch
                   value={enabled}
                   onValueChange={handleToggleEnabled}
@@ -168,22 +224,25 @@ export default function NotificationsSettingsScreen() {
                   thumbColor={colors.text}
                 />
               }
+              isLast
             />
-          </SettingsListGroup>
+          </View>
 
           {enabled ? (
             <>
               {/* Notification server (privacy dial) */}
-              <SettingsListGroup
+              <SettingsSection
                 title={t("notificationsSettings.server.group")}
                 footer={t("notificationsSettings.server.hint")}
               >
-                <View className="px-4 py-3">
+                <View
+                  className={`px-4 py-3.5 ${isDefaultServer ? "" : "border-b border-border"}`}
+                >
                   <Text className="text-muted-foreground text-xs mb-2">
                     {t("notificationsSettings.server.label")}
                   </Text>
                   <TextInput
-                    className="bg-surface text-foreground text-base rounded-xl px-4 py-3"
+                    className="bg-background text-foreground text-base rounded-2xl px-4 py-3.5"
                     value={serverUrlDraft}
                     onChangeText={setServerUrlDraft}
                     onBlur={handleServerUrlBlur}
@@ -197,40 +256,48 @@ export default function NotificationsSettingsScreen() {
                   />
                 </View>
                 {isDefaultServer ? null : (
-                  <SettingsListItem
+                  <ListItem
                     title={t("notificationsSettings.server.reset")}
+                    icon="backup-restore"
+                    iconColor={colors.primary}
+                    iconBg="bg-primary/10"
                     onPress={handleResetServerUrl}
+                    isLast
                   />
                 )}
-              </SettingsListGroup>
+              </SettingsSection>
 
               {/* Confirmation depth */}
-              <SettingsListGroup
+              <SettingsSection
                 title={t("notificationsSettings.confirmations.group")}
               >
-                <SettingsListItem
+                <ListItem
                   title={t("notificationsSettings.confirmations.title")}
-                  description={t(
-                    "notificationsSettings.confirmations.description",
-                  )}
+                  subtitle={t("notificationsSettings.confirmations.description")}
                   value={t("notificationsSettings.confirmations.value", {
                     count: confirmations,
                   })}
+                  icon="layers-triple"
+                  iconColor={colors.primary}
+                  iconBg="bg-primary/10"
                   onPress={handleCycleConfirmations}
-                  showChevron={false}
+                  isLast
                 />
-              </SettingsListGroup>
+              </SettingsSection>
 
               {/* Per-event switches */}
-              <SettingsListGroup
+              <SettingsSection
                 title={t("notificationsSettings.events.group")}
               >
-                {EVENT_ROWS.map((row) => (
-                  <SettingsListItem
+                {EVENT_ROWS.map((row, idx) => (
+                  <ListItem
                     key={row.event}
                     title={t(row.labelKey)}
+                    icon={row.icon}
+                    iconColor={colors.primary}
+                    iconBg="bg-primary/10"
                     showChevron={false}
-                    rightElement={
+                    trailing={
                       <Switch
                         value={events.includes(row.event)}
                         onValueChange={(on) => handleToggleEvent(row.event, on)}
@@ -241,9 +308,10 @@ export default function NotificationsSettingsScreen() {
                         thumbColor={colors.text}
                       />
                     }
+                    isLast={idx === EVENT_ROWS.length - 1}
                   />
                 ))}
-              </SettingsListGroup>
+              </SettingsSection>
             </>
           ) : null}
         </ScrollView>

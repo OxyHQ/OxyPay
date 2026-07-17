@@ -264,7 +264,7 @@ export default function CoinControlScreen() {
 
         {/* Selection summary — card-less bordered surface */}
         {selectedCount > 0 ? (
-          <View className="bg-surface border border-border rounded-2xl px-4 py-3.5 mt-5 flex-row items-center justify-between">
+          <View className="bg-surface rounded-2xl px-4 py-3.5 mt-5 flex-row items-center justify-between">
             <Text className="text-muted-foreground text-sm">
               {selectedCount === 1
                 ? t("coinControl.selected.one", { count: selectedCount })

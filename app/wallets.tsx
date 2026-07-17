@@ -621,7 +621,7 @@ export default function WalletsScreen() {
             />
           </View>
         ) : (
-          <View className="bg-surface border border-border rounded-2xl overflow-hidden mb-6">
+          <View className="mb-6">
             {wallets.map((wallet, idx) => {
               const isActive = wallet.id === activeWalletId;
               return (
