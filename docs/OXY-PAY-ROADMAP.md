@@ -30,7 +30,7 @@
 - [ ] T5 · Máquina de estados del intent (pura)
 - [x] T6 · Firmador HMAC de webhooks _(constant-time, 8 tests verdes)_
 - [ ] T7 · Modelos Mongoose (Merchant + PaymentIntent, watch-only enforced)
-- [ ] T8 · Cliente HTTP del Explorer (tip + received por dirección) _(verificar/mejorar endpoint)_
+- [x] T8 · Cliente HTTP del Explorer (tip + `getTransaction`/`verifyPayment`, zod) _(8 tests + live mainnet)_
 - [ ] T9 · Settlement watcher (tip-driven, no-custodial)
 - [ ] T10 · Dispatcher de webhooks (safeFetch + reintentos)
 - [ ] T11 · Rutas REST (create/get/reject, serviceAuth + idempotencia)
