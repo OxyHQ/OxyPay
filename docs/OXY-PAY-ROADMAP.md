@@ -33,7 +33,7 @@
 - [x] T8 · Cliente HTTP del Explorer (tip + `getTransaction`/`verifyPayment`, zod) _(8 tests + live mainnet)_
 - [x] T9 · Settlement watcher (tip-driven, no-custodial) _(txid verify, deps inyectadas, 2 tests)_
 - [x] T10 · Dispatcher de webhooks (safeFetch + reintentos) _(SSRF-safe, best-effort, 4 tests)_
-- [ ] T11 · Rutas REST (create/get/reject, serviceAuth + idempotencia)
+- [x] T11 · Rutas REST (create/get/reject/**submit_tx**, serviceAuth + idempotencia) _(9 tests; usa serializer compartido)_
 - [ ] T12 · Realtime Socket.io (updates del intent)
 - [ ] T13 · Wiring del server + smoke e2e en testnet
 

@@ -23,6 +23,9 @@ export interface PaymentIntentDoc {
   idempotencyKey: string;
   metadata: Map<string, string>;
   expiresAt: Date;
+  /** Populated by the schema `timestamps` option. */
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const paymentIntentSchema = new Schema<PaymentIntentDoc>(
