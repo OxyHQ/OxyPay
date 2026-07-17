@@ -1,3 +1,9 @@
 // @oxypay/shared-types — public API for the Oxy Pay Gateway contract.
-// Built out in Task 2 of docs/superpowers/plans/2026-07-18-oxypay-gateway-backend-f1a.md.
-export {};
+export { UNITS_PER_COIN, isBaseUnitString } from './money';
+export {
+  type PaymentIntentStatus,
+  type PaymentIntent,
+  type CreatePaymentIntentParams,
+  isValidStatusTransition,
+} from './paymentIntent';
+export { type WebhookEventType, type WebhookEvent } from './event';
