@@ -24,6 +24,22 @@ export interface AppConfig {
   mongodbUri: string;
   /** HTTP port the API listens on. */
   port: number;
+  /**
+   * Exact browser origins allowed to open a realtime Socket.io connection
+   * (comma-separated `OXY_PAY_ALLOWED_ORIGINS`). Requests with no `Origin`
+   * (native apps / server-to-server) are always allowed; an arbitrary browser
+   * origin is NEVER reflected — it must be listed here. The connection is still
+   * gated by `authSocket()` and per-intent `client_secret`.
+   */
+  allowedOrigins: string[];
+}
+
+function readOrigins(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  return raw
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
 }
 
 function readNetwork(raw: string | undefined): NetworkType {
@@ -61,6 +77,7 @@ export function loadConfig(
     network: readNetwork(env.OXYPAY_NETWORK),
     mongodbUri: readNonEmpty(env.MONGODB_URI, DEFAULT_MONGODB_URI),
     port: readPort(env.PORT),
+    allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
   };
 }
 

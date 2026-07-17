@@ -122,7 +122,19 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
 
   const httpServer = createServer(app);
   const io = new SocketServer(httpServer, {
-    cors: { origin: true, credentials: true },
+    // No reflected origins and no credentials (auth is a token in the handshake,
+    // not a cookie), so a cross-site page cannot hijack a socket. A browser
+    // origin must be explicitly allowlisted; non-browser clients send no Origin.
+    cors: {
+      origin(origin, callback): void {
+        if (origin === undefined || config.allowedOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
+      },
+      credentials: false,
+    },
   });
   initSocket(io, { socketAuth: deps.socketAuth });
 
