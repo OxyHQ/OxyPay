@@ -76,7 +76,7 @@ export function startTxNotifier(): void {
       seenTxids.add(tx.txid);
       if (isIncoming(tx)) {
         playReceived();
-        void scheduleReceivedNotification(tx.amount);
+        void scheduleReceivedNotification(tx.amount, tx.txid);
       }
     }
   });

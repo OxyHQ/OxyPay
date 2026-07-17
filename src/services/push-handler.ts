@@ -46,9 +46,9 @@ export interface PushHandlerDeps {
   /** The wallet's watched addresses; empty while locked / no wallet. */
   getWalletAddresses: () => string[];
   /** Post the "received X FAIR" local notification (amount in base units). */
-  notifyReceived: (amountUnits: bigint) => Promise<void>;
+  notifyReceived: (amountUnits: bigint, txid: string) => Promise<void>;
   /** Post the "your send confirmed" local notification (amount in base units). */
-  notifySentConfirmed: (amountUnits: bigint) => Promise<void>;
+  notifySentConfirmed: (amountUnits: bigint, txid: string) => Promise<void>;
 }
 
 export interface PushHandler {
@@ -100,7 +100,7 @@ export function createPushHandler(deps: PushHandlerDeps): PushHandler {
       // Amount that left the wallet = our spent inputs minus change back to us.
       const net = spentUnits - receivedUnits;
       if (net > 0n) {
-        await deps.notifySentConfirmed(net);
+        await deps.notifySentConfirmed(net, data.txid);
       }
       return;
     }
@@ -108,7 +108,7 @@ export function createPushHandler(deps: PushHandlerDeps): PushHandler {
     // Incoming events (pending / confirmed): net credit to the wallet.
     const net = receivedUnits - spentUnits;
     if (net > 0n) {
-      await deps.notifyReceived(net);
+      await deps.notifyReceived(net, data.txid);
     }
   }
 

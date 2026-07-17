@@ -16,7 +16,12 @@ import { Platform } from "react-native";
 import { t } from "../i18n";
 import { COIN_TICKER, formatFair } from "@fairco.in/core";
 
-const TRANSACTIONS_CHANNEL_ID = "transactions";
+// Bump the suffix whenever the channel's sound/importance changes: Android
+// channels are IMMUTABLE once created, so an in-place edit is silently ignored
+// and the old sound sticks. A new id forces a fresh channel; the legacy id is
+// deleted on init (see LEGACY_TRANSACTIONS_CHANNEL_IDS).
+const TRANSACTIONS_CHANNEL_ID = "transactions-v2";
+const LEGACY_TRANSACTIONS_CHANNEL_IDS = ["transactions"] as const;
 const SYNC_CHANNEL_ID = "sync";
 /** Fixed id so each progress update REPLACES the ongoing notification, not stacks. */
 const SYNC_NOTIFICATION_ID = "fairwallet-sync-progress";
@@ -76,6 +81,16 @@ export function initNotifications(): Promise<void> {
       }
 
       if (Platform.OS === "android") {
+        // Drop superseded channels so their stale sound/importance doesn't
+        // linger in the OS settings list next to the live one.
+        for (const legacyId of LEGACY_TRANSACTIONS_CHANNEL_IDS) {
+          try {
+            await Notifications.deleteNotificationChannelAsync(legacyId);
+          } catch (error) {
+            console.warn(`[notifications] delete legacy channel ${legacyId}`, error);
+          }
+        }
+
         // Create each channel INDEPENDENTLY. `setNotificationChannelAsync`
         // rejects when a channel references an asset missing from the current
         // native build (e.g. the `received` custom sound is in app.json but a
@@ -125,10 +140,16 @@ export function initNotifications(): Promise<void> {
  */
 export async function scheduleReceivedNotification(
   amountValue: bigint,
+  txid?: string,
 ): Promise<void> {
   await initNotifications();
   try {
     await Notifications.scheduleNotificationAsync({
+      // A stable per-txid identifier makes a second post for the SAME payment
+      // REPLACE the first instead of stacking, so the foreground watcher
+      // (`tx-notifier`) and the background silent-push handler can't produce two
+      // notifications for one incoming tx. Omitted only if a caller has no txid.
+      identifier: txid ? `received-${txid}` : undefined,
       content: {
         title: t("notifications.received.title"),
         body: t("notifications.received.body", {
@@ -166,10 +187,14 @@ export async function scheduleReceivedNotification(
  */
 export async function scheduleSentConfirmedNotification(
   amountValue: bigint,
+  txid?: string,
 ): Promise<void> {
   await initNotifications();
   try {
     await Notifications.scheduleNotificationAsync({
+      // Stable per-txid identifier — see scheduleReceivedNotification. Prefixed
+      // distinctly so a send-confirmed alert never collides with a received one.
+      identifier: txid ? `sent-${txid}` : undefined,
       content: {
         title: t("notifications.sent.confirmed.title"),
         body: t("notifications.sent.confirmed.body", {
