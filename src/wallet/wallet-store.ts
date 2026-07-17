@@ -152,7 +152,21 @@ export interface WalletState {
   selectedUTXOs: Array<{ txid: string; vout: number }>;
 
   // Actions
-  initialize: (mnemonic: string, walletId?: string) => Promise<void>;
+  /**
+   * Bring a wallet up from its stored secret. Resolves only once the SPV/P2P
+   * sync has been started, but invokes the optional `onReady` callback earlier
+   * — the moment persisted state (balance, UTXOs, addresses, history) has been
+   * hydrated into the store and `initialized` is true, BEFORE the network sync.
+   * Boot/unlock pass `onReady` to render the home / lift the lock instantly
+   * while sync continues in the background; internal multi-wallet callers omit
+   * it and await the full promise (SPV startup stays serialised by the init
+   * queue — N-1).
+   */
+  initialize: (
+    mnemonic: string,
+    walletId?: string,
+    onReady?: () => void,
+  ) => Promise<void>;
   createWallet: () => Promise<string>;
   restoreWallet: (mnemonic: string) => Promise<void>;
   refreshBalance: () => void;
@@ -924,7 +938,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   // Actions
   // -------------------------------------------------------------------
 
-  initialize: async (mnemonic: string, walletId?: string): Promise<void> => {
+  initialize: async (
+    mnemonic: string,
+    walletId?: string,
+    onReady?: () => void,
+  ): Promise<void> => {
     // N-1: serialise wallet initialisation. If two callers race (deep-link +
     // boot, double-tap wallet switch, restore + network switch, …) we must
     // not run two `initialize` bodies in parallel — they would both observe
@@ -936,6 +954,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     return queueWalletInit(async () => {
       const state = get();
       if (state.initialized) {
+        // Already up (e.g. a concurrent caller won the race). Signal the
+        // UI-ready checkpoint immediately so a boot/unlock caller renders /
+        // lifts the lock instead of waiting on a no-op.
+        onReady?.();
         return;
       }
 
@@ -1023,6 +1045,19 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         wallets,
         isWatchOnly: watchOnly,
       });
+
+      // The wallet is now fully hydrated from persisted SQLite state (cached
+      // balance, UTXOs, addresses, transaction history) with NO network access.
+      // Signal the UI-ready checkpoint HERE so the home renders / the lock
+      // lifts immediately — BEFORE the SPV/P2P startup below. That startup
+      // resolves DNS, connects to peers and syncs headers in the background,
+      // streaming live updates into the store (isSyncing / connectedPeers /
+      // chainHeight / balance) via the existing setters. This is what decouples
+      // "wallet usable" from "fully synced" without changing what sync computes.
+      // It stays INSIDE the serialised init task (N-1): the returned promise
+      // still only resolves after SPV startup, so switch/network/create/import
+      // callers that await it keep their exclusive critical section.
+      onReady?.();
 
       // Start SPV client for P2P connectivity
       try {

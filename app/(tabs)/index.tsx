@@ -29,15 +29,15 @@ import {
   EmptyState,
   Badge,
 } from "../../src/ui/components";
-import { AmountText } from "../../src/ui/components/AmountText";
 import { TransactionItem } from "../../src/ui/components/TransactionItem";
+import { HomeOverview } from "../../src/ui/components/HomeOverview";
 import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
 } from "../../src/ui/components/RefreshRainbowBar";
 import { ReceiveSheet } from "../../src/ui/sheets/ReceiveSheet";
 import { SendSheet } from "../../src/ui/sheets/SendSheet";
-import { hapticSelection } from "../../src/utils/haptics";
+import { hapticSelection, hapticSuccess } from "../../src/utils/haptics";
 import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import {
@@ -48,14 +48,8 @@ import {
 } from "../../src/services/price";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Tabs, TabsTrigger } from "@oxyhq/bloom/tabs";
-import {
-  BUY_BASE_URL,
-  COIN_SYMBOL,
-  COIN_TICKER,
-  UNITS_PER_COIN,
-} from "@fairco.in/core";
-import { FONT_PHUDU_BLACK } from "../../src/utils/fonts";
-import { formatFiatAmount, t } from "../../src/i18n";
+import { BUY_BASE_URL } from "@fairco.in/core";
+import { t } from "../../src/i18n";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 type HomeTab = "overview" | "activity";
@@ -197,6 +191,8 @@ export default function HomeScreen() {
     refreshTimer.current = setTimeout(() => {
       refreshingSV.value = false;
       pull.value = withTiming(0, { duration: 220 });
+      // A distinct "done" haptic as the band collapses.
+      hapticSuccess();
     }, 1500);
   }, [refreshBalance, pull, refreshingSV]);
 
@@ -278,19 +274,6 @@ export default function HomeScreen() {
       label: t("wallet.sync.synced"),
     };
   }, [connectedPeers, isSyncing, syncProgress, theme.colors.error, theme.colors.primary]);
-
-  const fiatBalance = useMemo(() => {
-    if (!price?.usd) return null;
-    return formatFiatAmount(
-      (Number(balance) / Number(UNITS_PER_COIN)) * price.usd,
-      "USD",
-    );
-  }, [balance, price?.usd]);
-
-  const unitPrice = useMemo(() => {
-    if (!price?.usd) return null;
-    return formatFiatAmount(price.usd, "USD");
-  }, [price?.usd]);
 
   return (
     <View className="flex-1 bg-background">
@@ -405,47 +388,7 @@ export default function HomeScreen() {
 
         {/* ---- Tab content ---- */}
         {tab === "overview" ? (
-          <View className="px-4 pt-4">
-            <Pressable
-              className="flex-row items-center py-3 active:opacity-60"
-              onPress={() => setTab("activity")}
-              accessibilityRole="button"
-            >
-              <View className="w-11 h-11 rounded-full bg-primary/10 items-center justify-center mr-3">
-                <Text
-                  className="text-primary"
-                  style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: 20 }}
-                >
-                  {COIN_SYMBOL}
-                </Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-foreground text-sm font-medium">
-                  {COIN_TICKER}
-                </Text>
-                {unitPrice ? (
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    {unitPrice}
-                    {price?.change24h != null
-                      ? `  ${price.change24h >= 0 ? "+" : ""}${price.change24h.toFixed(1)}%`
-                      : ""}
-                  </Text>
-                ) : null}
-              </View>
-              <View className="items-end">
-                <AmountText
-                  value={balance}
-                  suffix={` ${COIN_SYMBOL}`}
-                  className="text-foreground text-sm font-semibold"
-                />
-                {fiatBalance ? (
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    {fiatBalance}
-                  </Text>
-                ) : null}
-              </View>
-            </Pressable>
-          </View>
+          <HomeOverview />
         ) : activityGroups.length === 0 ? (
           <View className="px-4 pt-6">
             <EmptyState
