@@ -1,24 +1,20 @@
 /**
- * HomeOverview — content for the home screen's "Overview" tab: a glanceable
- * market + staking + network view. Composes (top→bottom) the FAIR price
- * sparkline, the staking/rewards summary, the network-health card, and the
- * FAIR holding row.
+ * HomeOverview — content for the home screen's "Overview" tab: a clean,
+ * card-less market + staking + network view (Uniswap/Apple style — big numbers,
+ * generous spacing, hairline dividers, no boxes).
  *
- * The big balance and the Activity feed live elsewhere on the home screen, so
- * this view deliberately does not repeat them. Market data (price history +
+ * The headline balance and the Activity feed live elsewhere on the home screen,
+ * so this view deliberately doesn't repeat them. Market data (price history +
  * network stats) is fetched from the Explorer while the screen is focused and
- * degrades gracefully — a failed request leaves the cards in their last-known
+ * degrades gracefully — a failed request leaves the section in its last-known
  * or "unavailable" state, never crashing.
  */
 
 import { useCallback, useMemo, useState } from "react";
 import { View, Text } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { Card } from "./Card";
 import { AmountText } from "./AmountText";
 import { PriceSparkline } from "./PriceSparkline";
-import { StakingCard } from "./StakingCard";
-import { NetworkHealthCard } from "./NetworkHealthCard";
 import { useWalletStore } from "../../wallet/wallet-store";
 import {
   fetchPriceHistory,
@@ -26,25 +22,38 @@ import {
   type PriceHistoryPoint,
   type NetworkStats,
 } from "../../services/market";
-import { COIN_SYMBOL, COIN_TICKER, UNITS_PER_COIN } from "@fairco.in/core";
+import { COIN_SYMBOL } from "@fairco.in/core";
 import { FONT_PHUDU_BLACK } from "../../utils/fonts";
-import { formatFiatAmount, t } from "../../i18n";
+import { formatNumber, t } from "../../i18n";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
 /** How often to refresh the Explorer market data while focused. */
 const MARKET_POLL_INTERVAL = 60_000;
 
+const SECTION_HEADER =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
+
+/** A labelled key/value row (label left, value right). */
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row items-center justify-between py-3">
+      <Text className="text-muted-foreground text-[15px]">{label}</Text>
+      <Text className="text-foreground text-[15px] font-semibold">{value}</Text>
+    </View>
+  );
+}
+
 export function HomeOverview(): React.JSX.Element {
   const network = useWalletStore((s) => s.network);
-  const balance = useWalletStore((s) => s.balance);
+  const transactions = useWalletStore((s) => s.transactions);
 
   const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null);
   const [stats, setStats] = useState<NetworkStats | null>(null);
 
   // Poll the Explorer market endpoints (price history + network stats) while the
-  // home screen is focused, mirroring the parent screen's price-polling
-  // lifecycle. Both fetches are non-throwing (they return cached values or
-  // null), so a failed request never surfaces here as an error.
+  // home screen is focused. Both fetches are non-throwing (they return cached
+  // values or null), so a failed request never surfaces here as an error.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -75,9 +84,8 @@ export function HomeOverview(): React.JSX.Element {
     if (!history || history.length < 2) return null;
     const last = history[history.length - 1];
     const cutoff = last.timestamp - DAY_MS;
-    // Series is oldest→newest: walk forward to the last point at/before the 24h
-    // cutoff. If every point is newer than the cutoff (history shorter than a
-    // day), fall back to the oldest point so we still show a meaningful change.
+    // Oldest→newest: walk forward to the last point at/before the 24h cutoff;
+    // if all points are newer than a day, fall back to the oldest.
     let reference = history[0];
     for (const point of history) {
       if (point.timestamp <= cutoff) reference = point;
@@ -87,71 +95,101 @@ export function HomeOverview(): React.JSX.Element {
     return ((last.priceUsd - reference.priceUsd) / reference.priceUsd) * 100;
   }, [history]);
 
-  const fiatBalance = useMemo(() => {
-    if (latestPriceUsd == null) return null;
-    return formatFiatAmount(
-      (Number(balance) / Number(UNITS_PER_COIN)) * latestPriceUsd,
-      "USD",
-    );
-  }, [balance, latestPriceUsd]);
-
-  const unitPrice =
-    latestPriceUsd != null ? formatFiatAmount(latestPriceUsd, "USD") : null;
-  const changeLabel =
-    changePct != null
-      ? `${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}%`
-      : null;
+  const rewards = useMemo(() => {
+    const cutoff = Math.floor(Date.now() / 1000) - THIRTY_DAYS_SECONDS;
+    let total = 0n;
+    let last30 = 0n;
+    let count = 0;
+    for (const tx of transactions) {
+      if (tx.type !== "stake" && tx.type !== "masternode_reward") continue;
+      const abs = tx.amount < 0n ? -tx.amount : tx.amount;
+      total += abs;
+      count += 1;
+      if (tx.timestamp >= cutoff) last30 += abs;
+    }
+    return { total, last30, count };
+  }, [transactions]);
 
   return (
-    <View className="px-4 pt-4 gap-3">
+    <View className="pt-3 pb-2">
+      {/* ---- Price hero + chart ---- */}
       <PriceSparkline
         points={history ?? []}
         changePct={changePct}
         currentPriceUsd={latestPriceUsd}
       />
 
-      <StakingCard />
+      <View className="h-px bg-border mx-5 my-7" />
 
-      <NetworkHealthCard stats={stats} />
-
-      {/* FAIR holding row: unit price / change on the left, balance + fiat on
-          the right. The headline balance already sits above the tabs, so this
-          row is the FAIR-asset breakdown, not a duplicate of it. */}
-      <Card>
-        <View className="flex-row items-center p-4">
-          <View className="w-11 h-11 rounded-full bg-primary/10 items-center justify-center mr-3">
-            <Text
-              className="text-primary"
-              style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: 20 }}
-            >
-              {COIN_SYMBOL}
-            </Text>
-          </View>
-          <View className="flex-1">
-            <Text className="text-foreground text-sm font-medium">
-              {COIN_TICKER}
-            </Text>
-            {unitPrice ? (
-              <Text className="text-muted-foreground text-xs mt-0.5">
-                {unitPrice}
-                {changeLabel ? `  ${changeLabel}` : ""}
-              </Text>
-            ) : null}
-          </View>
-          <View className="items-end">
+      {/* ---- Staking / rewards ---- */}
+      <View className="px-5">
+        <Text className={SECTION_HEADER}>{t("overview.staking.title")}</Text>
+        {rewards.count === 0 ? (
+          <Text className="text-muted-foreground text-[15px] mt-2 leading-5">
+            {t("overview.staking.empty.subtitle")}
+          </Text>
+        ) : (
+          <View className="mt-2">
             <AmountText
-              value={balance}
+              value={rewards.total}
               suffix={` ${COIN_SYMBOL}`}
-              className="text-foreground text-sm font-semibold"
+              className="text-foreground"
+              style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: 32 }}
             />
-            {fiatBalance ? (
-              <Text className="text-muted-foreground text-xs mt-0.5">
-                {fiatBalance}
-              </Text>
-            ) : null}
+            <Text className="text-muted-foreground text-[13px] mt-1">
+              {t("overview.staking.totalEarned")}
+            </Text>
+
+            <View className="flex-row mt-5">
+              <View className="flex-1">
+                <Text className="text-muted-foreground text-[13px]">
+                  {t("overview.staking.last30Days")}
+                </Text>
+                <AmountText
+                  value={rewards.last30}
+                  suffix={` ${COIN_SYMBOL}`}
+                  className="text-foreground text-[17px] font-semibold mt-1"
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-muted-foreground text-[13px]">
+                  {t("overview.staking.rewardsReceived")}
+                </Text>
+                <Text className="text-foreground text-[17px] font-semibold mt-1">
+                  {formatNumber(rewards.count, 0)}
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
-      </Card>
+        )}
+      </View>
+
+      <View className="h-px bg-border mx-5 my-7" />
+
+      {/* ---- Network ---- */}
+      <View className="px-5">
+        <Text className={SECTION_HEADER}>{t("overview.network.title")}</Text>
+        {stats ? (
+          <View className="mt-1.5">
+            <StatRow
+              label={t("overview.network.blockHeight")}
+              value={formatNumber(stats.blockHeight, 0)}
+            />
+            <StatRow
+              label={t("overview.network.masternodes")}
+              value={formatNumber(stats.masternodeCount, 0)}
+            />
+            <StatRow
+              label={t("overview.network.circulatingSupply")}
+              value={`${formatNumber(stats.circulatingSupply, 0)} ${COIN_SYMBOL}`}
+            />
+          </View>
+        ) : (
+          <Text className="text-muted-foreground text-[15px] mt-2">
+            {t("overview.network.unavailable")}
+          </Text>
+        )}
+      </View>
     </View>
   );
 }

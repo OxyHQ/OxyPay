@@ -22,12 +22,16 @@ export function ActionButton({ icon, label, onPress }: ActionButtonProps) {
   return (
     <Pressable
       onPress={onPress}
-      className="flex-1 items-center border border-border rounded-2xl py-4 active:opacity-60"
+      className="flex-1 items-start bg-surface rounded-2xl px-3.5 py-4 active:opacity-70"
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <MaterialCommunityIcons name={icon} size={22} color={theme.colors.text} />
-      <Text className="text-foreground text-xs mt-1.5 font-medium">{label}</Text>
+      <MaterialCommunityIcons
+        name={icon}
+        size={22}
+        color={theme.colors.primary}
+      />
+      <Text className="text-primary text-xs mt-1.5 font-medium">{label}</Text>
     </Pressable>
   );
 }

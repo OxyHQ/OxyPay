@@ -1,10 +1,10 @@
 /**
- * PriceSparkline — a compact FAIR/USD price card: the current price, the 24h
- * change badge, and a small ~7d line chart drawn with react-native-svg.
+ * PriceSparkline — the Overview price hero: a big FAIR/USD price, a coloured 24h
+ * change, and a full-bleed ~7d line chart (react-native-svg). Card-less and
+ * spacious (Uniswap/Apple style).
  *
- * Degrades gracefully: with no price the card shows an "unavailable" note;
- * with a price but fewer than two history points it shows the price and a
- * "not enough data" caption instead of a broken chart.
+ * Degrades gracefully: no price → an "unavailable" note; a price but < 2 history
+ * points → the price with a "not enough data" caption instead of a broken chart.
  */
 
 import { useMemo, useState } from "react";
@@ -18,16 +18,14 @@ import Svg, {
   Circle,
 } from "react-native-svg";
 import { useTheme } from "@oxyhq/bloom/theme";
-import { Card } from "./Card";
-import { Badge } from "./Badge";
 import { FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { formatFiatAmount, t } from "../../i18n";
 import type { PriceHistoryPoint } from "../../services/market";
 
 /** Chart height in px; width is measured from the container via onLayout. */
-const CHART_HEIGHT = 56;
-/** Inset (px) so the stroke and end dot never clip at the chart edges. */
-const CHART_PADDING = 4;
+const CHART_HEIGHT = 120;
+/** Vertical inset (px) so the stroke and end dot never clip at the edges. */
+const CHART_PADDING = 6;
 
 interface PriceSparklineProps {
   /** Price series, oldest→newest. */
@@ -46,7 +44,7 @@ export function PriceSparkline({
   const theme = useTheme();
   const [width, setWidth] = useState(0);
 
-  const lineColor =
+  const trendColor =
     changePct == null || changePct === 0
       ? theme.colors.textSecondary
       : changePct > 0
@@ -60,12 +58,11 @@ export function PriceSparkline({
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const range = max - min;
-    const innerWidth = width - CHART_PADDING * 2;
     const innerHeight = CHART_HEIGHT - CHART_PADDING * 2;
-    const stepX = innerWidth / (points.length - 1);
+    const stepX = width / (points.length - 1);
 
     const coords = points.map((point, index) => ({
-      x: CHART_PADDING + index * stepX,
+      x: index * stepX,
       // Center a flat series (range 0) instead of pinning it to the bottom.
       y:
         CHART_PADDING +
@@ -88,78 +85,77 @@ export function PriceSparkline({
     changePct != null
       ? `${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}%`
       : null;
-  const changeVariant =
-    changePct == null ? "neutral" : changePct > 0 ? "success" : changePct < 0 ? "error" : "neutral";
 
   const onChartLayout = (event: LayoutChangeEvent) => {
     setWidth(event.nativeEvent.layout.width);
   };
 
   return (
-    <Card>
-      <View className="p-4">
-        <View className="flex-row items-center justify-between mb-2">
-          <Text className="text-muted-foreground text-xs font-semibold uppercase">
-            {t("overview.priceChart.title")}
-          </Text>
-          {changeLabel ? (
-            <Badge text={changeLabel} variant={changeVariant} size="sm" />
-          ) : null}
-        </View>
+    <View>
+      <View className="px-5">
+        <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
+          {t("overview.priceChart.title")}
+        </Text>
 
         {priceLabel ? (
-          <Text
-            className="text-foreground text-2xl"
-            style={{ fontFamily: FONT_PHUDU_BLACK }}
-          >
-            {priceLabel}
-          </Text>
+          <View className="flex-row items-end mt-1.5">
+            <Text
+              className="text-foreground"
+              style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: 40 }}
+            >
+              {priceLabel}
+            </Text>
+            {changeLabel ? (
+              <Text
+                className="text-base font-semibold ml-3 mb-2"
+                style={{ color: trendColor }}
+              >
+                {changeLabel}
+              </Text>
+            ) : null}
+          </View>
         ) : (
-          <Text className="text-muted-foreground text-sm">
+          <Text className="text-muted-foreground text-base mt-1.5">
             {t("overview.priceChart.unavailable")}
           </Text>
         )}
-
-        <View
-          onLayout={onChartLayout}
-          style={{ height: CHART_HEIGHT }}
-          className="mt-3 justify-center"
-        >
-          {geometry ? (
-            <Svg width={width} height={CHART_HEIGHT}>
-              <Defs>
-                <LinearGradient id="sparklineFill" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor={lineColor} stopOpacity={0.22} />
-                  <Stop offset="1" stopColor={lineColor} stopOpacity={0} />
-                </LinearGradient>
-              </Defs>
-              <Path d={geometry.area} fill="url(#sparklineFill)" />
-              <Polyline
-                points={geometry.line}
-                fill="none"
-                stroke={lineColor}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              <Circle
-                cx={geometry.last.x}
-                cy={geometry.last.y}
-                r={3}
-                fill={lineColor}
-              />
-            </Svg>
-          ) : priceLabel ? (
-            <Text className="text-muted-foreground text-xs">
-              {t("overview.priceChart.notEnoughData")}
-            </Text>
-          ) : null}
-        </View>
-
-        <Text className="text-muted-foreground text-[10px] mt-1">
-          {t("overview.priceChart.window")}
-        </Text>
       </View>
-    </Card>
+
+      <View
+        onLayout={onChartLayout}
+        style={{ height: CHART_HEIGHT }}
+        className="mt-5 justify-center"
+      >
+        {geometry ? (
+          <Svg width={width} height={CHART_HEIGHT}>
+            <Defs>
+              <LinearGradient id="sparklineFill" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={trendColor} stopOpacity={0.18} />
+                <Stop offset="1" stopColor={trendColor} stopOpacity={0} />
+              </LinearGradient>
+            </Defs>
+            <Path d={geometry.area} fill="url(#sparklineFill)" />
+            <Polyline
+              points={geometry.line}
+              fill="none"
+              stroke={trendColor}
+              strokeWidth={2.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            <Circle
+              cx={geometry.last.x}
+              cy={geometry.last.y}
+              r={4}
+              fill={trendColor}
+            />
+          </Svg>
+        ) : priceLabel ? (
+          <Text className="text-muted-foreground text-xs px-5">
+            {t("overview.priceChart.notEnoughData")}
+          </Text>
+        ) : null}
+      </View>
+    </View>
   );
 }
