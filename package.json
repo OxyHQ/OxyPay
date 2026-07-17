@@ -31,6 +31,7 @@
     "@scure/bip32": "1.7.0",
     "@scure/bip39": "1.6.0",
     "@shopify/flash-list": "2.0.2",
+    "@tanstack/react-query": "^5.101.2",
     "bs58": "6.0.0",
     "expo": "~55.0.14",
     "expo-audio": "^55.0.13",
@@ -79,6 +80,7 @@
     "react-number-format": "^5.4.5",
     "tailwindcss": "4.3.2",
     "tailwindcss-animate": "^1.0.7",
+    "zod": "^4.4.3",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

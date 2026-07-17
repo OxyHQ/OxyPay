@@ -5,33 +5,24 @@
  *
  * The headline balance and the Activity feed live elsewhere on the home screen,
  * so this view deliberately doesn't repeat them. Market data (price history +
- * network stats) is fetched from the Explorer while the screen is focused and
+ * network stats) comes from TanStack Query hooks over the Explorer API; the
+ * network stats section additionally ticks live off the realtime WebSocket. It
  * degrades gracefully — a failed request leaves the section in its last-known
  * or "unavailable" state, never crashing.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { View, Text } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { AmountText } from "./AmountText";
 import { PriceSparkline } from "./PriceSparkline";
 import { useWalletStore } from "../../wallet/wallet-store";
-import {
-  fetchPriceHistory,
-  fetchNetworkStats,
-  getCachedPriceHistory,
-  getCachedNetworkStats,
-  type PriceHistoryPoint,
-  type NetworkStats,
-} from "../../services/market";
+import { usePriceHistory, useNetworkStats } from "../../hooks/useMarketData";
 import { COIN_SYMBOL } from "@fairco.in/core";
 import { FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { formatNumber, t } from "../../i18n";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
-/** How often to refresh the Explorer market data while focused. */
-const MARKET_POLL_INTERVAL = 60_000;
 
 const SECTION_HEADER =
   "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
@@ -50,38 +41,12 @@ export function HomeOverview(): React.JSX.Element {
   const network = useWalletStore((s) => s.network);
   const transactions = useWalletStore((s) => s.transactions);
 
-  // Seed from the module cache so re-opening the Overview tab shows the last
-  // data instantly (no flash of empty state); the focus effect revalidates.
-  const [history, setHistory] = useState<PriceHistoryPoint[] | null>(() =>
-    getCachedPriceHistory(network),
-  );
-  const [stats, setStats] = useState<NetworkStats | null>(() =>
-    getCachedNetworkStats(network),
-  );
-
-  // Poll the Explorer market endpoints (price history + network stats) while the
-  // home screen is focused. Both fetches are non-throwing (they return cached
-  // values or null), so a failed request never surfaces here as an error.
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      const load = async () => {
-        const [nextHistory, nextStats] = await Promise.all([
-          fetchPriceHistory(network),
-          fetchNetworkStats(network),
-        ]);
-        if (cancelled) return;
-        if (nextHistory) setHistory(nextHistory);
-        if (nextStats) setStats(nextStats);
-      };
-      void load();
-      const timer = setInterval(() => void load(), MARKET_POLL_INTERVAL);
-      return () => {
-        cancelled = true;
-        clearInterval(timer);
-      };
-    }, [network]),
-  );
+  // Server state via TanStack Query: cached per network, revalidated on focus /
+  // interval, and (for stats) pushed live by the Explorer realtime socket.
+  // React Query keeps the last successful value while a refetch is failing, so
+  // a dropped request never blanks the section.
+  const { data: history } = usePriceHistory(network);
+  const { data: stats } = useNetworkStats(network);
 
   const latestPriceUsd = useMemo(() => {
     if (!history || history.length === 0) return null;

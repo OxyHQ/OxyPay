@@ -35,9 +35,12 @@ const KeyboardProvider =
   Platform.OS === "web"
     ? ({ children }: { children: React.ReactNode }) => <>{children}</>
     : NativeKeyboardProvider;
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
+import { queryClient } from "../src/services/query-client";
+import { useExplorerRealtime } from "../src/hooks/useExplorerRealtime";
 import { useWalletStore } from "../src/wallet/wallet-store";
 import { useLockStore } from "../src/wallet/lock-store";
 import { LockGate } from "../src/ui/components/LockGate";
@@ -273,10 +276,12 @@ export default function RootLayout() {
             fonts={false}
           >
             <BottomSheetModalProvider>
-              <AppContent
-                key={language}
-                ready={fontsLoaded && themeReady && languageReady}
-              />
+              <QueryClientProvider client={queryClient}>
+                <AppContent
+                  key={language}
+                  ready={fontsLoaded && themeReady && languageReady}
+                />
+              </QueryClientProvider>
             </BottomSheetModalProvider>
           </BloomThemeProvider>
         </SafeAreaProvider>
@@ -287,6 +292,10 @@ export default function RootLayout() {
 
 function AppContent({ ready }: { ready: boolean }) {
   const { theme } = useBloomTheme();
+
+  // Keep the Explorer realtime socket alive (foreground-gated) so the home
+  // Overview's network stats tick live off the WebSocket.
+  useExplorerRealtime();
 
   // Hide splash screen once fonts and theme are loaded
   const splashHidden = useRef(false);
