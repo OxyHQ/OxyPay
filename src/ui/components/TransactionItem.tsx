@@ -151,7 +151,8 @@ export function TransactionItem({
         <AmountText
           value={absValue}
           prefix={staticConfig.prefix}
-          suffix={` ${COIN_SYMBOL}`}
+          symbol
+          symbolSize={13}
           className={`text-sm font-semibold ${staticConfig.amountColor}`}
         />
         <Text className="text-muted-foreground text-xs mt-0.5">{timeAgo}</Text>

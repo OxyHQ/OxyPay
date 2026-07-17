@@ -1,14 +1,17 @@
 /**
- * AmountText — a Text component that renders a FAIR amount (in smallest
- * units / bigint) with thousands separators and trimmed trailing zeros.
+ * AmountText — renders a FAIR amount (in smallest units / bigint) with thousands
+ * separators and trimmed trailing zeros.
  *
- * Use this anywhere you display a FAIR amount in read-only mode (balance,
- * activity rows, transaction details, totals, etc).
+ * By default it is a single `<Text>` (use `suffix`/`prefix` for a text unit like
+ * " FAIR"). Pass `symbol` to render the FairCoin logo glyph inline after the
+ * number (the on-screen replacement for the "⊜" character) — in that mode it
+ * renders a row (number + icon), so give it a numeric `symbolSize`.
  */
 
-import { Text, type TextProps } from "react-native";
+import { Text, View, type TextProps } from "react-native";
 import { NumericFormat } from "react-number-format";
 import { UNITS_PER_COIN } from "@fairco.in/core";
+import { FairCoinSymbol } from "./FairCoinSymbol";
 
 export interface AmountTextProps extends Omit<TextProps, "children"> {
   /** Amount in smallest units (m⊜). */
@@ -17,10 +20,16 @@ export interface AmountTextProps extends Omit<TextProps, "children"> {
   fixedDecimalScale?: boolean;
   /** Number of decimal places to display (default: 8). */
   decimalScale?: number;
-  /** Suffix appended after the amount, e.g. " ⊜" or " FAIR". */
+  /** Suffix appended after the amount, e.g. " FAIR". */
   suffix?: string;
   /** Prefix prepended before the amount. */
   prefix?: string;
+  /** Render the FairCoin logo glyph after the number instead of a text unit. */
+  symbol?: boolean;
+  /** Icon size (px) when `symbol` is set. Defaults to 16. */
+  symbolSize?: number;
+  /** Icon tint when `symbol` is set. Defaults to the FairCoin brand green. */
+  symbolColor?: string;
 }
 
 /**
@@ -43,6 +52,10 @@ export function AmountText({
   decimalScale = 8,
   suffix,
   prefix,
+  symbol = false,
+  symbolSize = 16,
+  symbolColor,
+  style,
   ...rest
 }: AmountTextProps) {
   let decimalString = unitsToDecimalString(value);
@@ -56,7 +69,10 @@ export function AmountText({
       .replace(/\.$/, "");
   }
 
-  return (
+  // In symbol mode, drop Android's extra font padding so the number's box bottom
+  // sits at the glyph baseline — then flex-end lands the icon on that baseline.
+  const textStyle = symbol ? [style, { includeFontPadding: false }] : style;
+  const numberText = (
     <NumericFormat
       value={decimalString}
       displayType="text"
@@ -67,7 +83,22 @@ export function AmountText({
       prefix={prefix}
       suffix={suffix}
       valueIsNumericString
-      renderText={(formatted) => <Text {...rest}>{formatted}</Text>}
+      renderText={(formatted) => (
+        <Text {...rest} style={textStyle}>
+          {formatted}
+        </Text>
+      )}
     />
+  );
+
+  if (!symbol) return numberText;
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+      {numberText}
+      <View style={{ marginLeft: symbolSize * 0.25, marginBottom: symbolSize * 0.28 }}>
+        <FairCoinSymbol size={symbolSize} color={symbolColor} />
+      </View>
+    </View>
   );
 }

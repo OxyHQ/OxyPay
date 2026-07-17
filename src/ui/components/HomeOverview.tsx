@@ -105,7 +105,8 @@ export function HomeOverview(): React.JSX.Element {
           <View className="mt-2">
             <AmountText
               value={rewards.total}
-              suffix={` ${COIN_SYMBOL}`}
+              symbol
+              symbolSize={20}
               className="text-foreground"
               style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: 32 }}
             />
@@ -120,7 +121,8 @@ export function HomeOverview(): React.JSX.Element {
                 </Text>
                 <AmountText
                   value={rewards.last30}
-                  suffix={` ${COIN_SYMBOL}`}
+                  symbol
+                  symbolSize={12}
                   className="text-foreground text-[17px] font-semibold mt-1"
                 />
               </View>

@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import { View, Text } from "react-native";
 import { Badge } from "./Badge";
 import { AmountText } from "./AmountText";
+import { FairCoinSymbol } from "./FairCoinSymbol";
 import { formatFiatAmount, t } from "../../i18n";
 import { FONT_PHUDU_LIGHT, FONT_PHUDU, FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { COIN_SYMBOL, UNITS_PER_COIN } from "@fairco.in/core";
@@ -41,7 +42,7 @@ function formatChange(change: number): string {
 const SIZE_PRIMARY: Record<BalanceSize, number> = {
   sm: 20,
   md: 28,
-  lg: 56,
+  lg: 64,
 };
 
 const SIZE_SYMBOL: Record<BalanceSize, number> = {
@@ -118,17 +119,18 @@ export function BalanceDisplay({
   // FAIR-primary mode (default)
   return (
     <View className={alignClass}>
-      <View className="flex-row items-baseline">
-        <Text
-          className="text-foreground mr-1"
-          style={{ fontFamily: FONT_PHUDU_LIGHT, fontSize: symbol }}
-        >
-          {COIN_SYMBOL}
-        </Text>
+      <View className="flex-row items-end">
+        <View className="mr-1.5" style={{ marginBottom: primary * 0.18 }}>
+          <FairCoinSymbol size={Math.round(primary * 0.62)} />
+        </View>
         <AmountText
           value={value}
           className="text-foreground tracking-tight"
-          style={{ fontFamily: FONT_PHUDU, fontSize: primary }}
+          style={{
+            fontFamily: FONT_PHUDU,
+            fontSize: primary,
+            includeFontPadding: false,
+          }}
         />
       </View>
 
