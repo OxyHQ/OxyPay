@@ -97,9 +97,15 @@ created → awaiting_approval → approved → broadcast → confirming → sett
 
 Derivación reutiliza `@fairco.in/core` (`encodeAddress`) + `@scure/bip32`, igual que `packages/frontend/src/wallet/key-manager.ts`.
 
-### Observación de liquidación (watch-only)
+### Observación de liquidación (txid reportado + verificación — hallazgo 2026-07-18)
 
-El backend **no corre custodia ni nodo propio en F1**: observa vía el **FairCoin Explorer** (HTTP + WebSocket), el mismo que ya integra FAIRWallet en `src/services/explorer-socket.ts`. Suscribe la dirección del intent; on-tx → `confirming`; on-confirmaciones → `settled`. *Alternativa* si el Explorer no da push por dirección: `faircoind` RPC watch-only (`seed1.fairco.in:46373`, `importaddress` + `listsinceblock`) — su propia sub-tarea, security-review aparte.
+El backend **no corre custodia ni nodo propio**. Se probó el Explorer en vivo: `GET /api/address/:a` existe pero **el nodo NO tiene `addressindex`** (devuelve `"limited data available"`, ceros) → no se puede escanear una dirección. `GET /api/transaction/:txid` **sí** funciona. Por tanto:
+- El **wallet del pagador** firma+difunde (conoce el txid) y lo **reporta** al backend (`POST /payment_intents/:id/submit_tx` con `client_secret`).
+- El backend **verifica** el txid vía `GET /api/transaction/:txid`: comprueba que una salida paga la **dirección derivada del intent** con importe ≥ esperado, y lee confirmaciones. Mempool/0-conf → `confirming`; ≥N-conf → `settled`. Poll por-tip (WS del Explorer, que solo emite altura) hasta confirmar.
+- Sigue siendo **no-custodial** (el pagador firma y difunde; el backend solo lee la cadena).
+- **Robustez futura (fix-upstream, no en F1A):** habilitar `addressindex` en el nodo del Explorer permitiría vigilancia por-dirección de respaldo (por si el wallet no reporta el txid).
+
+> **Nota testnet:** `GET /api/stats?network=testnet` devuelve `blockHeight:0` → el **testnet de FairCoin está vacío/inactivo**. El test de liquidación **real** (T13 manual) requiere testnet operativo o mainnet con importe mínimo — a decidir. Los tests unitarios (T8–T12) usan mocks y no se bloquean.
 
 ### Entrada del payer (dos modos, mismo intent)
 

@@ -270,26 +270,22 @@ export function deriveIntentAddress(xpub: string, change: number, index: number,
 
 ---
 
-### Task 8: Explorer HTTP client (verify endpoints; improve Explorer if missing)
+### Task 8: Explorer HTTP client (txid verification — addressindex is OFF)
+
+> **Finding (2026-07-18, probed live):** `GET https://explorer.fairco.in/api/address/:a` exists but the node returns `"addressindex not enabled … limited data available"` (all zeros) — so we **cannot** scan an address for received funds. `GET /api/transaction/:txid` **does** work. Therefore settlement is confirmed by the **payer reporting the broadcast txid**, which the backend verifies on-chain. This stays non-custodial (payer signs+broadcasts; backend only reads). Enabling addressindex on the Explorer node is a separate fix-upstream robustness upgrade, not required for F1A.
 
 **Files:** Create `packages/backend/src/services/explorer.ts`, `config.ts`; Test `…/__tests__/explorer.test.ts`
 
-**Interfaces:** Produces `getTip(network): Promise<number>` (via `GET /api/stats?network=` → `stats.blockHeight`, confirmed in FAIRWallet `market.ts`) and `getAddressReceived(address, network): Promise<{ txid: string; amount: bigint; confirmations: number } | null>`.
+**Interfaces:** Produces:
+- `getTip(network): Promise<number>` — `GET /api/stats?network=` → `stats.blockHeight` (confirmed in FAIRWallet `market.ts`).
+- `getTransaction(txid, network): Promise<ExplorerTx | null>` where `ExplorerTx = { txid: string; confirmations: number; outputs: { address: string; valueSat: bigint }[] }` — `GET /api/transaction/:txid?network=`. Map the Explorer's output shape to `{ address, valueSat }`; return `null` on 404/not-found.
+- `verifyPayment(tx, address, expectedSat): { paid: boolean; confirmations: number }` — pure helper: true iff some output pays `address` with `valueSat >= expectedSat`.
 
-- [ ] **Step 1: VERIFY the address endpoint (real data path, per AGENTS rule).** The Explorer WS emits only tip; FAIRWallet is SPV so its code has no address endpoint. Confirm the address/received contract before coding:
-
-```bash
-# Probe the live Explorer for a per-address endpoint (addressindex-backed):
-curl -s "$EXPLORER_BASE_URL/api/address/<testnet-addr>?network=testnet" | head
-curl -s "$EXPLORER_BASE_URL/api/notifications/register" -X OPTIONS -i | head
-```
-
-If a clean per-address endpoint exists, use it. **If not, this is the authorized fix-upstream point:** add a `GET /api/address/:addr` (received/confirmations, addressindex-backed) or an address-registration push to the FairCoin Explorer, then consume it here. Record the confirmed contract in a comment.
-
-- [ ] **Step 2: Failing test** — mock `fetch`; `getTip` parses `stats.blockHeight`; `getAddressReceived` returns the matching received amount as `bigint` or `null`.
+- [ ] **Step 1: Pin the `/api/transaction/:txid` response shape.** `curl -s "https://explorer.fairco.in/api/transaction/<a-real-testnet-or-mainnet-txid>?network=…"` and record the exact JSON path to outputs (address + value) in a comment. (Mainnet has live txids; testnet may be empty.)
+- [ ] **Step 2: Failing test** — mock `fetch`; `getTip` parses `stats.blockHeight`; `getTransaction` maps outputs to `{address, valueSat: bigint}` and returns `null` on 404; `verifyPayment` returns `paid:true` only when an output matches address + `valueSat >= expectedSat`.
 - [ ] **Step 3: Run — FAIL.**
 - [ ] **Step 4: Implement** the client against the confirmed endpoints; `config.ts` reads `EXPLORER_BASE_URL` (default from `@fairco.in/core`), `OXYPAY_NETWORK`, `MONGODB_URI`, `PORT`, Oxy app-key env — typed, no magic numbers.
-- [ ] **Step 5: Run — PASS**, plus one **live testnet** assertion (`getTip('testnet') > 0`).
+- [ ] **Step 5: Run — PASS**, plus one **live mainnet** assertion (`getTip('mainnet') > 0`; testnet is currently empty so assert against mainnet).
 - [ ] **Step 6: Commit.** `git commit -am "feat(backend): FairCoin Explorer client (tip + address received)"`
 
 ---
@@ -298,9 +294,9 @@ If a clean per-address endpoint exists, use it. **If not, this is the authorized
 
 **Files:** Create `packages/backend/src/services/settlementWatcher.ts`; Test `…/__tests__/settlementWatcher.test.ts`
 
-**Interfaces:** Produces `class SettlementWatcher { start(): void; stop(): void; async check(): Promise<void> }`. On each Explorer tip advance (subscribe to the tip WS from `explorer.ts`, fallback interval with `.unref?.()`), for every `PaymentIntent` in `broadcast`/`confirming`: call `getAddressReceived`, match `amount >= expected` → `applyEvent('mempool_seen'|'confirmed')` (using merchant `requiredConfirmations`), persist, then hand the changed intent to the socket emitter + webhook dispatcher (injected callbacks — the watcher stays pure of transport).
+**Interfaces:** Produces `class SettlementWatcher { start(): void; stop(): void; async check(): Promise<void> }`. On each Explorer tip advance (subscribe to the tip WS from `explorer.ts`, fallback interval with `.unref?.()`), for every `PaymentIntent` in `broadcast`/`confirming` **that has a submitted `txid`**: call `getTransaction(intent.txid)` then `verifyPayment(tx, intent.address, expectedSat)` → on `paid` with `confirmations < required` → `applyEvent('mempool_seen')` (`confirming`); with `confirmations >= required` → `applyEvent('confirmed')` (`settled`); if the tx pays a smaller amount → `applyEvent('underpaid')` (`failed`). Persist, then hand the changed intent to the injected socket emitter + webhook dispatcher (the watcher stays pure of transport).
 
-- [ ] **Step 1: Failing test** — seed a `broadcast` intent + a stubbed `explorer.getAddressReceived` returning 0→1→N confs across calls; assert transitions `broadcast→confirming→settled`, an `underpaid` amount → `failed`, and that the injected `onChange` fires once per transition.
+- [ ] **Step 1: Failing test** — seed a `broadcast` intent with a `txid` + a stubbed `explorer.getTransaction` returning an output to the intent address with 0→1→N confirmations across calls; assert transitions `broadcast→confirming→settled`, an under-value output → `failed`, and that the injected `onChange` fires once per transition.
 - [ ] **Step 2: Run — FAIL.**
 - [ ] **Step 3: Implement**; the interval fallback timer calls `timer.unref?.()`. No polling of settled/terminal intents.
 - [ ] **Step 4: Run — PASS.**
@@ -326,7 +322,7 @@ If a clean per-address endpoint exists, use it. **If not, this is the authorized
 
 **Files:** Create `packages/backend/src/routes/paymentIntents.ts`; Test `…/__tests__/routes.test.ts`
 
-**Interfaces:** `POST /v1/payment_intents` (merchant `serviceAuth`; `Idempotency-Key` required; validates body with `zod` against `CreatePaymentIntentParams`; `reserveNextAddress`; returns 201 `PaymentIntent` + `client_secret`). `GET /v1/payment_intents/:id`. `POST /v1/payment_intents/:id/reject`.
+**Interfaces:** `POST /v1/payment_intents` (merchant `serviceAuth`; `Idempotency-Key` required; validates body with `zod` against `CreatePaymentIntentParams`; `reserveNextAddress`; returns 201 `PaymentIntent` + `client_secret`). `GET /v1/payment_intents/:id`. `POST /v1/payment_intents/:id/reject`. `POST /v1/payment_intents/:id/submit_tx` — body `{ client_secret, txid }`; the payer proves possession of the intent via `client_secret` (constant-time compare, not merchant auth), sets `intent.txid`, and `applyEvent('broadcast')` so the watcher (Task 9) starts verifying it. This is the payer-reported-txid entry (addressindex is off — see Task 8).
 
 - [ ] **Step 1: Failing test** (spin the express app + memory mongo): create returns a `pi_…` with a derived `address`; **replaying the same `Idempotency-Key` returns the same intent, not a second one**; missing auth → 401; bad amount → 422.
 - [ ] **Step 2: Run — FAIL.**
