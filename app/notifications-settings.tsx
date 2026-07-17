@@ -11,7 +11,7 @@
 
 import { useCallback, useState } from "react";
 import { View, Text, TextInput, ScrollView, Switch } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useTheme } from "@oxyhq/bloom/theme";
 import {

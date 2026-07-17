@@ -13,14 +13,12 @@ import {
   TextInput,
   ActivityIndicator,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useWalletStore } from "../src/wallet/wallet-store";
 import type { WalletInfo } from "../src/storage/secure-store";
 import {
-  Section,
   ListItem,
-  Card,
   Button,
   Badge,
   EmptyState,
@@ -34,6 +32,10 @@ import { t } from "../src/i18n";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Uppercase field label — matches the home / send screens' section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
@@ -101,59 +103,67 @@ function ImportModal({ visible, onCancel, onImport }: ImportModalProps) {
       onRequestClose={handleCancel}
     >
       <View className="flex-1 bg-black/70 items-center justify-center px-8">
-        <Card className="p-6 w-full max-w-sm">
-          <Text className="text-foreground text-lg font-bold mb-4 text-center">
+        <View className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm">
+          <Text className="text-foreground text-lg font-bold mb-5 text-center">
             {t("wallets.import.title")}
           </Text>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("wallets.import.nameLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-            placeholder={t("wallets.import.namePlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-            autoCorrect={false}
-          />
+          <View className="gap-4">
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("wallets.import.nameLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
+                placeholder={t("wallets.import.namePlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("wallets.import.phraseLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-            placeholder={t("wallets.import.phrasePlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={mnemonic}
-            onChangeText={setMnemonic}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("wallets.import.phraseLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2 min-h-[88px]"
+                placeholder={t("wallets.import.phrasePlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={mnemonic}
+                onChangeText={setMnemonic}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
+            </View>
 
-          {error ? (
-            <Text className="text-red-400 text-xs mb-3 text-center">
-              {error}
-            </Text>
-          ) : null}
+            {error ? (
+              <View className="bg-destructive/10 rounded-2xl p-3">
+                <Text className="text-destructive text-sm text-center">
+                  {error}
+                </Text>
+              </View>
+            ) : null}
 
-          <View className="gap-3">
-            <Button
-              title={t("wallets.import.cta")}
-              onPress={handleImport}
-              variant="primary"
-            />
-            <Button
-              title={t("common.cancel")}
-              onPress={handleCancel}
-              variant="secondary"
-            />
+            <View className="gap-3">
+              <Button
+                title={t("wallets.import.cta")}
+                onPress={handleImport}
+                variant="primary"
+              />
+              <Button
+                title={t("common.cancel")}
+                onPress={handleCancel}
+                variant="secondary"
+              />
+            </View>
           </View>
-        </Card>
+        </View>
       </View>
     </Modal>
   );
@@ -219,59 +229,67 @@ function WatchOnlyModal({ visible, onCancel, onImport }: WatchOnlyModalProps) {
       onRequestClose={handleCancel}
     >
       <View className="flex-1 bg-black/70 items-center justify-center px-8">
-        <Card className="p-6 w-full max-w-sm">
-          <Text className="text-foreground text-lg font-bold mb-4 text-center">
+        <View className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm">
+          <Text className="text-foreground text-lg font-bold mb-5 text-center">
             {t("wallets.watchOnly.title")}
           </Text>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("wallets.watchOnly.nameLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-            placeholder={t("wallets.watchOnly.namePlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-            autoCorrect={false}
-          />
+          <View className="gap-4">
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("wallets.watchOnly.nameLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
+                placeholder={t("wallets.watchOnly.namePlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("wallets.watchOnly.xpubLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-            placeholder={t("wallets.watchOnly.xpubPlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={xpub}
-            onChangeText={setXpub}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("wallets.watchOnly.xpubLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2 min-h-[88px]"
+                placeholder={t("wallets.watchOnly.xpubPlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={xpub}
+                onChangeText={setXpub}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
+            </View>
 
-          {error ? (
-            <Text className="text-red-400 text-xs mb-3 text-center">
-              {error}
-            </Text>
-          ) : null}
+            {error ? (
+              <View className="bg-destructive/10 rounded-2xl p-3">
+                <Text className="text-destructive text-sm text-center">
+                  {error}
+                </Text>
+              </View>
+            ) : null}
 
-          <View className="gap-3">
-            <Button
-              title={t("wallets.watchOnly.cta")}
-              onPress={handleImport}
-              variant="primary"
-            />
-            <Button
-              title={t("common.cancel")}
-              onPress={handleCancel}
-              variant="secondary"
-            />
+            <View className="gap-3">
+              <Button
+                title={t("wallets.watchOnly.cta")}
+                onPress={handleImport}
+                variant="primary"
+              />
+              <Button
+                title={t("common.cancel")}
+                onPress={handleCancel}
+                variant="secondary"
+              />
+            </View>
           </View>
-        </Card>
+        </View>
       </View>
     </Modal>
   );
@@ -318,43 +336,49 @@ function CreateModal({ visible, onCancel, onCreate }: CreateModalProps) {
       onRequestClose={handleCancel}
     >
       <View className="flex-1 bg-black/70 items-center justify-center px-8">
-        <Card className="p-6 w-full max-w-sm">
-          <Text className="text-foreground text-lg font-bold mb-4 text-center">
+        <View className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm">
+          <Text className="text-foreground text-lg font-bold mb-5 text-center">
             {t("wallets.create.title")}
           </Text>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("wallets.create.nameLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-            placeholder={t("wallets.create.namePlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-            autoCorrect={false}
-          />
+          <View className="gap-4">
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("wallets.create.nameLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
+                placeholder={t("wallets.create.namePlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
 
-          {error ? (
-            <Text className="text-red-400 text-xs mb-3 text-center">
-              {error}
-            </Text>
-          ) : null}
+            {error ? (
+              <View className="bg-destructive/10 rounded-2xl p-3">
+                <Text className="text-destructive text-sm text-center">
+                  {error}
+                </Text>
+              </View>
+            ) : null}
 
-          <View className="gap-3">
-            <Button
-              title={t("wallets.create.cta")}
-              onPress={handleCreate}
-              variant="primary"
-            />
-            <Button
-              title={t("common.cancel")}
-              onPress={handleCancel}
-              variant="secondary"
-            />
+            <View className="gap-3">
+              <Button
+                title={t("wallets.create.cta")}
+                onPress={handleCreate}
+                variant="primary"
+              />
+              <Button
+                title={t("common.cancel")}
+                onPress={handleCancel}
+                variant="secondary"
+              />
+            </View>
           </View>
-        </Card>
+        </View>
       </View>
     </Modal>
   );
@@ -586,16 +610,19 @@ export default function WalletsScreen() {
         className="flex-1"
         contentContainerClassName="px-5 pt-4 pb-8"
       >
-        {/* Wallet list */}
-        <Section className="mb-6">
-          {wallets.length === 0 ? (
+        {/* Wallet list — card-less surface group with a subtle border and
+            inter-row hairlines (matches the home / wallet-switcher pattern). */}
+        {wallets.length === 0 ? (
+          <View className="mb-6">
             <EmptyState
               icon="wallet"
               title={t("wallets.empty.title")}
               subtitle={t("wallets.empty.subtitle")}
             />
-          ) : (
-            wallets.map((wallet, idx) => {
+          </View>
+        ) : (
+          <View className="bg-surface border border-border rounded-2xl overflow-hidden mb-6">
+            {wallets.map((wallet, idx) => {
               const isActive = wallet.id === activeWalletId;
               return (
                 <ListItem
@@ -618,9 +645,9 @@ export default function WalletsScreen() {
                   }
                 />
               );
-            })
-          )}
-        </Section>
+            })}
+          </View>
+        )}
 
         {/* Action buttons */}
         <View className="gap-3">

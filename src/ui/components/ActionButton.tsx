@@ -30,7 +30,7 @@ export function ActionButton({
   return (
     <Pressable
       onPress={onPress}
-      className="flex-1 items-start bg-surface rounded-3xl px-3.5 py-4 active:opacity-70"
+      className="flex-1 items-start bg-surface border border-border rounded-3xl px-3.5 py-4 active:opacity-70"
       accessibilityRole="button"
       accessibilityLabel={label}
     >

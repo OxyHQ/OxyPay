@@ -31,15 +31,27 @@
  */
 
 import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { SendSheet } from "./SendSheet";
 import { ReceiveSheet } from "./ReceiveSheet";
+import { hapticSelection } from "../../utils/haptics";
 import { t } from "../../i18n";
 
 type Mode = "send" | "receive";
 
 const MODES: readonly Mode[] = ["send", "receive"] as const;
 const CONTENT_MAX_WIDTH = 600;
+// A fling faster than this (px/s) flips the page regardless of drag distance.
+const SWIPE_VELOCITY = 500;
+const PAGE_ANIM_MS = 220;
 
 function getModeLabel(mode: Mode): string {
   return mode === "send" ? t("wallet.send") : t("wallet.receive");
@@ -56,14 +68,91 @@ export function SendReceiveSheet({
   address?: string;
   amount?: string;
 }): React.JSX.Element {
+  // Live horizontal pager: Send (left) and Receive (right) are both mounted,
+  // side by side, and `translateX` tracks the finger in real time so the pages
+  // slide as the user drags. On release it snaps to the nearer page (with a
+  // velocity assist) and reports the new mode. Page width is measured from the
+  // container so the snap math is exact; the row uses percentage widths so it
+  // lays out correctly before the first measurement (no flash).
+  const [pageWidth, setPageWidth] = useState(0);
+  // Shared mirror of the width for worklets (avoids stale JS captures).
+  const pageW = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  // Measured natural height of each page, so the pager can grow/shrink to the
+  // active one and the shorter page (Receive) doesn't leave dead space.
+  const sendH = useSharedValue(0);
+  const recvH = useSharedValue(0);
+
+  // The resting X for the active page. Kept in sync when the mode is changed by
+  // the toggle (not by a drag), and settles the pages once width is measured.
+  const restingX = mode === "send" ? 0 : -pageWidth;
+  useEffect(() => {
+    translateX.value = withTiming(restingX, { duration: PAGE_ANIM_MS });
+  }, [restingX, translateX]);
+
+  const pageGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        // Only claim clearly-horizontal drags so vertical scroll / taps pass
+        // through to the sheet + the page contents.
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-14, 14])
+        .onUpdate((e) => {
+          "worklet";
+          const base = mode === "send" ? 0 : -pageW.value;
+          translateX.value = Math.max(
+            -pageW.value,
+            Math.min(0, base + e.translationX),
+          );
+        })
+        .onEnd((e) => {
+          "worklet";
+          if (pageW.value === 0) return;
+          const base = mode === "send" ? 0 : -pageW.value;
+          const pos = base + e.translationX;
+          let next: Mode;
+          if (e.velocityX < -SWIPE_VELOCITY) next = "receive";
+          else if (e.velocityX > SWIPE_VELOCITY) next = "send";
+          else next = pos < -pageW.value / 2 ? "receive" : "send";
+          translateX.value = withTiming(next === "send" ? 0 : -pageW.value, {
+            duration: PAGE_ANIM_MS,
+          });
+          if (next !== mode) {
+            runOnJS(hapticSelection)();
+            runOnJS(onModeChange)(next);
+          }
+        }),
+    [mode, pageW, translateX, onModeChange],
+  );
+
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  // Pager height follows the drag position, interpolating between the two
+  // pages' measured heights so the sheet grows/shrinks smoothly as you swipe.
+  const heightStyle = useAnimatedStyle(() => {
+    const from = sendH.value;
+    const to = recvH.value;
+    if (from === 0 || to === 0) {
+      const single = from || to;
+      return single > 0 ? { height: single } : {};
+    }
+    const progress =
+      pageW.value > 0
+        ? Math.min(1, Math.max(0, -translateX.value / pageW.value))
+        : 0;
+    return { height: from + (to - from) * progress };
+  });
+
   return (
     <View
-      className="w-full self-center gap-5"
+      className="w-full self-center gap-5 pt-2 pb-4"
       style={{ maxWidth: CONTENT_MAX_WIDTH }}
     >
-      {/* Send | Receive segmented toggle — the sheet's header. Two equal pills;
-          the active one is filled with the primary color. */}
-      <View className="flex-row bg-surface rounded-full p-1">
+      {/* Send | Receive segmented toggle — the sheet's header. Own horizontal
+          inset (the sheet is full-bleed so the pager can slide edge-to-edge). */}
+      <View className="flex-row bg-surface rounded-full p-1 mx-5">
         {MODES.map((segment) => {
           const isActive = mode === segment;
           return (
@@ -89,12 +178,44 @@ export function SendReceiveSheet({
         })}
       </View>
 
-      {/* Content — the existing content-only bodies, driven by `mode`. */}
-      {mode === "send" ? (
-        <SendSheet address={address} amount={amount} />
-      ) : (
-        <ReceiveSheet heading={false} />
-      )}
+      {/* Paged content — both bodies mounted side by side; the row slides with
+          the drag. `overflow-hidden` clips the off-screen page. */}
+      <Animated.View
+        className="overflow-hidden"
+        style={heightStyle}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          setPageWidth(w);
+          pageW.value = w;
+        }}
+      >
+        <GestureDetector gesture={pageGesture}>
+          <Animated.View
+            style={[{ flexDirection: "row", width: "200%" }, rowStyle]}
+          >
+            {/* Each page owns its horizontal inset so it fills the sheet width
+                and slides fully off-screen (no hiding inside a shared padding). */}
+            <View
+              className="px-5"
+              style={{ width: "50%" }}
+              onLayout={(e) => {
+                sendH.value = e.nativeEvent.layout.height;
+              }}
+            >
+              <SendSheet address={address} amount={amount} />
+            </View>
+            <View
+              className="px-5"
+              style={{ width: "50%" }}
+              onLayout={(e) => {
+                recvH.value = e.nativeEvent.layout.height;
+              }}
+            >
+              <ReceiveSheet heading={false} />
+            </View>
+          </Animated.View>
+        </GestureDetector>
+      </Animated.View>
     </View>
   );
 }

@@ -13,7 +13,7 @@ import {
   Modal,
   ScrollView,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -43,7 +43,7 @@ function truncateAddress(address: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Form field — underlined Material-style input row
+// Form field — filled surface field (card-less, matches SendSheet)
 // ---------------------------------------------------------------------------
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -79,32 +79,33 @@ function FormField({
 }: FormFieldProps) {
   const theme = useTheme();
   const iconColor = focused ? theme.colors.primary : theme.colors.textSecondary;
-  const borderClass = focused ? "border-b-2 border-primary" : "border-b border-border";
 
   return (
-    <View className="px-5 pt-4 pb-1">
-      <View className="flex-row items-start">
-        <View className="w-10 items-center justify-center pt-5">
+    <View className="px-5 pt-4">
+      <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-wider mb-2">
+        {label}
+      </Text>
+      <View
+        className={`flex-row bg-surface rounded-2xl px-4 py-3.5 ${
+          multiline ? "items-start" : "items-center"
+        }`}
+      >
+        <View className={multiline ? "pt-0.5" : undefined}>
           <MaterialCommunityIcons name={icon} size={20} color={iconColor} />
         </View>
-        <View className="flex-1">
-          <Text className="text-muted-foreground text-xs mb-1">{label}</Text>
-          <View className={`flex-row items-center ${borderClass} pb-2`}>
-            <TextInput
-              className="flex-1 text-foreground text-base py-1"
-              placeholder={placeholder}
-              placeholderTextColor={theme.colors.textSecondary}
-              value={value}
-              onChangeText={onChangeText}
-              autoCapitalize={autoCapitalize}
-              autoCorrect={autoCorrect}
-              multiline={multiline}
-              onFocus={onFocus}
-              onBlur={onBlur}
-            />
-            {trailing}
-          </View>
-        </View>
+        <TextInput
+          className="flex-1 text-foreground text-base ml-3"
+          placeholder={placeholder}
+          placeholderTextColor={theme.colors.textSecondary}
+          value={value}
+          onChangeText={onChangeText}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          multiline={multiline}
+          onFocus={onFocus}
+          onBlur={onBlur}
+        />
+        {trailing}
       </View>
     </View>
   );
@@ -194,7 +195,7 @@ function ContactForm({
       >
         <View className={`flex-1 ${CONTENT_MAX_WIDTH_CLASS}`}>
           {/* Header row */}
-          <View className="flex-row items-center px-3 py-2 border-b border-border">
+          <View className="flex-row items-center px-3 py-2">
             <Pressable
               onPress={handleClose}
               className="w-11 h-11 items-center justify-center rounded-full active:bg-surface"
@@ -226,6 +227,9 @@ function ContactForm({
               </Text>
             </Pressable>
           </View>
+
+          {/* Hairline divider under the header (card-less) */}
+          <View className="h-px bg-border" />
 
           <ScrollView
             className="flex-1"
@@ -538,16 +542,16 @@ export default function ContactsScreen() {
           </Pressable>
         </View>
 
-        {/* Search pill */}
+        {/* Search field — card-less filled surface */}
         <View className="px-4 pt-1 pb-3">
-          <View className="flex-row items-center bg-surface px-4 rounded-full min-h-[48px]">
+          <View className="flex-row items-center bg-surface rounded-2xl px-4 py-3.5">
             <MaterialCommunityIcons
               name="magnify"
               size={22}
               color={theme.colors.textSecondary}
             />
             <TextInput
-              className="flex-1 text-foreground text-base ml-3 py-2"
+              className="flex-1 text-foreground text-base ml-3"
               placeholder={t("contacts.searchPill")}
               placeholderTextColor={theme.colors.textSecondary}
               value={searchQuery}

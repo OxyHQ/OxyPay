@@ -1,10 +1,12 @@
 /**
- * PaymentMethodPicker — radio-style chip list for the buy flow.
+ * PaymentMethodPicker — radio-style option list for the buy flow.
  *
- * Displays the supported payment options with a "recommended" badge for
- * USDC on Base (lowest fees, instant settlement) and a "coming soon" badge
- * for unimplemented options like CARD. Tapping a disabled option is a no-op
- * and shows a subtle visual cue rather than a blocking error.
+ * Card-less rows matching the app's home/Send aesthetic: no borders, a tinted
+ * `bg-primary/15` fill for the selected row and a plain `bg-surface` fill
+ * otherwise. Displays the supported payment options with a "recommended" badge
+ * for USDC on Base (lowest fees, instant settlement) and a "coming soon" badge
+ * for unimplemented options like CARD. Tapping a disabled option is a no-op and
+ * shows a subtle visual cue rather than a blocking error.
  */
 
 import { View, Text, Pressable } from "react-native";
@@ -50,10 +52,8 @@ export function PaymentMethodPicker({
             key={option.currency}
             onPress={handlePress}
             disabled={disabled}
-            className={`flex-row items-center gap-3 rounded-2xl border px-4 py-3 ${
-              selected
-                ? "border-primary bg-primary/10"
-                : "border-border bg-surface"
+            className={`flex-row items-center gap-3 rounded-2xl px-4 py-3 ${
+              selected ? "bg-primary/15" : "bg-surface"
             } ${disabled ? "opacity-60" : ""}`}
           >
             <View
@@ -69,7 +69,11 @@ export function PaymentMethodPicker({
             </View>
             <View className="flex-1">
               <View className="flex-row items-center gap-2 flex-wrap">
-                <Text className="text-foreground text-base font-semibold">
+                <Text
+                  className={`text-base font-semibold ${
+                    selected ? "text-primary" : "text-foreground"
+                  }`}
+                >
                   {option.label}
                 </Text>
                 {option.recommended ? (

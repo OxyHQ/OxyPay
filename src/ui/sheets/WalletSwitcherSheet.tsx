@@ -21,7 +21,7 @@ import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { useWalletStore } from "../../wallet/wallet-store";
-import { Card, ListItem } from "../components";
+import { ListItem } from "../components";
 import { t } from "../../i18n";
 
 const CONTENT_MAX_WIDTH = 500;
@@ -77,8 +77,8 @@ export function WalletSwitcherSheet({
       className="w-full self-center gap-4"
       style={{ maxWidth: CONTENT_MAX_WIDTH }}
     >
-      {/* Wallet list */}
-      <Card>
+      {/* Wallet list — card-less surface container */}
+      <View className="bg-surface rounded-2xl overflow-hidden">
         {wallets.map((wallet, idx) => {
           const isActive = wallet.id === activeWalletId;
           const isSwitching = wallet.id === switchingId;
@@ -112,17 +112,17 @@ export function WalletSwitcherSheet({
             />
           );
         })}
-      </Card>
+      </View>
 
       {/* Manage / add wallets — jumps to the full management screen */}
-      <Card>
+      <View className="bg-surface rounded-2xl overflow-hidden">
         <ListItem
           icon="cog-outline"
           title={t("settings.wallets")}
           onPress={handleManage}
           isLast
         />
-      </Card>
+      </View>
     </View>
   );
 }

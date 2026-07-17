@@ -21,12 +21,16 @@ import QRCode from "react-native-qrcode-svg";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { useWalletStore } from "../../wallet/wallet-store";
-import { Card, Button, ListItem } from "../components";
+import { Button, ListItem } from "../components";
 import { t } from "../../i18n";
 import { FONT_PHUDU_BLACK } from "../../utils/fonts";
 
 const CONTENT_MAX_WIDTH = 500;
 const QR_SIZE = 220;
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function truncateAddress(address: string): string {
   if (address.length <= 16) return address;
@@ -171,30 +175,22 @@ export function ReceiveSheet({
           </View>
         ) : null}
 
-        {/* Big centered QR */}
-        <Card className="p-6 items-center border border-border/60">
-          <View
-            className="bg-background rounded-2xl p-4 items-center justify-center"
-            style={{
-              width: QR_SIZE + 32,
-              height: QR_SIZE + 32,
-            }}
-          >
+        {/* Big centered QR — a clean white panel (crisp + scannable), no card */}
+        <View className="items-center">
+          <View className="bg-white rounded-3xl p-5 items-center justify-center">
             <QRCode
               value={`faircoin:${displayAddress}`}
               size={QR_SIZE}
-              color={theme.colors.primary}
+              color="#1b1e09"
               backgroundColor="transparent"
             />
           </View>
-        </Card>
+        </View>
 
-        {/* Address display with copy */}
-        <Card className="p-4">
-          <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2">
-            {t("receive.yourAddress")}
-          </Text>
-          <View className="flex-row items-center">
+        {/* Address — card-less filled surface field */}
+        <View>
+          <Text className={SECTION_LABEL}>{t("receive.yourAddress")}</Text>
+          <View className="flex-row items-center bg-surface rounded-2xl px-4 py-3.5 mt-2">
             <Pressable onPress={handleCopy} className="flex-1 active:opacity-70">
               <Text className="text-foreground text-sm font-mono" selectable>
                 {displayAddress}
@@ -212,7 +208,7 @@ export function ReceiveSheet({
               />
             </Pressable>
           </View>
-        </Card>
+        </View>
 
         {/* Quick actions */}
         <View className="flex-row gap-2">
@@ -248,9 +244,9 @@ export function ReceiveSheet({
           ) : null}
         </View>
 
-        {/* All addresses (collapsible) */}
+        {/* All addresses (collapsible) — borderless surface container */}
         {showAllAddresses && addresses.length > 0 ? (
-          <Card>
+          <View className="bg-surface rounded-2xl overflow-hidden">
             {addressListItems.map((item) => (
               <ListItem
                 key={`${item.index}-${item.address}`}
@@ -280,7 +276,7 @@ export function ReceiveSheet({
                 isLast={item.isLast}
               />
             ))}
-          </Card>
+          </View>
         ) : null}
 
         {/* Share (inline at the end — the standalone route / sheet chrome owns

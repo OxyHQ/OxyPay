@@ -131,7 +131,14 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.max": "MAX",
     "send.maxAccessibility": "Use maximum balance",
     "send.paste": "Paste",
-    "send.scanQR": "Scan QR",
+    "send.scanQR": "Scan",
+    "backup.banner.title": "Back up your wallet",
+    "backup.banner.required": "Required",
+    "backup.banner.subtitle":
+      "Set up a recovery plan in case you lose your phone or get a new one.",
+    "suggest.notifications.title": "Get paid alerts",
+    "suggest.notifications.subtitle":
+      "Turn on notifications to know the moment you receive FairCoin.",
     "send.contacts": "Contacts",
     "send.clearRecipient": "Clear recipient",
     "send.recent": "Recent",
@@ -873,7 +880,14 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.max": "MAX",
     "send.maxAccessibility": "Usar saldo m\u00e1ximo",
     "send.paste": "Pegar",
-    "send.scanQR": "Escanear QR",
+    "send.scanQR": "Escanear",
+    "backup.banner.title": "Haz una copia de tu wallet",
+    "backup.banner.required": "Requerido",
+    "backup.banner.subtitle":
+      "Configura un plan de recuperación por si pierdes el móvil o cambias de teléfono.",
+    "suggest.notifications.title": "Alertas de pagos",
+    "suggest.notifications.subtitle":
+      "Activa las notificaciones para enterarte al instante cuando recibes FairCoin.",
     "send.contacts": "Contactos",
     "send.clearRecipient": "Limpiar destinatario",
     "send.recent": "Reciente",

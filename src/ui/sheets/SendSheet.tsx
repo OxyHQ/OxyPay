@@ -32,12 +32,12 @@ import { useContactsStore } from "../../wallet/contacts-store";
 import {
   AmountInput,
   AmountText,
-  Card,
   Button,
   ContactAvatar,
   ListItem,
   EmptyState,
 } from "../components";
+import { FairCoinSymbol } from "../components/FairCoinSymbol";
 import { QRScanner } from "../components/QRScanner";
 import { ContactPicker } from "../components/ContactPicker";
 import { getCachedPrice } from "../../services/price";
@@ -47,13 +47,12 @@ import { Divider } from "@oxyhq/bloom/divider";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { hapticSuccess, hapticError } from "../../utils/haptics";
 import { playSent } from "../../services/sounds";
-import { FONT_PHUDU_BLACK, FONT_PHUDU_LIGHT } from "../../utils/fonts";
+import { FONT_PHUDU_BLACK } from "../../utils/fonts";
 import {
   formatFair,
   parseFairToUnits,
   validateAddress,
   getNetwork,
-  COIN_SYMBOL,
   COIN_TICKER,
   UNITS_PER_COIN,
   explorerTxUrl,
@@ -61,6 +60,10 @@ import {
 import { t } from "../../i18n";
 
 const FEE_LEVELS: FeeLevel[] = ["low", "medium", "high"];
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function getFeeLabel(level: FeeLevel): string {
   switch (level) {
@@ -76,7 +79,6 @@ function getFeeLabel(level: FeeLevel): string {
 const CONTENT_MAX_WIDTH = 600;
 const AMOUNT_FONT_SIZE_MAX = 44;
 const AMOUNT_FONT_SIZE_MIN = 22;
-const AMOUNT_SYMBOL_RATIO = 34 / 44;
 // Length at which the amount font starts shrinking from its max size.
 const AMOUNT_SHRINK_THRESHOLD = 9;
 // Length at which the amount font reaches its minimum size.
@@ -386,7 +388,6 @@ export function SendSheet({
 
   const amountLengthForSizing = amount.length > 0 ? amount.length : 1;
   const amountFontSize = getAmountFontSize(amountLengthForSizing);
-  const amountSymbolFontSize = Math.round(amountFontSize * AMOUNT_SYMBOL_RATIO);
 
   // Watch-only wallets cannot send transactions. This branch must run AFTER
   // every hook above so that toggling watch-only at runtime (wallet switch)
@@ -406,24 +407,19 @@ export function SendSheet({
   return (
     <>
       <View
-        className="w-full self-center gap-5"
+        className="w-full self-center gap-6"
         style={{ maxWidth: CONTENT_MAX_WIDTH }}
         onLayout={loadInitialData}
       >
-        {/* Hero amount */}
-        <View className="items-center pt-4 pb-2">
-          <View className="flex-row items-baseline justify-center w-full px-4">
-            <Text
-              className="text-primary mr-1"
-              style={{
-                fontFamily: FONT_PHUDU_LIGHT,
-                fontSize: amountSymbolFontSize,
-                includeFontPadding: false,
-              }}
-              numberOfLines={1}
+        {/* Hero amount — mirrors the home balance: FairCoin glyph + Phudu number */}
+        <View className="items-center pt-2 pb-1">
+          <View className="flex-row items-end justify-center w-full px-4">
+            <View
+              className="mr-1.5"
+              style={{ marginBottom: amountFontSize * 0.16 }}
             >
-              {COIN_SYMBOL}
-            </Text>
+              <FairCoinSymbol size={Math.round(amountFontSize * 0.6)} />
+            </View>
             <AmountInput
               className="text-foreground flex-shrink"
               style={{
@@ -442,14 +438,14 @@ export function SendSheet({
           </View>
           <Pressable
             onPress={handleMax}
-            className="bg-primary/10 rounded-full px-3 py-1.5 mt-2"
+            className="bg-surface rounded-full px-4 py-1.5 mt-3 active:opacity-70"
             accessibilityLabel={t("send.maxAccessibility")}
           >
-            <Text className="text-primary text-xs font-semibold">
+            <Text className="text-primary text-xs font-bold tracking-wide">
               {t("send.max")}
             </Text>
           </Pressable>
-          <Text className="text-muted-foreground text-sm mt-2">
+          <Text className="text-muted-foreground text-sm mt-3">
             {t("send.usdApprox", { amount: usdEquivalent ?? "0.00" })}
           </Text>
           <Text className="text-muted-foreground text-xs mt-1">
@@ -457,55 +453,55 @@ export function SendSheet({
           </Text>
         </View>
 
-        {/* Recipient card */}
-        <Card className="p-4">
-          <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2">
-            {t("send.sendTo")}
-          </Text>
-          {matchedContact ? (
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center flex-1">
-                <View className="mr-3">
-                  <ContactAvatar name={matchedContact.name} size={40} />
+        {/* Recipient — card-less: a filled surface field, no border */}
+        <View>
+          <Text className={SECTION_LABEL}>{t("send.sendTo")}</Text>
+          <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2">
+            {matchedContact ? (
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center flex-1">
+                  <View className="mr-3">
+                    <ContactAvatar name={matchedContact.name} size={40} />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-foreground text-base font-semibold">
+                      {matchedContact.name}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">
+                      {truncateAddress(matchedContact.address)}
+                    </Text>
+                  </View>
                 </View>
-                <View className="flex-1">
-                  <Text className="text-foreground text-base font-semibold">
-                    {matchedContact.name}
-                  </Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    {truncateAddress(matchedContact.address)}
-                  </Text>
-                </View>
+                <Pressable
+                  className="p-1.5 rounded-full active:opacity-60"
+                  onPress={handleClearRecipient}
+                  accessibilityLabel={t("send.clearRecipient")}
+                >
+                  <MaterialCommunityIcons
+                    name="close-circle"
+                    size={20}
+                    color={theme.colors.textSecondary}
+                  />
+                </Pressable>
               </View>
-              <Pressable
-                className="p-2 rounded-full active:opacity-60"
-                onPress={handleClearRecipient}
-                accessibilityLabel={t("send.clearRecipient")}
-              >
-                <MaterialCommunityIcons
-                  name="close-circle"
-                  size={20}
-                  color={theme.colors.textSecondary}
-                />
-              </Pressable>
-            </View>
-          ) : (
-            <TextInput
-              className="text-foreground text-base"
-              style={{ paddingVertical: 4 }}
-              placeholder={t("send.addressPlaceholder")}
-              placeholderTextColor={theme.colors.textSecondary}
-              value={toAddress}
-              onChangeText={setToAddress}
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline={false}
-            />
-          )}
+            ) : (
+              <TextInput
+                className="text-foreground text-base"
+                style={{ paddingVertical: 2 }}
+                placeholder={t("send.addressPlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={toAddress}
+                onChangeText={setToAddress}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline={false}
+              />
+            )}
+          </View>
 
-          <View className="flex-row gap-2 mt-3">
+          <View className="flex-row gap-2 mt-2.5">
             <Pressable
-              className="flex-row items-center bg-primary/10 rounded-full px-3 py-2 active:opacity-70"
+              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
               onPress={handlePaste}
             >
               <MaterialCommunityIcons
@@ -518,7 +514,7 @@ export function SendSheet({
               </Text>
             </Pressable>
             <Pressable
-              className="flex-row items-center bg-primary/10 rounded-full px-3 py-2 active:opacity-70"
+              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
               onPress={handleOpenScanner}
             >
               <MaterialCommunityIcons
@@ -531,7 +527,7 @@ export function SendSheet({
               </Text>
             </Pressable>
             <Pressable
-              className="flex-row items-center bg-primary/10 rounded-full px-3 py-2 active:opacity-70"
+              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
               onPress={handleOpenContactPicker}
             >
               <MaterialCommunityIcons
@@ -544,7 +540,7 @@ export function SendSheet({
               </Text>
             </Pressable>
           </View>
-        </Card>
+        </View>
 
         {validationError && toAddress.length > 0 ? (
           <Text className="text-destructive text-xs -mt-3 px-1">
@@ -552,16 +548,14 @@ export function SendSheet({
           </Text>
         ) : null}
 
-        {/* Recent recipients */}
+        {/* Recent recipients — borderless pills */}
         {recentRecipients.length > 0 ? (
           <View>
-            <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2 px-1">
-              {t("send.recent")}
-            </Text>
+            <Text className={SECTION_LABEL}>{t("send.recent")}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerClassName="gap-2 pr-4"
+              contentContainerClassName="gap-2 pr-4 mt-2"
             >
               {recentRecipients.map((r) => {
                 const contact = recentRecipientLookup.get(r.address);
@@ -571,9 +565,7 @@ export function SendSheet({
                     key={r.address}
                     onPress={() => handleRecentRecipientPress(r.address)}
                     className={`flex-row items-center rounded-full px-3 py-2 ${
-                      isSelected
-                        ? "bg-primary/20 border border-primary"
-                        : "bg-surface border border-transparent"
+                      isSelected ? "bg-primary/15" : "bg-surface"
                     }`}
                   >
                     <View className="mr-2">
@@ -582,7 +574,11 @@ export function SendSheet({
                         size={28}
                       />
                     </View>
-                    <Text className="text-foreground text-xs font-medium">
+                    <Text
+                      className={`text-xs font-medium ${
+                        isSelected ? "text-primary" : "text-foreground"
+                      }`}
+                    >
                       {contact?.name ?? truncateAddress(r.address)}
                     </Text>
                   </Pressable>
@@ -592,21 +588,19 @@ export function SendSheet({
           </View>
         ) : null}
 
-        {/* Fee selector */}
+        {/* Fee selector — borderless segmented pills */}
         <View>
-          <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2 px-1">
-            {t("send.networkFee")}
-          </Text>
-          <View className="flex-row gap-2">
+          <Text className={SECTION_LABEL}>{t("send.networkFee")}</Text>
+          <View className="flex-row gap-2 mt-2">
             {FEE_LEVELS.map((level) => {
               const isSelected = feeLevel === level;
               return (
                 <Pressable
                   key={level}
-                  className={`flex-1 rounded-full py-3 items-center border ${
+                  className={`flex-1 py-3 items-center ${
                     isSelected
-                      ? "bg-primary/10 border-primary"
-                      : "bg-surface border-transparent"
+                      ? "bg-primary/15 rounded-full"
+                      : "bg-surface rounded-2xl"
                   }`}
                   onPress={() => setFeeLevel(level)}
                 >
@@ -626,26 +620,22 @@ export function SendSheet({
           </View>
         </View>
 
-        {/* Error / Success messages */}
+        {/* Error / success — borderless tinted strips */}
         {error ? (
-          <Card className="border border-destructive/50 p-4">
-            <Text className="text-destructive text-sm text-center">
-              {error}
-            </Text>
-          </Card>
+          <View className="bg-destructive/10 rounded-2xl p-3.5">
+            <Text className="text-destructive text-sm text-center">{error}</Text>
+          </View>
         ) : null}
         {success ? (
-          <Card className="border border-primary/50 p-4">
-            <Text className="text-primary text-sm text-center">
-              {success}
-            </Text>
-          </Card>
+          <View className="bg-primary/10 rounded-2xl p-3.5">
+            <Text className="text-primary text-sm text-center">{success}</Text>
+          </View>
         ) : null}
 
         {/* Total summary + Send button (inline at the end — the sheet chrome /
             route wrapper owns the surrounding padding, so these are normal
             elements, not an absolutely positioned bottom bar). */}
-        <View className="gap-2">
+        <View className="gap-3">
           {hasAmount ? (
             <View className="flex-row justify-between items-center px-1">
               <Text className="text-muted-foreground text-xs">

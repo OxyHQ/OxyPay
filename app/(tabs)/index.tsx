@@ -30,11 +30,16 @@ import {
   Badge,
 } from "../../src/ui/components";
 import { TransactionItem } from "../../src/ui/components/TransactionItem";
+import {
+  SuggestionStack,
+  type Suggestion,
+} from "../../src/ui/components/SuggestionStack";
 import { HomeOverview } from "../../src/ui/components/HomeOverview";
 import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
 import { HubIcon } from "../../src/ui/components/HubIcon";
 import { SendIcon } from "../../src/ui/components/SendIcon";
 import { WalletSwitcherSheet } from "../../src/ui/sheets/WalletSwitcherSheet";
+import { TransactionDetailSheet } from "../../src/ui/sheets/TransactionDetailSheet";
 import {
   RefreshRainbowBar,
   RAINBOW_BAND_HEIGHT,
@@ -142,6 +147,7 @@ export default function HomeScreen() {
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
   const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
+  const hasBackedUp = useWalletStore((s) => s.hasBackedUp);
 
   const [price, setPrice] = useState<PriceData | null>(getCachedPrice);
   const [tab, setTab] = useState<HomeTab>("activity");
@@ -152,6 +158,16 @@ export default function HomeScreen() {
   const [sheetMode, setSheetMode] = useState<"send" | "receive">("send");
   // Tapping the wallet name opens a quick wallet-switcher sheet.
   const walletSwitcherControl = useDialogControl();
+  // Tapping an activity row opens the transaction detail in a bottom sheet.
+  const txDetailControl = useDialogControl();
+  const [detailTxid, setDetailTxid] = useState<string | null>(null);
+  const openTxDetail = useCallback(
+    (txid: string) => {
+      setDetailTxid(txid);
+      txDetailControl.open();
+    },
+    [txDetailControl],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -159,6 +175,41 @@ export default function HomeScreen() {
       return () => stopPricePolling();
     }, []),
   );
+
+  // Home suggestion deck (swipe a card to dismiss it and reveal the next).
+  // Dismissals are per-session; unsatisfied reminders (e.g. backup) return on
+  // the next launch until resolved.
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const dismissSuggestion = useCallback((id: string) => {
+    setDismissedSuggestions((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const list: Suggestion[] = [];
+    if (!hasBackedUp) {
+      list.push({
+        id: "backup",
+        icon: "shield-key-outline",
+        title: t("backup.banner.title"),
+        badge: t("backup.banner.required"),
+        subtitle: t("backup.banner.subtitle"),
+        onPress: () => router.push("/settings"),
+      });
+    }
+    list.push({
+      id: "notifications",
+      icon: "bell-ring-outline",
+      title: t("suggest.notifications.title"),
+      subtitle: t("suggest.notifications.subtitle"),
+      onPress: () => router.push("/notifications-settings"),
+    });
+    return list.filter((s) => !dismissedSuggestions.has(s.id));
+  }, [hasBackedUp, dismissedSuggestions, router]);
 
   const handleBuy = useCallback(async () => {
     const locale = Localization.getLocales()[0];
@@ -284,10 +335,8 @@ export default function HomeScreen() {
   return (
     <View className="flex-1 bg-background">
       {/* ---- Header: wallet switcher + sync-status icon ---- */}
-      <SafeAreaView
-        edges={["top"]}
-        className="px-4 pt-3 pb-2 flex-row items-center justify-between"
-      >
+      <SafeAreaView edges={["top"]}>
+        <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
         <Pressable
           className="flex-row items-center active:opacity-60"
           onPress={() => walletSwitcherControl.open()}
@@ -324,6 +373,7 @@ export default function HomeScreen() {
           >
             <MaterialCommunityIcons name={sync.icon} size={24} color={sync.color} />
           </Pressable>
+        </View>
         </View>
       </SafeAreaView>
 
@@ -385,6 +435,14 @@ export default function HomeScreen() {
           />
         </View>
 
+        {/* ---- Suggestion deck: swipable reminder cards (back up your wallet,
+            enable alerts…). Hidden when there's nothing to suggest. ---- */}
+        {suggestions.length > 0 ? (
+          <View className="px-4 pb-4">
+            <SuggestionStack items={suggestions} onDismiss={dismissSuggestion} />
+          </View>
+        ) : null}
+
         {/* ---- Tabs (Bloom): compact tabs, but the bottom border spans the full
             width (Bloom draws its underline border only under the tabs, so we
             move it to a full-width wrapper and zero out Bloom's). ---- */}
@@ -434,6 +492,7 @@ export default function HomeScreen() {
                     address={tx.address}
                     timestamp={tx.timestamp}
                     confirmations={tx.confirmations}
+                    onPress={openTxDetail}
                   />
                 ))}
               </View>
@@ -446,7 +505,15 @@ export default function HomeScreen() {
       {/* Send / Receive: one bottom-sheet with a Send|Receive toggle. title=""
           turns ON the sheet's own scroll (for the tall Send form) without
           rendering a header row — the sheet's toggle is the header. */}
-      <Dialog control={sheetControl} placement="bottom" title="">
+      {/* contentPadding={0}: the send/receive pager is full-bleed so pages
+          slide edge-to-edge; the sheet's own toggle + each page own their
+          horizontal insets. */}
+      <Dialog
+        control={sheetControl}
+        placement="bottom"
+        title=""
+        contentPadding={0}
+      >
         <SendReceiveSheet mode={sheetMode} onModeChange={setSheetMode} />
       </Dialog>
       <Dialog
@@ -455,6 +522,13 @@ export default function HomeScreen() {
         title={t("wallets.title")}
       >
         <WalletSwitcherSheet onDone={() => walletSwitcherControl.close()} />
+      </Dialog>
+      <Dialog
+        control={txDetailControl}
+        placement="bottom"
+        title={t("transaction.title")}
+      >
+        {detailTxid ? <TransactionDetailSheet txid={detailTxid} /> : null}
       </Dialog>
     </View>
   );

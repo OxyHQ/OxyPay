@@ -16,10 +16,9 @@ import { SafeAreaView } from "../../src/ui/safe-area-view";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../../src/wallet/wallet-store";
 import { Button } from "../../src/ui/components/Button";
-import { Card } from "../../src/ui/components/Card";
+import { FairCoinSymbol } from "../../src/ui/components/FairCoinSymbol";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { hapticSuccess } from "../../src/utils/haptics";
-import { COIN_SYMBOL } from "@fairco.in/core";
 import { t } from "../../src/i18n";
 
 type Step = "generating" | "display" | "verify" | "complete";
@@ -156,11 +155,13 @@ export default function CreateWalletScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-primary text-5xl mb-8">{COIN_SYMBOL}</Text>
+          <View className="mb-8">
+            <FairCoinSymbol size={64} />
+          </View>
 
           {error ? (
             <>
-              <Text className="text-red-400 text-base mb-6 text-center">
+              <Text className="text-destructive text-base mb-6 text-center">
                 {error}
               </Text>
               <Button
@@ -207,29 +208,30 @@ export default function CreateWalletScreen() {
             {t("onboarding.create.phrase.description")}
           </Text>
 
-          {/* 3-column word grid */}
+          {/* 3-column word grid — card-less: filled surface cells with a
+              hairline border, matching the verification tiles below. */}
           <View className="flex-row flex-wrap justify-between gap-y-3 mb-8 px-1">
             {words.map((word, idx) => (
-              <Card
+              <View
                 key={`word-${idx}-${word}`}
-                className="w-[31%] px-3 py-2.5"
+                className="w-[31%] bg-surface border border-border rounded-2xl px-3 py-2.5"
               >
                 <View className="flex-row items-baseline gap-1.5">
                   <Text className="text-muted-foreground text-xs">{idx + 1}</Text>
                   <Text className="text-foreground text-sm font-medium">{word}</Text>
                 </View>
-              </Card>
+              </View>
             ))}
           </View>
 
-          {/* Warning */}
-          <View className="flex-row items-start gap-3 bg-red-950/40 border border-red-600/30 rounded-2xl p-4 mb-8">
+          {/* Warning — tinted destructive strip (matches the send sheet) */}
+          <View className="flex-row items-start gap-3 bg-destructive/10 rounded-2xl p-4 mb-8">
             <MaterialCommunityIcons
               name="alert-outline"
               size={20}
               color={theme.colors.error}
             />
-            <Text className="text-red-400 text-sm flex-1 leading-5">
+            <Text className="text-destructive text-sm flex-1 leading-5">
               {t("onboarding.create.phrase.warning")}
             </Text>
           </View>
@@ -279,7 +281,7 @@ export default function CreateWalletScreen() {
 
           {/* Error */}
           {error ? (
-            <Text className="text-red-400 text-sm mb-4 text-center">
+            <Text className="text-destructive text-sm mb-4 text-center">
               {error}
             </Text>
           ) : null}

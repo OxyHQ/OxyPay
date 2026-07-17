@@ -12,13 +12,11 @@
 
 import { useCallback } from "react";
 import { View, Text, ScrollView } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useWalletStore } from "../src/wallet/wallet-store";
 import {
-  Section,
   ListItem,
-  Card,
   Button,
   Badge,
   EmptyState,
@@ -27,6 +25,10 @@ import {
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function truncateTxid(txid: string): string {
   if (txid.length <= 20) return txid;
@@ -63,68 +65,77 @@ export default function MasternodeScreen() {
       edges={["top", "bottom", "left", "right"]}
     >
       <ScreenHeader title={t("masternode.title")} onBack={() => router.back()} />
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="px-5 pt-4 pb-8"
-      >
-        {/* Requirements info card */}
-        <Card className="mb-6 p-4">
-          <Text className="text-foreground text-base font-semibold mb-2">
+      <ScrollView className="flex-1" contentContainerClassName="px-5 pt-4 pb-10">
+        {/* Requirements — card-less: section label above a muted description */}
+        <View>
+          <Text className={SECTION_LABEL}>
             {t("masternode.requirements.title")}
           </Text>
-          <Text className="text-muted-foreground text-sm leading-5">
+          <Text className="text-muted-foreground text-sm leading-5 mt-2">
             {t("masternode.requirements.description")}
           </Text>
-        </Card>
+        </View>
 
-        {/* Eligible UTXOs */}
-        <Section title={t("masternode.candidates")} className="mb-6">
+        <View className="h-px bg-border my-7" />
+
+        {/* Eligible UTXOs — grouped rows inside a raised surface, hairline
+            dividers between rows (the ListItem handles those). */}
+        <View>
+          <Text className={SECTION_LABEL}>{t("masternode.candidates")}</Text>
           {eligibleUtxos.length === 0 ? (
-            <EmptyState
-              icon="server"
-              title={t("masternode.empty.title")}
-              subtitle={t("masternode.empty.subtitle")}
-            />
+            <View className="mt-2">
+              <EmptyState
+                icon="server"
+                title={t("masternode.empty.title")}
+                subtitle={t("masternode.empty.subtitle")}
+              />
+            </View>
           ) : (
-            eligibleUtxos.map((utxo, idx) => {
-              const confirmOk = utxo.confirmations >= 15;
-              return (
-                <ListItem
-                  key={`${utxo.txid}-${utxo.vout}`}
-                  icon="server"
-                  iconBg={confirmOk ? "bg-primary/10" : "bg-yellow-500/10"}
-                  iconColor={confirmOk ? theme.colors.success : theme.colors.warning}
-                  title={truncateTxid(utxo.txid)}
-                  subtitle={`${utxo.address.slice(0, 8)}...${utxo.address.slice(-6)}`}
-                  value="5,000 FAIR"
-                  isLast={idx === eligibleUtxos.length - 1}
-                  trailing={
-                    <Badge
-                      text={`${utxo.confirmations}/15`}
-                      variant={confirmOk ? "success" : "warning"}
-                      size="sm"
-                    />
-                  }
-                />
-              );
-            })
+            <View className="bg-surface border border-border rounded-2xl overflow-hidden mt-2">
+              {eligibleUtxos.map((utxo, idx) => {
+                const confirmOk = utxo.confirmations >= 15;
+                return (
+                  <ListItem
+                    key={`${utxo.txid}-${utxo.vout}`}
+                    icon="server"
+                    iconBg={confirmOk ? "bg-primary/10" : "bg-yellow-500/10"}
+                    iconColor={
+                      confirmOk ? theme.colors.success : theme.colors.warning
+                    }
+                    title={truncateTxid(utxo.txid)}
+                    subtitle={`${utxo.address.slice(0, 8)}...${utxo.address.slice(-6)}`}
+                    value="5,000 FAIR"
+                    isLast={idx === eligibleUtxos.length - 1}
+                    trailing={
+                      <Badge
+                        text={`${utxo.confirmations}/15`}
+                        variant={confirmOk ? "success" : "warning"}
+                        size="sm"
+                      />
+                    }
+                  />
+                );
+              })}
+            </View>
           )}
-        </Section>
+        </View>
 
         {/* Start masternode — performs no broadcast (P2P mnb relay is not yet
             implemented). Tapping explains this honestly; the badge marks it as
             unavailable. No fake "broadcast sent" success is shown. */}
-        <Button
-          title={t("masternode.startCta")}
-          onPress={handleStartMasternode}
-          variant="secondary"
-        />
-        <View className="flex-row justify-center mt-3">
-          <Badge
-            text={t("masternode.notAvailableBadge")}
-            variant="warning"
-            size="sm"
+        <View className="mt-8">
+          <Button
+            title={t("masternode.startCta")}
+            onPress={handleStartMasternode}
+            variant="secondary"
           />
+          <View className="flex-row justify-center mt-3">
+            <Badge
+              text={t("masternode.notAvailableBadge")}
+              variant="warning"
+              size="sm"
+            />
+          </View>
         </View>
       </ScrollView>
 

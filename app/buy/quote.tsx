@@ -28,7 +28,6 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { explorerTxUrl } from "@fairco.in/core";
 import {
   Button,
-  Card,
   EmptyState,
   ScreenHeader,
 } from "../../src/ui/components";
@@ -297,27 +296,29 @@ export default function BuyQuoteScreen() {
           ) : null}
 
           {error ? (
-            <Card className="border border-destructive/50 p-4">
+            <View className="bg-destructive/10 rounded-2xl p-3.5">
               <Text className="text-destructive text-sm text-center">
                 {error}
               </Text>
-            </Card>
+            </View>
           ) : null}
 
           {isFailed && status.errorMessage ? (
-            <Card className="border border-destructive/50 p-4">
+            <View className="bg-destructive/10 rounded-2xl p-3.5">
               <Text className="text-destructive text-sm text-center">
                 {status.errorMessage}
               </Text>
-            </Card>
+            </View>
           ) : null}
         </View>
       </ScrollView>
 
       <View
-        className="absolute left-0 right-0 bottom-0 bg-background border-t border-border"
+        className="absolute left-0 right-0 bottom-0 bg-background"
         style={{ paddingBottom: insets.bottom + 12, paddingTop: 12 }}
       >
+        {/* Hairline divider (replaces the old top border) */}
+        <View className="absolute left-0 right-0 top-0 h-px bg-border" />
         <View
           className="w-full self-center px-4 gap-2"
           style={{ maxWidth: CONTENT_MAX_WIDTH }}
