@@ -524,6 +524,17 @@ export class Database {
   }
 
   /**
+   * Every stored UTXO, spent AND unspent. Used at init to price the inputs of
+   * historical send transactions when reconstructing the display history: a
+   * spent input's value/address is only known from the (now-spent) row it
+   * consumed. `getUnspentUTXOs` alone cannot value those, so history
+   * reconstruction reads the full set through this method.
+   */
+  async getAllUTXOs(): Promise<UTXORow[]> {
+    return this.db.getAllAsync<UTXORow>("SELECT * FROM utxos");
+  }
+
+  /**
    * Update the recorded block height of a stored UTXO. Used by the
    * confirmation-reconciler when a transaction was received before its
    * containing header was known (block_height was persisted as -1) and we

@@ -91,6 +91,24 @@ export async function renameWallet(id: string, name: string): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Backup tracking — has the user viewed/secured a wallet's recovery phrase?
+// Stored per-wallet so the "back up your wallet" reminder clears independently
+// for each wallet. A missing key means "not backed up yet".
+// ---------------------------------------------------------------------------
+
+const BACKED_UP_PREFIX = "fairwallet_backedup_";
+
+/** Whether the wallet's recovery phrase has been revealed / backed up. */
+export async function isWalletBackedUp(id: string): Promise<boolean> {
+  return (await getItemAsync(`${BACKED_UP_PREFIX}${id}`)) === "1";
+}
+
+/** Mark the wallet as backed up (its recovery phrase was shown to the user). */
+export async function markWalletBackedUp(id: string): Promise<void> {
+  await setItemAsync(`${BACKED_UP_PREFIX}${id}`, "1");
+}
+
 /**
  * Record the wallet's birthday height (N-14). Idempotent: only writes the
  * first non-zero height observed, so a re-init does not push the birthday

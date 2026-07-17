@@ -12,9 +12,14 @@
  * React Native / SQLite environment.
  */
 
-import { extractAddressFromScript, type NetworkConfig } from "@fairco.in/core";
-import type { ParsedTransaction } from "../p2p/messages";
+import {
+  extractAddressFromScript,
+  hexToBytes,
+  type NetworkConfig,
+} from "@fairco.in/core";
+import { parseTx, type ParsedTransaction } from "../p2p/messages";
 import { UTXOSet, type UTXO } from "./utxo-set";
+import type { WalletTransaction } from "./wallet-store";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,5 +162,109 @@ export function applyTransactionToWallet(
     spentTotal,
     receiveAddresses,
     changed: credited.length > 0 || debited.length > 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// History reconstruction (init hydration path)
+// ---------------------------------------------------------------------------
+
+/**
+ * The persisted `transactions` fields a reconstruction needs. A real
+ * {@link import("../storage/database").TransactionRow} is structurally
+ * assignable, so callers pass DB rows directly without a cast.
+ */
+export interface StoredTransactionRow {
+  readonly txid: string;
+  readonly raw_hex: string;
+  readonly block_height: number;
+  readonly timestamp: number;
+}
+
+/** Value + owning address of a previous output, used to price a spent input. */
+export interface PrevoutValue {
+  readonly value: bigint;
+  readonly address: string;
+}
+
+/**
+ * Rebuild a {@link WalletTransaction} from a persisted `transactions` row.
+ *
+ * The `transactions` table stores `raw_hex` + block metadata but NOT the derived
+ * display fields (amount/address/type/confirmations). At init the store loads
+ * balance/UTXOs from SQLite but the tx history is only ever pushed into the
+ * store in-memory by the live receive path — so after an unlock the Activity
+ * list is empty even though the balance is correct. This re-derives each row's
+ * display fields the SAME way {@link applyTransactionToWallet} +
+ * `processIncomingTransaction` do, so the reloaded list is identical to the
+ * live one:
+ *
+ * - `receivedTotal` = sum of outputs paying an address we own; `firstReceive`
+ *   is the first such address in output order (mirrors `receiveAddresses[0]`).
+ * - `spentTotal` = sum of inputs whose prevout is one of our (now-spent) UTXOs,
+ *   valued via `lookupPrevout`; `firstSpent` is the first such address in input
+ *   order (mirrors `debited[0]?.address`).
+ * - `net = receivedTotal - spentTotal`; a pure receive is positive, spending our
+ *   coins (with change back) nets negative. `net === 0n` means the wallet has no
+ *   involvement (Bloom false positive) — return null so it isn't listed, mirroring
+ *   `processIncomingTransaction`'s `if (net !== 0n)` gate.
+ *
+ * Pure and I/O-free (`lookupPrevout` is the only injected dependency) so the
+ * reload path is unit-testable without the native DB or the store.
+ *
+ * @param chainHeight Best chain tip known at reload; a background sync refines
+ *   confirmations later. Unconfirmed rows (block_height < 0) report 0.
+ */
+export function reconstructWalletTransaction(
+  row: StoredTransactionRow,
+  ownsAddress: (address: string) => boolean,
+  lookupPrevout: (txid: string, vout: number) => PrevoutValue | undefined,
+  network: NetworkConfig,
+  chainHeight: number,
+): WalletTransaction | null {
+  const tx = parseTx(hexToBytes(row.raw_hex));
+
+  let receivedTotal = 0n;
+  let firstReceiveAddress = "";
+  for (const output of tx.outputs) {
+    const address = extractAddressFromScript(output.script, network);
+    if (!address || !ownsAddress(address)) {
+      continue;
+    }
+    if (firstReceiveAddress === "") {
+      firstReceiveAddress = address;
+    }
+    receivedTotal += output.value;
+  }
+
+  let spentTotal = 0n;
+  let firstSpentAddress = "";
+  for (const input of tx.inputs) {
+    const prevTxid = reverseBytesToHex(input.prevTxHash);
+    const prevout = lookupPrevout(prevTxid, input.prevTxIndex);
+    if (!prevout) {
+      continue;
+    }
+    if (firstSpentAddress === "") {
+      firstSpentAddress = prevout.address;
+    }
+    spentTotal += prevout.value;
+  }
+
+  const net = receivedTotal - spentTotal;
+  if (net === 0n) {
+    return null;
+  }
+
+  const confirmations =
+    row.block_height >= 0 ? Math.max(0, chainHeight - row.block_height + 1) : 0;
+
+  return {
+    txid: row.txid,
+    amount: net,
+    address: net > 0n ? firstReceiveAddress : firstSpentAddress,
+    timestamp: row.timestamp,
+    confirmations,
+    type: net > 0n ? "receive" : "send",
   };
 }

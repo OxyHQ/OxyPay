@@ -38,6 +38,7 @@ import {
 } from "./coin-selection";
 import {
   applyTransactionToWallet,
+  reconstructWalletTransaction,
   reverseBytesToHex,
 } from "./apply-transaction";
 import { useContactsStore } from "./contacts-store";
@@ -62,6 +63,8 @@ import {
   getCachedWalletSeed,
   cacheWalletSeed,
   deleteCachedWalletSeed,
+  isWalletBackedUp,
+  markWalletBackedUp,
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
@@ -115,6 +118,8 @@ export interface WalletState {
   activeWalletName: string;
   wallets: WalletInfo[];
   isWatchOnly: boolean;
+  /** Whether the active wallet's recovery phrase has been backed up. */
+  hasBackedUp: boolean;
 
   // Balance
   balance: bigint;
@@ -188,6 +193,8 @@ export interface WalletState {
   // Multi-wallet actions
   loadWalletList: () => Promise<void>;
   switchWallet: (walletId: string) => Promise<void>;
+  /** Record that the active wallet's recovery phrase has been backed up. */
+  markBackedUp: () => Promise<void>;
   createNewWallet: (name: string) => Promise<string>;
   importWallet: (name: string, mnemonic: string) => Promise<void>;
   importWatchOnly: (name: string, xpub: string) => Promise<void>;
@@ -789,6 +796,14 @@ export const FEE_RATES: Record<FeeLevel, number> = {
 // Average P2PKH transaction ~226 bytes
 const AVERAGE_TX_SIZE = 226;
 
+/**
+ * Upper bound on `transactions` rows reconstructed into the display history at
+ * init. The home Activity feed shows the 10 most recent and HomeOverview sums
+ * every reward row, so we load the full history (newest-first) rather than a
+ * page. Matches the bound `rewindWalletToHeight` uses when reconciling history.
+ */
+const MAX_HISTORY_ROWS = 10_000;
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -842,6 +857,7 @@ const DEFAULT_WALLET_STATE = {
   transactions: [] as WalletTransaction[],
   masternodeUTXOs: [] as MasternodeUTXO[],
   isWatchOnly: false,
+  hasBackedUp: false,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
 
@@ -912,6 +928,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   activeWalletName: "",
   wallets: [],
   isWatchOnly: false,
+  hasBackedUp: false,
 
   balance: 0n,
   confirmedBalance: 0n,
@@ -1031,6 +1048,45 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       // Check if this is a watch-only wallet
       const watchOnly = activeId ? await checkIsWatchOnly(activeId) : false;
+      // Has the user backed up this wallet's recovery phrase? Drives the home
+      // "back up your wallet" reminder. Watch-only wallets have no phrase to
+      // back up, so they never prompt.
+      const backedUp =
+        activeId && !watchOnly ? await isWalletBackedUp(activeId) : true;
+
+      // Reconstruct the persisted transaction history into the display list.
+      // The `transactions` table stores raw_hex + block metadata but not the
+      // derived amount/address/type, so re-derive them the SAME way the SPV
+      // receive path does. Without this, a wallet that received (or sent) FAIR
+      // in a previous session shows an empty Activity list after unlock even
+      // though the balance — restored from the persisted UTXOs above — is
+      // correct. Spent inputs are priced from the full UTXO set (spent rows
+      // survive with their value/address); confirmations use the persisted tip.
+      const historyRows = await database.getTransactions(MAX_HISTORY_ROWS, 0);
+      const prevoutByOutpoint = new Map<
+        string,
+        { value: bigint; address: string }
+      >();
+      for (const row of await database.getAllUTXOs()) {
+        prevoutByOutpoint.set(`${row.txid}:${row.vout}`, {
+          value: BigInt(row.value),
+          address: row.address,
+        });
+      }
+      const persistedTip = (await database.getLatestHeader())?.height ?? 0;
+      const restoredTransactions: WalletTransaction[] = [];
+      for (const row of historyRows) {
+        const reconstructed = reconstructWalletTransaction(
+          row,
+          (address) => keyManager?.ownsAddress(address) ?? false,
+          (prevTxid, vout) => prevoutByOutpoint.get(`${prevTxid}:${vout}`),
+          networkConfig,
+          persistedTip,
+        );
+        if (reconstructed) {
+          restoredTransactions.push(reconstructed);
+        }
+      }
 
       set({
         initialized: true,
@@ -1040,8 +1096,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         balance: utxoSet.getBalance(),
         confirmedBalance: utxoSet.getConfirmedBalance(),
         unconfirmedBalance: utxoSet.getUnconfirmedBalance(),
+        transactions: restoredTransactions,
         activeWalletId: activeId,
         activeWalletName: activeWallet?.name ?? "",
+        hasBackedUp: backedUp,
         wallets,
         isWatchOnly: watchOnly,
       });
@@ -1231,6 +1289,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         await saveWalletMnemonic(walletId, trimmed);
         await addWalletToIndex(walletId, walletName);
         await setActiveWalletId(walletId);
+        // A restored wallet came from a phrase the user already holds, so it
+        // counts as backed up — don't nag them to re-back-it-up.
+        await markWalletBackedUp(walletId);
 
         await get().initialize(trimmed, walletId);
       } catch (err: unknown) {
@@ -1702,6 +1763,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         err instanceof Error ? err.message : "Failed to load wallet list";
       set({ error: message });
     }
+  },
+
+  markBackedUp: async (): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    await markWalletBackedUp(walletId);
+    set({ hasBackedUp: true });
   },
 
   switchWallet: async (walletId: string): Promise<void> => {
