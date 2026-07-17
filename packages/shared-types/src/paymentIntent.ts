@@ -21,7 +21,11 @@ export type PaymentIntentStatus =
  * modelled by the backend state machine, not this happy-path table.
  */
 const ALLOWED: Record<PaymentIntentStatus, readonly PaymentIntentStatus[]> = {
-  created: ['awaiting_approval', 'expired'],
+  // `created` supports two paths: the rich wallet flow (→ awaiting_approval →
+  // approved → broadcast) AND the minimal path where the payer pays out-of-band
+  // and reports the txid directly (→ broadcast), or the merchant cancels an
+  // unpaid intent (→ rejected). Both are legal forward transitions.
+  created: ['awaiting_approval', 'broadcast', 'rejected', 'expired'],
   awaiting_approval: ['approved', 'rejected', 'expired'],
   approved: ['broadcast', 'failed'],
   broadcast: ['confirming', 'failed'],
