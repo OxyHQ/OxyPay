@@ -32,7 +32,7 @@
 - [x] T7 · Modelos Mongoose (Merchant + PaymentIntent, watch-only enforced) _(reserva atómica, idempotency index, 8 tests)_
 - [x] T8 · Cliente HTTP del Explorer (tip + `getTransaction`/`verifyPayment`, zod) _(8 tests + live mainnet)_
 - [x] T9 · Settlement watcher (tip-driven, no-custodial) _(txid verify, deps inyectadas, 2 tests)_
-- [ ] T10 · Dispatcher de webhooks (safeFetch + reintentos)
+- [x] T10 · Dispatcher de webhooks (safeFetch + reintentos) _(SSRF-safe, best-effort, 4 tests)_
 - [ ] T11 · Rutas REST (create/get/reject, serviceAuth + idempotencia)
 - [ ] T12 · Realtime Socket.io (updates del intent)
 - [ ] T13 · Wiring del server + smoke e2e en testnet
