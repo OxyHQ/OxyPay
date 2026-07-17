@@ -285,16 +285,19 @@ export default function ExportKeyScreen() {
         />
         <ScrollView
           className="flex-1"
-          contentContainerClassName="px-5 pt-4 pb-8"
+          contentContainerClassName="pt-4 pb-8"
+          showsVerticalScrollIndicator={false}
         >
           {addresses.length === 0 ? (
-            <EmptyState
-              icon="key-remove"
-              title={t("exportKey.select.empty.title")}
-              subtitle={t("exportKey.select.empty.subtitle")}
-            />
+            <View className="px-4">
+              <EmptyState
+                icon="key-remove"
+                title={t("exportKey.select.empty.title")}
+                subtitle={t("exportKey.select.empty.subtitle")}
+              />
+            </View>
           ) : (
-            <View className="bg-surface border border-border rounded-2xl overflow-hidden mt-4">
+            <View>
               {addresses.map((address, idx) => (
                 <ListItem
                   key={`addr-${idx}-${address}`}
@@ -325,8 +328,9 @@ export default function ExportKeyScreen() {
         />
         <ScrollView
           className="flex-1"
-          contentContainerClassName="px-5 pt-4 pb-8"
+          contentContainerClassName="px-4 pt-4 pb-8"
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View className="gap-5 mt-4 mb-4">
             <View>
@@ -408,10 +412,11 @@ export default function ExportKeyScreen() {
       <ScrollView
         className="flex-1"
         contentContainerClassName="px-5 pt-4 pb-8"
+        showsVerticalScrollIndicator={false}
       >
         {/* Encrypted key display — card-less bordered surface, tap to copy */}
         <Pressable onPress={handleCopyEncrypted}>
-          <View className="bg-surface border border-border rounded-2xl p-4 mt-4 mb-4">
+          <View className="bg-surface rounded-2xl p-4 mt-4 mb-4">
             <Text
               className="text-primary text-sm text-center font-mono"
               selectable

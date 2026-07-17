@@ -91,7 +91,7 @@ export default function MasternodeScreen() {
               />
             </View>
           ) : (
-            <View className="bg-surface border border-border rounded-2xl overflow-hidden mt-2">
+            <View className="mt-2">
               {eligibleUtxos.map((utxo, idx) => {
                 const confirmOk = utxo.confirmations >= 15;
                 return (

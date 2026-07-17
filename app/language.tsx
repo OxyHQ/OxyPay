@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   Pressable,
+  StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
@@ -45,10 +46,11 @@ function matchesQuery(option: LanguageOption, query: string): boolean {
 interface LanguageRowProps {
   option: LanguageOption;
   selected: boolean;
+  isLast: boolean;
   onPress: (code: string) => void;
 }
 
-function LanguageRow({ option, selected, onPress }: LanguageRowProps) {
+function LanguageRow({ option, selected, isLast, onPress }: LanguageRowProps) {
   const theme = useTheme();
 
   const handlePress = useCallback(() => {
@@ -58,19 +60,35 @@ function LanguageRow({ option, selected, onPress }: LanguageRowProps) {
   return (
     <Pressable
       onPress={handlePress}
-      className="flex-row items-center px-5 py-3 min-h-[64px] active:bg-surface"
+      className="flex-row items-center px-4 py-3 min-h-[60px] active:bg-background"
+      style={
+        isLast
+          ? undefined
+          : {
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: theme.colors.border,
+            }
+      }
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={t("language.selectAccessibility", {
         name: option.englishName,
       })}
     >
-      <Text className="text-3xl mr-4" accessibilityElementsHidden>
-        {option.flag}
-      </Text>
-      <View className="flex-1">
+      <View
+        className={`w-9 h-9 rounded-full items-center justify-center ${
+          selected ? "bg-primary/10" : "bg-background"
+        }`}
+      >
+        <Text className="text-lg" accessibilityElementsHidden>
+          {option.flag}
+        </Text>
+      </View>
+      <View className="flex-1 ml-3">
         <Text
-          className="text-foreground text-base font-medium"
+          className={`text-base font-medium ${
+            selected ? "text-primary" : "text-foreground"
+          }`}
           numberOfLines={1}
         >
           {option.nativeName}
@@ -79,15 +97,13 @@ function LanguageRow({ option, selected, onPress }: LanguageRowProps) {
           {option.englishName}
         </Text>
       </View>
-      <View className="w-6 items-center justify-center ml-3">
-        {selected ? (
-          <MaterialCommunityIcons
-            name="check"
-            size={22}
-            color={theme.colors.primary}
-          />
-        ) : null}
-      </View>
+      {selected ? (
+        <MaterialCommunityIcons
+          name="check"
+          size={20}
+          color={theme.colors.primary}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -128,14 +144,15 @@ export default function LanguageScreen() {
   }, []);
 
   const renderItem = useCallback<ListRenderItem<LanguageOption>>(
-    ({ item }) => (
+    ({ item, index }) => (
       <LanguageRow
         option={item}
         selected={item.code === language}
+        isLast={index === filtered.length - 1}
         onPress={handleSelect}
       />
     ),
-    [language, handleSelect],
+    [language, filtered.length, handleSelect],
   );
 
   const keyExtractor = useCallback(
@@ -190,14 +207,18 @@ export default function LanguageScreen() {
             <EmptyState icon="magnify" title={t("language.noResults")} />
           </View>
         ) : (
-          <FlashList
-            data={filtered}
-            renderItem={renderItem}
-            keyExtractor={keyExtractor}
-            className="flex-1"
-            contentContainerClassName="pb-8"
-            keyboardShouldPersistTaps="handled"
-          />
+          <View className="flex-1 mb-4">
+            {/* Full-bleed rows: each LanguageRow carries px-4 so its content
+                aligns while its hairline divider runs edge-to-edge. */}
+            <FlashList
+              data={filtered}
+              renderItem={renderItem}
+              keyExtractor={keyExtractor}
+              className="flex-1"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            />
+          </View>
         )}
       </View>
     </SafeAreaView>

@@ -3,25 +3,19 @@
  * Network, wallets, security, backup, masternode, advanced, about, and danger zone.
  *
  * Card-less design matching the home screen: uppercase section labels above
- * groups of rows on a subtle bordered surface (`bg-surface border border-border
- * rounded-2xl`), with hairline dividers between rows — no boxes.
+ * flat rows on the background with hairline dividers between them — no boxes,
+ * no surface fills, no borders around row groups.
  */
 
 import { useCallback, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  Switch,
-  Modal,
-  Pressable,
-} from "react-native";
+import { View, Text, ScrollView, Switch, Pressable } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
+import * as Clipboard from "expo-clipboard";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../../src/wallet/wallet-store";
 import { useLockStore } from "../../src/wallet/lock-store";
@@ -35,7 +29,7 @@ import {
   getCurrency,
   setCurrency,
 } from "../../src/storage/secure-store";
-import { Button, ListItem, PinDots, PinPad, ScreenHeader } from "../../src/ui/components";
+import { ListItem, PinDots, PinPad } from "../../src/ui/components";
 import type { NetworkType } from "@fairco.in/core";
 import { useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
@@ -53,9 +47,15 @@ const PIN_LENGTH = 6;
 const SECTION_LABEL =
   "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
+/** Middle-truncate an address for the identity header (10 head / 8 tail). */
+function truncateAddress(address: string): string {
+  if (address.length <= 20) return address;
+  return `${address.slice(0, 10)}…${address.slice(-8)}`;
+}
+
 // ---------------------------------------------------------------------------
-// Settings section — an uppercase label above a card-less group of rows on a
-// subtle bordered surface with hairline dividers (matches the home aesthetic).
+// Settings section — an uppercase label above flat rows on the background,
+// separated by the ListItem's own hairlines. No surface box, no border.
 // ---------------------------------------------------------------------------
 
 function SettingsSection({
@@ -66,11 +66,11 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <View className="mb-6">
-      <Text className={`${SECTION_LABEL} mb-2 ml-1`}>{title}</Text>
-      <View className="bg-surface border border-border rounded-2xl overflow-hidden">
-        {children}
-      </View>
+    <View className="mb-7">
+      <Text className={`${SECTION_LABEL} mb-1 px-4`}>{title}</Text>
+      {/* Flat, card-less: rows sit directly on the background with the
+          ListItem's own inter-row hairlines — no surface box, no border. */}
+      <View>{children}</View>
     </View>
   );
 }
@@ -140,51 +140,25 @@ function PinModal({ visible, title, onCancel, onSuccess }: PinModalProps) {
   }, [verifying]);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={handleCancel}
+    <Dialog
+      open={visible}
+      onClose={handleCancel}
+      placement="bottom"
+      title={title}
+      description={t("settings.pin.enterDescription")}
     >
-      <View className="flex-1 bg-black/70 items-center justify-center px-8">
-        <View className="bg-surface border border-border rounded-2xl p-6 w-full max-w-sm">
-          <Text className="text-foreground text-lg font-bold mb-2 text-center">
-            {title}
-          </Text>
-          <Text className="text-muted-foreground text-sm mb-4 text-center">
-            {t("settings.pin.enterDescription")}
-          </Text>
-
-          <View className="items-center mb-4">
-            <PinDots
-              length={PIN_LENGTH}
-              filled={pin.length}
-              error={error !== null}
-            />
-          </View>
-
-          {error ? (
-            <Text className="text-red-400 text-xs text-center mb-3">
-              {error}
-            </Text>
-          ) : null}
-
-          <View className="items-center mb-4">
-            <PinPad
-              onDigit={handleDigitPress}
-              onBackspace={handleBackspace}
-              disabled={verifying}
-            />
-          </View>
-
-          <Button
-            title={t("common.cancel")}
-            onPress={handleCancel}
-            variant="secondary"
-          />
-        </View>
+      <View className="items-center gap-4 pt-1">
+        <PinDots length={PIN_LENGTH} filled={pin.length} error={error !== null} />
+        {error ? (
+          <Text className="text-red-400 text-xs text-center">{error}</Text>
+        ) : null}
+        <PinPad
+          onDigit={handleDigitPress}
+          onBackspace={handleBackspace}
+          disabled={verifying}
+        />
       </View>
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -290,6 +264,7 @@ export default function SettingsScreen() {
   const rescanWallet = useWalletStore((s) => s.rescanWallet);
   const markBackedUp = useWalletStore((s) => s.markBackedUp);
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
+  const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
   const wallets = useWalletStore((s) => s.wallets);
   const switchNetwork = useWalletStore((s) => s.switchNetwork);
   const exportBackup = useWalletStore((s) => s.exportBackup);
@@ -382,6 +357,15 @@ export default function SettingsScreen() {
   const handleContacts = useCallback(() => {
     router.push("/contacts");
   }, [router]);
+
+  const handleCopyAddress = useCallback(async () => {
+    if (!receiveAddress) return;
+    await Clipboard.setStringAsync(receiveAddress);
+    showMessage(
+      t("receive.addressCopied.title"),
+      t("receive.addressCopied.description"),
+    );
+  }, [receiveAddress, showMessage]);
 
   const handleToggleNetwork = useCallback(() => {
     switchNetworkControl.open();
@@ -600,10 +584,58 @@ export default function SettingsScreen() {
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-      <ScreenHeader title={t("settings.title")} />
+      {/* Fixed wallet-identity header — mirrors the home's fixed header (no
+          separate "Settings" title bar; the sections scroll under it). */}
+      <Pressable
+        onPress={handleManageWallets}
+        className="flex-row items-center gap-3 px-4 pt-2 pb-3 active:opacity-70"
+        accessibilityRole="button"
+        accessibilityLabel={t("settings.wallets")}
+      >
+          <View className="w-12 h-12 rounded-2xl bg-primary items-center justify-center">
+            <MaterialCommunityIcons
+              name="wallet"
+              size={24}
+              color={themeColors.background}
+            />
+          </View>
+          <View className="flex-1">
+            <Text
+              className="text-foreground text-lg font-semibold"
+              numberOfLines={1}
+            >
+              {activeWalletName || t("wallet.defaultName")}
+            </Text>
+            {receiveAddress ? (
+              <Text
+                className="text-muted-foreground text-xs mt-0.5"
+                numberOfLines={1}
+              >
+                {truncateAddress(receiveAddress)}
+              </Text>
+            ) : null}
+          </View>
+          {receiveAddress ? (
+            <Pressable
+              onPress={handleCopyAddress}
+              hitSlop={10}
+              className="w-9 h-9 rounded-full bg-primary/10 items-center justify-center active:opacity-70"
+              accessibilityRole="button"
+              accessibilityLabel={t("receive.copy")}
+            >
+              <MaterialCommunityIcons
+                name="content-copy"
+                size={16}
+                color={themeColors.primary}
+              />
+            </Pressable>
+          ) : null}
+      </Pressable>
+      <View className="h-px bg-border" />
       <ScrollView
         className="flex-1"
-        contentContainerClassName="px-4 pt-3 pb-10"
+        contentContainerClassName="pt-5 pb-10"
+        showsVerticalScrollIndicator={false}
       >
         {/* Wallets */}
         <SettingsSection title={t("settings.walletsGroup")}>
@@ -611,15 +643,15 @@ export default function SettingsScreen() {
             title={t("settings.wallets")}
             value={walletCountLabel}
             icon="wallet"
-            iconColor="#60a5fa"
-            iconBg="bg-blue-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleManageWallets}
           />
           <ListItem
             title={t("settings.contacts")}
             icon="account-group"
-            iconColor="#a78bfa"
-            iconBg="bg-purple-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleContacts}
             isLast
           />
@@ -630,8 +662,8 @@ export default function SettingsScreen() {
           <ListItem
             title={t("settings.change_pin")}
             icon="lock"
-            iconColor="#facc15"
-            iconBg="bg-yellow-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleChangePIN}
           />
           <ListItem
@@ -656,22 +688,22 @@ export default function SettingsScreen() {
             title={t("settings.auto_lock")}
             value={t("settings.autoLockValue", { minutes: autoLockMinutes })}
             icon="clock-outline"
-            iconColor="#fb923c"
-            iconBg="bg-orange-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleCycleAutoLock}
           />
           <ListItem
             title={t("settings.exportKey")}
             icon="shield-key"
-            iconColor="#2dd4bf"
-            iconBg="bg-teal-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleExportKey}
           />
           <ListItem
             title={t("settings.notifications")}
             icon="bell-ring"
-            iconColor="#f472b6"
-            iconBg="bg-pink-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleNotifications}
             isLast
           />
@@ -687,8 +719,8 @@ export default function SettingsScreen() {
                 : language
             }
             icon="translate"
-            iconColor="#a78bfa"
-            iconBg="bg-purple-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleLanguage}
           />
           <ListItem
@@ -708,30 +740,30 @@ export default function SettingsScreen() {
             title={t("settings.network")}
             value={isMainnet ? t("settings.mainnet") : t("settings.testnet")}
             icon="earth"
-            iconColor="#22d3ee"
-            iconBg="bg-cyan-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleToggleNetwork}
           />
           <ListItem
             title={t("settings.networkStatus")}
             icon="pulse"
-            iconColor="#34d399"
-            iconBg="bg-emerald-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={() => router.push("/chain")}
           />
           <ListItem
             title={t("settings.connectedPeers")}
             value={String(connectedPeers)}
             icon="server-network"
-            iconColor="#818cf8"
-            iconBg="bg-indigo-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={() => router.push("/peers")}
           />
           <ListItem
             title={t("settings.resync")}
             icon="sync"
-            iconColor="#38bdf8"
-            iconBg="bg-sky-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleResync}
             isLast
           />
@@ -742,8 +774,8 @@ export default function SettingsScreen() {
           <ListItem
             title={t("settings.show_phrase")}
             icon="eye"
-            iconColor="#fbbf24"
-            iconBg="bg-amber-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleShowRecovery}
           />
           <ListItem
@@ -756,8 +788,8 @@ export default function SettingsScreen() {
           <ListItem
             title={t("settings.importBackup")}
             icon="upload"
-            iconColor="#8b5cf6"
-            iconBg="bg-violet-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleImportBackup}
             isLast
           />
@@ -768,15 +800,15 @@ export default function SettingsScreen() {
           <ListItem
             title={t("settings.coinControl")}
             icon="tune"
-            iconColor="#94a3b8"
-            iconBg="bg-slate-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleCoinControl}
           />
           <ListItem
             title={t("settings.masternode")}
             icon="server"
-            iconColor="#fb7185"
-            iconBg="bg-rose-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             onPress={handleMasternode}
             isLast
           />
@@ -788,8 +820,8 @@ export default function SettingsScreen() {
             title={t("settings.aboutApp")}
             value={t("settings.version", { version: APP_VERSION })}
             icon="information"
-            iconColor="#60a5fa"
-            iconBg="bg-blue-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             showChevron={false}
             isLast
           />
@@ -800,8 +832,8 @@ export default function SettingsScreen() {
           <ListItem
             title={t("settings.wipe")}
             icon="delete"
-            iconColor="#f87171"
-            iconBg="bg-red-500/10"
+            iconColor={themeColors.primary}
+            iconBg="bg-primary/10"
             destructive
             onPress={() => wipeControl.open()}
             isLast
