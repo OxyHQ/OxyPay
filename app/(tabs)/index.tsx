@@ -52,8 +52,10 @@ import {
   startPricePolling,
   stopPricePolling,
   getCachedPrice,
+  fetchPrice,
   type PriceData,
 } from "../../src/services/price";
+import { queryClient } from "../../src/services/query-client";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Tabs, TabsTrigger } from "@oxyhq/bloom/tabs";
 import { BUY_BASE_URL } from "@fairco.in/core";
@@ -244,6 +246,13 @@ export default function HomeScreen() {
 
   const startRefresh = useCallback(() => {
     refreshBalance();
+    // A pull should re-pull remote data, not only recompute the local balance:
+    // refetch the FAIR price for the header and invalidate the Overview's
+    // React Query data (price history + network stats) so both refresh too.
+    void fetchPrice().then((updated) => {
+      if (updated) setPrice(updated);
+    });
+    void queryClient.invalidateQueries();
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       refreshingSV.value = false;
