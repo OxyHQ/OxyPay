@@ -9,8 +9,9 @@ import { useMemo } from "react";
 import { View, Text } from "react-native";
 import { Badge } from "./Badge";
 import { AmountText } from "./AmountText";
+import { FairCoinSymbol } from "./FairCoinSymbol";
 import { formatFiatAmount, t } from "../../i18n";
-import { FONT_PHUDU_LIGHT, FONT_PHUDU_BLACK } from "../../utils/fonts";
+import { FONT_PHUDU_LIGHT, FONT_PHUDU, FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { COIN_SYMBOL, UNITS_PER_COIN } from "@fairco.in/core";
 
 type BalanceSize = "sm" | "md" | "lg";
@@ -21,6 +22,8 @@ interface BalanceDisplayProps {
   change24h?: number | null;
   size?: BalanceSize;
   showFiatPrimary?: boolean;
+  /** Cross-axis alignment of the stacked amount/fiat/change. Default centered. */
+  align?: "center" | "start";
 }
 
 function coinValueToUsd(value: bigint, priceUsd: number): number {
@@ -39,13 +42,13 @@ function formatChange(change: number): string {
 const SIZE_PRIMARY: Record<BalanceSize, number> = {
   sm: 20,
   md: 28,
-  lg: 42,
+  lg: 64,
 };
 
 const SIZE_SYMBOL: Record<BalanceSize, number> = {
   sm: 18,
   md: 24,
-  lg: 34,
+  lg: 42,
 };
 
 const SIZE_SECONDARY: Record<BalanceSize, number> = {
@@ -60,7 +63,9 @@ export function BalanceDisplay({
   change24h,
   size = "lg",
   showFiatPrimary = false,
+  align = "center",
 }: BalanceDisplayProps) {
+  const alignClass = align === "start" ? "items-start" : "items-center";
   const usdValue = useMemo(() => {
     if (priceUsd == null || priceUsd === 0) return null;
     return coinValueToUsd(value, priceUsd);
@@ -87,7 +92,7 @@ export function BalanceDisplay({
   // Fiat-primary mode
   if (showFiatPrimary && usdFormatted !== null) {
     return (
-      <View className="items-center">
+      <View className={alignClass}>
         <Text
           className="text-foreground tracking-tight"
           style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: primary }}
@@ -113,18 +118,19 @@ export function BalanceDisplay({
 
   // FAIR-primary mode (default)
   return (
-    <View className="items-center">
-      <View className="flex-row items-baseline">
-        <Text
-          className="text-foreground mr-1"
-          style={{ fontFamily: FONT_PHUDU_LIGHT, fontSize: symbol }}
-        >
-          {COIN_SYMBOL}
-        </Text>
+    <View className={alignClass}>
+      <View className="flex-row items-end">
+        <View className="mr-1.5" style={{ marginBottom: primary * 0.18 }}>
+          <FairCoinSymbol size={Math.round(primary * 0.62)} />
+        </View>
         <AmountText
           value={value}
           className="text-foreground tracking-tight"
-          style={{ fontFamily: FONT_PHUDU_BLACK, fontSize: primary }}
+          style={{
+            fontFamily: FONT_PHUDU,
+            fontSize: primary,
+            includeFontPadding: false,
+          }}
         />
       </View>
 

@@ -9,6 +9,7 @@
  * Legacy single-wallet data is migrated on first read.
  */
 
+import { bytesToHex, hexToBytes } from "@fairco.in/core";
 import { getItemAsync, setItemAsync, deleteItemAsync } from "./kv-store";
 import { buildPinRecord, verifyPinRecord } from "./pin-kdf";
 
@@ -90,6 +91,24 @@ export async function renameWallet(id: string, name: string): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Backup tracking — has the user viewed/secured a wallet's recovery phrase?
+// Stored per-wallet so the "back up your wallet" reminder clears independently
+// for each wallet. A missing key means "not backed up yet".
+// ---------------------------------------------------------------------------
+
+const BACKED_UP_PREFIX = "fairwallet_backedup_";
+
+/** Whether the wallet's recovery phrase has been revealed / backed up. */
+export async function isWalletBackedUp(id: string): Promise<boolean> {
+  return (await getItemAsync(`${BACKED_UP_PREFIX}${id}`)) === "1";
+}
+
+/** Mark the wallet as backed up (its recovery phrase was shown to the user). */
+export async function markWalletBackedUp(id: string): Promise<void> {
+  await setItemAsync(`${BACKED_UP_PREFIX}${id}`, "1");
+}
+
 /**
  * Record the wallet's birthday height (N-14). Idempotent: only writes the
  * first non-zero height observed, so a re-init does not push the birthday
@@ -151,6 +170,49 @@ export async function getWalletMnemonic(walletId: string): Promise<string | null
 /** Delete mnemonic for a specific wallet */
 export async function deleteWalletMnemonic(walletId: string): Promise<void> {
   await deleteItemAsync(`fairwallet_mnemonic_${walletId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-wallet cached BIP39 seed
+// ---------------------------------------------------------------------------
+
+/**
+ * The BIP39 seed is deterministic from the mnemonic but derived via PBKDF2
+ * (2048 rounds), which costs several seconds on Hermes. Caching it lets unlock
+ * skip that step on every launch after the first. The seed lives in the SAME
+ * hardware-backed store as the mnemonic it comes from, so persisting it adds no
+ * exposure beyond what's already stored — and it is deleted whenever the
+ * wallet's mnemonic is deleted.
+ */
+function walletSeedKey(walletId: string): string {
+  return `fairwallet_seed_${walletId}`;
+}
+
+/** Get the cached BIP39 seed for a wallet, or null if not cached/corrupt. */
+export async function getCachedWalletSeed(
+  walletId: string,
+): Promise<Uint8Array | null> {
+  const hex = await getItemAsync(walletSeedKey(walletId));
+  if (!hex) return null;
+  try {
+    return hexToBytes(hex);
+  } catch {
+    // Corrupt cache — treat as absent so the caller re-derives from the mnemonic.
+    return null;
+  }
+}
+
+/** Persist the BIP39 seed for a wallet. */
+export async function cacheWalletSeed(
+  walletId: string,
+  seed: Uint8Array,
+): Promise<void> {
+  await setItemAsync(walletSeedKey(walletId), bytesToHex(seed));
+}
+
+/** Delete the cached BIP39 seed for a wallet (call whenever its mnemonic is removed). */
+export async function deleteCachedWalletSeed(walletId: string): Promise<void> {
+  await deleteItemAsync(walletSeedKey(walletId));
 }
 
 // ---------------------------------------------------------------------------
@@ -402,8 +464,13 @@ export async function clearAll(): Promise<void> {
   const wallets = await getWalletIndex();
   for (const wallet of wallets) {
     await deleteWalletMnemonic(wallet.id);
+    await deleteCachedWalletSeed(wallet.id);
     await deleteItemAsync(`fairwallet_xpub_${wallet.id}`);
   }
+  // Defensive: a seed can be cached under the "default" key on the transient
+  // path where no active wallet id is resolvable yet — clear it too so a wipe
+  // leaves no seed material behind.
+  await deleteCachedWalletSeed("default");
   await deleteItemAsync(WALLETS_INDEX_KEY);
   await deleteItemAsync(ACTIVE_WALLET_KEY);
 }

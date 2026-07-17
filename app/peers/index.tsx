@@ -1,6 +1,11 @@
 /**
- * Network Peers screen — shows connected peers, network stats, and DNS seeds.
- * "Add Peer" navigates to a dedicated subscreen.
+ * Network Peers screen — shows connection status, network stats, known peers,
+ * and DNS seeds.
+ *
+ * Card-less / borderless aesthetic matching the home screen: a status hero
+ * (colored dot + big status word), label/value stat rows, hairline dividers,
+ * and borderless `bg-surface` list containers. "Add Peer" navigates to a
+ * dedicated subscreen.
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -8,13 +13,7 @@ import { View, Text, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useWalletStore, getDatabase } from "../../src/wallet/wallet-store";
 import type { PeerRow } from "../../src/storage/database";
-import {
-  Section,
-  ListItem,
-  Card,
-  Badge,
-  EmptyState,
-} from "../../src/ui/components";
+import { EmptyState } from "../../src/ui/components";
 import { Button } from "../../src/ui/components/Button";
 import { t } from "../../src/i18n";
 
@@ -22,6 +21,10 @@ const DNS_SEEDS = [
   { host: "seed1.fairco.in", port: 46372 },
   { host: "seed2.fairco.in", port: 46372 },
 ] as const;
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function getServiceLabels(services: number): string[] {
   const labels: string[] = [];
@@ -40,6 +43,24 @@ function formatLastSeen(timestamp: number): string {
   if (diff < 3600) return t("peers.lastSeen.minutes", { count: Math.floor(diff / 60) });
   if (diff < 86400) return t("peers.lastSeen.hours", { count: Math.floor(diff / 3600) });
   return t("peers.lastSeen.days", { count: Math.floor(diff / 86400) });
+}
+
+/** A labelled key/value row (label left, value right) — no box, no border. */
+function StatRow({
+  label,
+  value,
+  valueClassName = "text-foreground text-[15px] font-semibold",
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <View className="flex-row items-center justify-between py-3">
+      <Text className="text-muted-foreground text-[15px]">{label}</Text>
+      <Text className={valueClassName}>{value}</Text>
+    </View>
+  );
 }
 
 export default function PeersScreen() {
@@ -61,103 +82,135 @@ export default function PeersScreen() {
     }, []),
   );
 
-  const syncStatus = useMemo(() => {
+  // Qualitative connection state: a colored dot + big status word carry the
+  // signal (no bordered chip). Offline = destructive, syncing = warning,
+  // synced = success.
+  const status = useMemo(() => {
     if (connectedPeers === 0) {
-      return { text: t("peers.offline"), variant: "error" as const };
+      return { text: t("peers.offline"), dot: "bg-destructive" };
     }
     if (isSyncing) {
       return {
         text: t("peers.syncing", { progress: Math.round(syncProgress) }),
-        variant: "warning" as const,
+        dot: "bg-warning",
       };
     }
-    return { text: t("peers.synced"), variant: "success" as const };
+    return { text: t("peers.synced"), dot: "bg-success" };
   }, [connectedPeers, isSyncing, syncProgress]);
+
+  const connectedLabel =
+    connectedPeers === 1
+      ? t("peers.peerCountLabel.one", { count: connectedPeers })
+      : t("peers.peerCountLabel.other", { count: connectedPeers });
+
+  const isTestnet = network === "testnet";
 
   return (
     <ScrollView
       className="flex-1 bg-background"
-      contentContainerClassName="px-5 pt-4 pb-8"
+      contentContainerClassName="pt-4 pb-10"
     >
-      {/* Stats */}
-      <Card className="p-4 mb-6">
-        <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-muted-foreground text-sm">{t("peers.status")}</Text>
-          <Badge text={syncStatus.text} variant={syncStatus.variant} />
-        </View>
-        <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-muted-foreground text-sm">
-            {t("peers.connected")}
-          </Text>
-          <Text className="text-foreground text-sm font-semibold">
-            {connectedPeers === 1
-              ? t("peers.peerCountLabel.one", { count: connectedPeers })
-              : t("peers.peerCountLabel.other", { count: connectedPeers })}
+      {/* ---- Status hero: colored dot + status word + connected count ---- */}
+      <View className="px-5">
+        <View className="flex-row items-center gap-2.5">
+          <View className={`w-2.5 h-2.5 rounded-full ${status.dot}`} />
+          <Text className="text-foreground text-2xl font-semibold">
+            {status.text}
           </Text>
         </View>
-        <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-muted-foreground text-sm">
-            {t("peers.blockHeight")}
-          </Text>
-          <Text className="text-foreground text-sm font-semibold">
-            {chainHeight > 0 ? chainHeight.toLocaleString() : "—"}
-          </Text>
-        </View>
-        <View className="flex-row items-center justify-between">
-          <Text className="text-muted-foreground text-sm">{t("peers.network")}</Text>
-          <Badge
-            text={network === "testnet" ? t("peers.testnet") : t("peers.mainnet")}
-            variant={network === "testnet" ? "warning" : "info"}
-          />
-        </View>
-      </Card>
+        <Text className="text-muted-foreground text-sm mt-1.5">
+          {connectedLabel}
+        </Text>
+      </View>
 
-      {/* Peers list */}
-      <Section title={t("peers.knownPeers")} className="mb-6">
-        {peers.length === 0 ? (
-          <EmptyState
-            icon="server-network-off"
-            title={t("peers.empty.title")}
-            subtitle={t("peers.empty.subtitle")}
-          />
-        ) : (
-          peers.map((peer, idx) => (
-            <ListItem
-              key={`${peer.host}:${peer.port}`}
-              icon="server-network"
-              title={`${peer.host}:${peer.port}`}
-              subtitle={getServiceLabels(peer.services).join(", ")}
-              value={formatLastSeen(peer.last_seen)}
-              isLast={idx === peers.length - 1}
-              showChevron={false}
-            />
-          ))
-        )}
-      </Section>
+      <View className="h-px bg-border mx-5 my-6" />
 
-      {/* Add peer button */}
-      <View className="mb-6">
-        <Button
-          title={t("peers.addManually")}
-          onPress={() => router.push("/peers/add")}
-          variant="outline"
-          icon={null}
+      {/* ---- Network details: card-less stat rows ---- */}
+      <View className="px-5">
+        <StatRow
+          label={t("peers.blockHeight")}
+          value={chainHeight > 0 ? chainHeight.toLocaleString() : "—"}
+        />
+        <StatRow
+          label={t("peers.network")}
+          value={isTestnet ? t("peers.testnet") : t("peers.mainnet")}
+          valueClassName={
+            isTestnet
+              ? "text-warning text-[15px] font-semibold"
+              : "text-foreground text-[15px] font-semibold"
+          }
         />
       </View>
 
-      {/* DNS Seeds */}
-      <Section title={t("peers.dnsSeeds")}>
-        {DNS_SEEDS.map((seed, idx) => (
-          <ListItem
-            key={seed.host}
-            icon="dns"
-            title={seed.host}
-            subtitle={t("peers.portLabel", { port: seed.port })}
-            isLast={idx === DNS_SEEDS.length - 1}
-            showChevron={false}
-          />
-        ))}
-      </Section>
+      {/* ---- Known peers: borderless surface list with hairline dividers ---- */}
+      <View className="px-5 mt-8">
+        <Text className={SECTION_LABEL}>{t("peers.knownPeers")}</Text>
+        {peers.length === 0 ? (
+          <View className="mt-2">
+            <EmptyState
+              icon="server-network-off"
+              title={t("peers.empty.title")}
+              subtitle={t("peers.empty.subtitle")}
+            />
+          </View>
+        ) : (
+          <View className="bg-surface rounded-2xl overflow-hidden mt-2">
+            {peers.map((peer, idx) => (
+              <View key={`${peer.host}:${peer.port}`}>
+                {idx > 0 ? <View className="h-px bg-border ml-4" /> : null}
+                <View className="flex-row items-center justify-between px-4 py-3.5">
+                  <View className="flex-1 pr-3">
+                    <Text
+                      className="text-foreground text-[15px] font-medium"
+                      numberOfLines={1}
+                    >
+                      {peer.host}:{peer.port}
+                    </Text>
+                    <Text
+                      className="text-muted-foreground text-xs mt-0.5"
+                      numberOfLines={1}
+                    >
+                      {getServiceLabels(peer.services).join(", ")}
+                    </Text>
+                  </View>
+                  <Text className="text-muted-foreground text-xs">
+                    {formatLastSeen(peer.last_seen)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* ---- Add peer: borderless (ghost) action ---- */}
+      <View className="px-5 mt-4">
+        <Button
+          title={t("peers.addManually")}
+          onPress={() => router.push("/peers/add")}
+          variant="ghost"
+        />
+      </View>
+
+      {/* ---- DNS seeds: borderless surface list with hairline dividers ---- */}
+      <View className="px-5 mt-6">
+        <Text className={SECTION_LABEL}>{t("peers.dnsSeeds")}</Text>
+        <View className="bg-surface rounded-2xl overflow-hidden mt-2">
+          {DNS_SEEDS.map((seed, idx) => (
+            <View key={seed.host}>
+              {idx > 0 ? <View className="h-px bg-border ml-4" /> : null}
+              <View className="px-4 py-3.5">
+                <Text className="text-foreground text-[15px] font-medium">
+                  {seed.host}
+                </Text>
+                <Text className="text-muted-foreground text-xs mt-0.5">
+                  {t("peers.portLabel", { port: seed.port })}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
     </ScrollView>
   );
 }

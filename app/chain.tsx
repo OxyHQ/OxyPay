@@ -11,7 +11,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, ScrollView } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useBloomTheme } from "@oxyhq/bloom/theme";

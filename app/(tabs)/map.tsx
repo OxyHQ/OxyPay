@@ -54,7 +54,6 @@ import { FlashList } from "@shopify/flash-list";
 import {
   MapView,
   Camera,
-  UserLocation,
   ShapeSource,
   CircleLayer,
   SymbolLayer,
@@ -66,8 +65,8 @@ import {
 } from "@maplibre/maplibre-react-native";
 import * as Location from "expo-location";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
-import { t } from "../src/i18n";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
+import { t } from "../../src/i18n";
 import {
   PLACES,
   distanceKm,
@@ -75,9 +74,9 @@ import {
   type FiatPayoutMethod,
   type Place,
   type PlaceCategory,
-} from "../src/data/places";
-import { EmptyState } from "../src/ui/components/EmptyState";
-import { hapticSelection } from "../src/utils/haptics";
+} from "../../src/data/places";
+import { EmptyState } from "../../src/ui/components/EmptyState";
+import { hapticSelection } from "../../src/utils/haptics";
 import { COIN_TICKER } from "@fairco.in/core";
 
 // ---------------------------------------------------------------------------
@@ -310,7 +309,7 @@ export default function MapScreen() {
 
   const cameraRef = useRef<CameraRef>(null);
   const sheetRef = useRef<BottomSheet>(null);
-  const locationDeniedPrompt = Prompt.usePromptControl();
+  const locationDeniedPrompt = useDialogControl();
 
   // Official replacement (gorhom v5) for the deprecated BottomSheetFlashList
   // wrapper: a `renderScrollComponent` that wires FlashList into the sheet's
@@ -337,7 +336,6 @@ export default function MapScreen() {
   );
   const [sheetMode, setSheetMode] = useState<SheetMode>("list");
   const [sheetIndex, setSheetIndex] = useState<number>(SHEET_INDEX_MID);
-  const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [userLocation, setUserLocation] = useState<UserCoords | null>(null);
 
   // No `onBlur` handler: re-snapping on blur triggers another keyboard
@@ -477,12 +475,9 @@ export default function MapScreen() {
       }
 
       if (status !== "granted") {
-        setHasLocationPermission(false);
         locationDeniedPrompt.open();
         return;
       }
-
-      setHasLocationPermission(true);
 
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -644,6 +639,44 @@ export default function MapScreen() {
     [selectedPlaceId, selectPlace],
   );
 
+  // User-location marker rendered from expo-location coords via a ShapeSource +
+  // CircleLayer, instead of MapLibre's native `UserLocation` — that component's
+  // location module calls `getReactNativeHost()` on every fix, which throws
+  // under the New Architecture ("You should not use ReactNativeHost directly").
+  const userLocationFeature = useMemo<GeoJSON.Feature<GeoJSON.Point> | null>(
+    () =>
+      userLocation
+        ? {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Point",
+              coordinates: [userLocation.longitude, userLocation.latitude],
+            },
+          }
+        : null,
+    [userLocation],
+  );
+
+  const userDotStyle = useMemo<CircleLayerStyle>(
+    () => ({
+      circleRadius: 7,
+      circleColor: theme.colors.primary,
+      circleStrokeWidth: 3,
+      circleStrokeColor: "#ffffff",
+    }),
+    [theme.colors.primary],
+  );
+
+  const userHaloStyle = useMemo<CircleLayerStyle>(
+    () => ({
+      circleRadius: 16,
+      circleColor: theme.colors.primary,
+      circleOpacity: 0.18,
+    }),
+    [theme.colors.primary],
+  );
+
   return (
     <View className="flex-1 bg-background">
       {/* ---- Full-bleed native map ---- */}
@@ -663,7 +696,12 @@ export default function MapScreen() {
             heading: 0,
           }}
         />
-        {hasLocationPermission ? <UserLocation visible animated /> : null}
+        {userLocationFeature ? (
+          <ShapeSource id="user-location-source" shape={userLocationFeature}>
+            <CircleLayer id="user-location-halo" style={userHaloStyle} />
+            <CircleLayer id="user-location-dot" style={userDotStyle} />
+          </ShapeSource>
+        ) : null}
 
         {/* Native place pins. One ShapeSource feeds every layer so the
             native hit-test dispatches onPress for taps on any visible
@@ -825,21 +863,13 @@ export default function MapScreen() {
         )}
       </BottomSheet>
 
-      <Prompt.Outer control={locationDeniedPrompt}>
-        <Prompt.Content>
-          <Prompt.TitleText>{t("map.permissionDenied.title")}</Prompt.TitleText>
-          <Prompt.DescriptionText>
-            {t("map.permissionDenied.subtitle")}
-          </Prompt.DescriptionText>
-        </Prompt.Content>
-        <Prompt.Actions>
-          <Prompt.Action
-            cta={t("common.ok")}
-            onPress={() => locationDeniedPrompt.close()}
-            color="primary"
-          />
-        </Prompt.Actions>
-      </Prompt.Outer>
+      <Dialog
+        control={locationDeniedPrompt}
+        placement="bottom"
+        title={t("map.permissionDenied.title")}
+        description={t("map.permissionDenied.subtitle")}
+        actions={[{ label: t("common.ok") }]}
+      />
     </View>
   );
 }

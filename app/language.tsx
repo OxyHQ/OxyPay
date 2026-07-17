@@ -13,7 +13,7 @@ import {
   TextInput,
   Pressable,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { FlashList, type ListRenderItem } from "@shopify/flash-list";

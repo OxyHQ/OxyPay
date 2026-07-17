@@ -19,11 +19,14 @@ import type {
   BuyQuoteResponse,
   BuyStatusResponse,
 } from "../../api/buy";
-import { Card } from "../../ui/components";
 import { hapticImpact } from "../../utils/haptics";
 import { t } from "../../i18n";
 
 const QR_SIZE = 220;
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 interface PaymentInstructionsProps {
   quote: BuyQuoteResponse;
@@ -182,33 +185,35 @@ export function PaymentInstructions({
 
   return (
     <View className="gap-4">
-      {/* QR code */}
+      {/* QR code — card-less: a filled surface frame, no border */}
       {showQr ? (
-        <Card className="p-6 items-center border border-border/60">
-          <View
-            className="bg-background rounded-2xl p-4 items-center justify-center"
-            style={{ width: QR_SIZE + 32, height: QR_SIZE + 32 }}
-          >
-            <QRCode
-              value={qrPayload}
-              size={QR_SIZE}
-              color={theme.colors.primary}
-              backgroundColor="transparent"
-            />
+        <View className="items-center">
+          <View className="bg-surface rounded-3xl p-5">
+            <View
+              className="bg-background rounded-2xl p-4 items-center justify-center"
+              style={{ width: QR_SIZE + 32, height: QR_SIZE + 32 }}
+            >
+              <QRCode
+                value={qrPayload}
+                size={QR_SIZE}
+                color={theme.colors.primary}
+                backgroundColor="transparent"
+              />
+            </View>
           </View>
-        </Card>
+        </View>
       ) : null}
 
-      {/* Address row */}
+      {/* Address — card-less: section label above a filled surface field */}
       {quote.paymentAddress ? (
-        <Card className="p-4">
-          <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2">
+        <View>
+          <Text className={SECTION_LABEL}>
             {t("buy.instructions.sendTo", {
               network: quote.paymentNetworkLabel,
               symbol: quote.paymentSymbol,
             })}
           </Text>
-          <View className="flex-row items-center">
+          <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2 flex-row items-center">
             <Pressable onPress={copyAddress} className="flex-1 active:opacity-70">
               <Text
                 className="text-foreground text-sm font-mono"
@@ -230,15 +235,15 @@ export function PaymentInstructions({
               />
             </Pressable>
           </View>
-        </Card>
+        </View>
       ) : null}
 
-      {/* Amount row */}
-      <Card className="p-4">
-        <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-2">
+      {/* Amount — card-less: section label above a filled surface field */}
+      <View>
+        <Text className={SECTION_LABEL}>
           {t("buy.instructions.exactAmount")}
         </Text>
-        <View className="flex-row items-center">
+        <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2 flex-row items-center">
           <Pressable onPress={copyAmount} className="flex-1 active:opacity-70">
             <Text
               className="text-foreground text-xl font-semibold"
@@ -260,7 +265,7 @@ export function PaymentInstructions({
             />
           </Pressable>
         </View>
-      </Card>
+      </View>
 
       {/* Network warning */}
       {quote.paymentAddress ? (
@@ -280,8 +285,8 @@ export function PaymentInstructions({
         </View>
       ) : null}
 
-      {/* Status block */}
-      <Card className="p-4 flex-row items-center gap-3">
+      {/* Status block — card-less filled surface */}
+      <View className="bg-surface rounded-2xl p-4 flex-row items-center gap-3">
         <View
           className="w-10 h-10 rounded-full items-center justify-center"
           style={{ backgroundColor: `${visual.iconColor}20` }}
@@ -322,7 +327,7 @@ export function PaymentInstructions({
             </Text>
           </View>
         ) : null}
-      </Card>
+      </View>
     </View>
   );
 }

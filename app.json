@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": ["fairwallet", "faircoin"],
+    "scheme": [
+      "fairwallet",
+      "faircoin"
+    ],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -16,7 +19,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "in.fairco.wallet",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "entitlements": {
+        "aps-environment": "production"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,12 +32,20 @@
       },
       "predictiveBackGestureEnabled": true,
       "package": "in.fairco.wallet",
+      "googleServicesFile": "./google-services.json",
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "faircoin" }],
-          "category": ["DEFAULT", "BROWSABLE"]
+          "data": [
+            {
+              "scheme": "faircoin"
+            }
+          ],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ]
         }
       ]
     },
@@ -46,29 +60,45 @@
       "expo-sqlite",
       "expo-local-authentication",
       "expo-system-ui",
-      ["expo-splash-screen", {
-        "image": "./assets/adaptive-icon-foreground.png",
-        "imageWidth": 200,
-        "backgroundColor": "#1b1e09",
-        "dark": {
+      [
+        "expo-splash-screen",
+        {
           "image": "./assets/adaptive-icon-foreground.png",
-          "backgroundColor": "#1b1e09"
+          "imageWidth": 200,
+          "backgroundColor": "#1b1e09",
+          "dark": {
+            "image": "./assets/adaptive-icon-foreground.png",
+            "backgroundColor": "#1b1e09"
+          }
         }
-      }],
-      ["expo-camera", { "cameraPermission": "FAIRWallet needs camera access to scan QR codes." }],
-      ["expo-location", {
-        "locationWhenInUsePermission": "FAIRWallet uses your location to show nearby places that accept FairCoin."
-      }],
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FAIRWallet needs camera access to scan QR codes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FAIRWallet uses your location to show nearby places that accept FairCoin."
+        }
+      ],
       "@maplibre/maplibre-react-native",
-      ["expo-notifications", {
-        "color": "#1b1e09",
-        "sounds": [
-          "./assets/sounds/sent.mp3",
-          "./assets/sounds/received.mp3",
-          "./assets/sounds/unlocked.mp3"
-        ],
-        "enableBackgroundRemoteNotifications": false
-      }]
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#9ffb4f",
+          "sounds": [
+            "./assets/sounds/sent.mp3",
+            "./assets/sounds/received.mp3",
+            "./assets/sounds/unlocked.mp3"
+          ],
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true

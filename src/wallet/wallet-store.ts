@@ -38,6 +38,7 @@ import {
 } from "./coin-selection";
 import {
   applyTransactionToWallet,
+  reconstructWalletTransaction,
   reverseBytesToHex,
 } from "./apply-transaction";
 import { useContactsStore } from "./contacts-store";
@@ -59,6 +60,11 @@ import {
   isWatchOnly as checkIsWatchOnly,
   setWalletBirthdayHeight,
   getWalletBirthdayHeight,
+  getCachedWalletSeed,
+  cacheWalletSeed,
+  deleteCachedWalletSeed,
+  isWalletBackedUp,
+  markWalletBackedUp,
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
@@ -112,6 +118,8 @@ export interface WalletState {
   activeWalletName: string;
   wallets: WalletInfo[];
   isWatchOnly: boolean;
+  /** Whether the active wallet's recovery phrase has been backed up. */
+  hasBackedUp: boolean;
 
   // Balance
   balance: bigint;
@@ -149,7 +157,21 @@ export interface WalletState {
   selectedUTXOs: Array<{ txid: string; vout: number }>;
 
   // Actions
-  initialize: (mnemonic: string, walletId?: string) => Promise<void>;
+  /**
+   * Bring a wallet up from its stored secret. Resolves only once the SPV/P2P
+   * sync has been started, but invokes the optional `onReady` callback earlier
+   * — the moment persisted state (balance, UTXOs, addresses, history) has been
+   * hydrated into the store and `initialized` is true, BEFORE the network sync.
+   * Boot/unlock pass `onReady` to render the home / lift the lock instantly
+   * while sync continues in the background; internal multi-wallet callers omit
+   * it and await the full promise (SPV startup stays serialised by the init
+   * queue — N-1).
+   */
+  initialize: (
+    mnemonic: string,
+    walletId?: string,
+    onReady?: () => void,
+  ) => Promise<void>;
   createWallet: () => Promise<string>;
   restoreWallet: (mnemonic: string) => Promise<void>;
   refreshBalance: () => void;
@@ -171,6 +193,8 @@ export interface WalletState {
   // Multi-wallet actions
   loadWalletList: () => Promise<void>;
   switchWallet: (walletId: string) => Promise<void>;
+  /** Record that the active wallet's recovery phrase has been backed up. */
+  markBackedUp: () => Promise<void>;
   createNewWallet: (name: string) => Promise<string>;
   importWallet: (name: string, mnemonic: string) => Promise<void>;
   importWatchOnly: (name: string, xpub: string) => Promise<void>;
@@ -302,6 +326,32 @@ const utxoReservation = new UtxoReservation();
  */
 export function getDatabase(): Database | null {
   return database;
+}
+
+/**
+ * The account-level watch-only xpub (m/44'/coinType'/0') of the active wallet,
+ * or null when no wallet is initialized (e.g. while PIN-locked). Read by the
+ * push-registration lifecycle to register for background notifications; it is a
+ * PUBLIC key, so this never exposes spend capability. Returns null rather than
+ * throwing so callers can treat "no wallet up yet" as "nothing to register".
+ */
+export function getActiveAccountXpub(): string | null {
+  if (!keyManager) return null;
+  try {
+    return keyManager.accountXpub();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every address the active wallet watches (external + change + lookahead), or an
+ * empty array when no wallet is initialized (e.g. while PIN-locked). Used by the
+ * silent-push handler to decide whether a pushed txid actually pays this wallet
+ * before composing the on-device notification.
+ */
+export function getActiveWalletAddresses(): string[] {
+  return keyManager?.getAllAddresses() ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -746,6 +796,14 @@ export const FEE_RATES: Record<FeeLevel, number> = {
 // Average P2PKH transaction ~226 bytes
 const AVERAGE_TX_SIZE = 226;
 
+/**
+ * Upper bound on `transactions` rows reconstructed into the display history at
+ * init. The home Activity feed shows the 10 most recent and HomeOverview sums
+ * every reward row, so we load the full history (newest-first) rather than a
+ * page. Matches the bound `rewindWalletToHeight` uses when reconciling history.
+ */
+const MAX_HISTORY_ROWS = 10_000;
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -799,6 +857,7 @@ const DEFAULT_WALLET_STATE = {
   transactions: [] as WalletTransaction[],
   masternodeUTXOs: [] as MasternodeUTXO[],
   isWatchOnly: false,
+  hasBackedUp: false,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
 
@@ -869,6 +928,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   activeWalletName: "",
   wallets: [],
   isWatchOnly: false,
+  hasBackedUp: false,
 
   balance: 0n,
   confirmedBalance: 0n,
@@ -895,7 +955,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   // Actions
   // -------------------------------------------------------------------
 
-  initialize: async (mnemonic: string, walletId?: string): Promise<void> => {
+  initialize: async (
+    mnemonic: string,
+    walletId?: string,
+    onReady?: () => void,
+  ): Promise<void> => {
     // N-1: serialise wallet initialisation. If two callers race (deep-link +
     // boot, double-tap wallet switch, restore + network switch, …) we must
     // not run two `initialize` bodies in parallel — they would both observe
@@ -907,6 +971,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     return queueWalletInit(async () => {
       const state = get();
       if (state.initialized) {
+        // Already up (e.g. a concurrent caller won the race). Signal the
+        // UI-ready checkpoint immediately so a boot/unlock caller renders /
+        // lifts the lock instead of waiting on a no-op.
+        onReady?.();
         return;
       }
 
@@ -924,7 +992,16 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
         keyManager = KeyManager.fromXpub(xpub, networkConfig);
       } else {
-        keyManager = KeyManager.fromMnemonic(mnemonic, networkConfig);
+        // Reuse the cached BIP39 seed when present so unlock skips the
+        // multi-second PBKDF2 mnemonic→seed derivation; derive + cache it on the
+        // first run. Keyed by the same wallet identity the mnemonic belongs to.
+        const seedCacheId = walletId ?? (await getActiveWalletId()) ?? "default";
+        let seed = await getCachedWalletSeed(seedCacheId);
+        if (!seed) {
+          seed = KeyManager.deriveSeed(mnemonic);
+          await cacheWalletSeed(seedCacheId, seed);
+        }
+        keyManager = KeyManager.fromSeed(seed, networkConfig);
       }
       utxoSet = new UTXOSet();
 
@@ -971,6 +1048,45 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       // Check if this is a watch-only wallet
       const watchOnly = activeId ? await checkIsWatchOnly(activeId) : false;
+      // Has the user backed up this wallet's recovery phrase? Drives the home
+      // "back up your wallet" reminder. Watch-only wallets have no phrase to
+      // back up, so they never prompt.
+      const backedUp =
+        activeId && !watchOnly ? await isWalletBackedUp(activeId) : true;
+
+      // Reconstruct the persisted transaction history into the display list.
+      // The `transactions` table stores raw_hex + block metadata but not the
+      // derived amount/address/type, so re-derive them the SAME way the SPV
+      // receive path does. Without this, a wallet that received (or sent) FAIR
+      // in a previous session shows an empty Activity list after unlock even
+      // though the balance — restored from the persisted UTXOs above — is
+      // correct. Spent inputs are priced from the full UTXO set (spent rows
+      // survive with their value/address); confirmations use the persisted tip.
+      const historyRows = await database.getTransactions(MAX_HISTORY_ROWS, 0);
+      const prevoutByOutpoint = new Map<
+        string,
+        { value: bigint; address: string }
+      >();
+      for (const row of await database.getAllUTXOs()) {
+        prevoutByOutpoint.set(`${row.txid}:${row.vout}`, {
+          value: BigInt(row.value),
+          address: row.address,
+        });
+      }
+      const persistedTip = (await database.getLatestHeader())?.height ?? 0;
+      const restoredTransactions: WalletTransaction[] = [];
+      for (const row of historyRows) {
+        const reconstructed = reconstructWalletTransaction(
+          row,
+          (address) => keyManager?.ownsAddress(address) ?? false,
+          (prevTxid, vout) => prevoutByOutpoint.get(`${prevTxid}:${vout}`),
+          networkConfig,
+          persistedTip,
+        );
+        if (reconstructed) {
+          restoredTransactions.push(reconstructed);
+        }
+      }
 
       set({
         initialized: true,
@@ -980,11 +1096,26 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         balance: utxoSet.getBalance(),
         confirmedBalance: utxoSet.getConfirmedBalance(),
         unconfirmedBalance: utxoSet.getUnconfirmedBalance(),
+        transactions: restoredTransactions,
         activeWalletId: activeId,
         activeWalletName: activeWallet?.name ?? "",
+        hasBackedUp: backedUp,
         wallets,
         isWatchOnly: watchOnly,
       });
+
+      // The wallet is now fully hydrated from persisted SQLite state (cached
+      // balance, UTXOs, addresses, transaction history) with NO network access.
+      // Signal the UI-ready checkpoint HERE so the home renders / the lock
+      // lifts immediately — BEFORE the SPV/P2P startup below. That startup
+      // resolves DNS, connects to peers and syncs headers in the background,
+      // streaming live updates into the store (isSyncing / connectedPeers /
+      // chainHeight / balance) via the existing setters. This is what decouples
+      // "wallet usable" from "fully synced" without changing what sync computes.
+      // It stays INSIDE the serialised init task (N-1): the returned promise
+      // still only resolves after SPV startup, so switch/network/create/import
+      // callers that await it keep their exclusive critical section.
+      onReady?.();
 
       // Start SPV client for P2P connectivity
       try {
@@ -1158,6 +1289,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         await saveWalletMnemonic(walletId, trimmed);
         await addWalletToIndex(walletId, walletName);
         await setActiveWalletId(walletId);
+        // A restored wallet came from a phrase the user already holds, so it
+        // counts as backed up — don't nag them to re-back-it-up.
+        await markWalletBackedUp(walletId);
 
         await get().initialize(trimmed, walletId);
       } catch (err: unknown) {
@@ -1631,6 +1765,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     }
   },
 
+  markBackedUp: async (): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    await markWalletBackedUp(walletId);
+    set({ hasBackedUp: true });
+  },
+
   switchWallet: async (walletId: string): Promise<void> => {
     const state = get();
     if (state.activeWalletId === walletId) return;
@@ -1792,9 +1933,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       const state = get();
       const isActive = state.activeWalletId === walletId;
 
-      // Remove from index and delete mnemonic
+      // Remove from index and delete mnemonic + its cached seed
       await removeWalletFromIndex(walletId);
       await deleteWalletMnemonic(walletId);
+      await deleteCachedWalletSeed(walletId);
 
       // Reload wallet list
       const remainingWallets = await getWalletIndex();

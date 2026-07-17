@@ -59,25 +59,14 @@ export default function TabLayout() {
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger
-          name="send"
+          name="map"
           contentStyle={{ backgroundColor: theme.colors.background }}
         >
           <NativeTabs.Trigger.Icon
-            sf={{ default: "arrow.up.circle", selected: "arrow.up.circle.fill" }}
-            md="arrow_upward"
+            sf={{ default: "map", selected: "map.fill" }}
+            md="map"
           />
-          <NativeTabs.Trigger.Label>{t("wallet.send")}</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-
-        <NativeTabs.Trigger
-          name="receive"
-          contentStyle={{ backgroundColor: theme.colors.background }}
-        >
-          <NativeTabs.Trigger.Icon
-            sf={{ default: "arrow.down.circle", selected: "arrow.down.circle.fill" }}
-            md="arrow_downward"
-          />
-          <NativeTabs.Trigger.Label>{t("wallet.receive")}</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Label>{t("wallet.places")}</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger

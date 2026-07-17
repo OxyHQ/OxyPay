@@ -1,40 +1,53 @@
 /**
- * Home screen — balance, quick actions, and activity feed.
+ * Home screen — a Coinbase-style wallet home, themed with Bloom and wired to
+ * real wallet data.
  *
- * Layout: Revolut-style parallax hero image header.
- *  - Hero image is rendered absolutely behind the scroll content and translates
- *    up at half the scroll rate. When the user pulls down past the top, the
- *    image scales up for an "overscroll zoom" effect.
- *  - Top bar (wallet name + sync status) is a fixed sibling overlaid on the
- *    image with white text + shadow for readability.
- *  - A linear gradient fades the bottom of the image into the background so the
- *    balance and activity sit on a smooth transition.
+ * Header (wallet switcher + a sync-status icon), a left-aligned balance, a row
+ * of bordered action pills, an Overview / Activity tab switch, an animated
+ * rainbow refresh band below the tabs, then the selected tab's content:
+ * Overview shows the FairCoin holding, Activity shows the day-grouped feed.
  */
 
-import { useCallback, useMemo, useState } from "react";
-import { View, Text, RefreshControl, Pressable, Image, StyleSheet } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, Pressable } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import Animated, {
-  useAnimatedScrollHandler,
-  useSharedValue,
-  useAnimatedStyle,
-  interpolate,
-  Extrapolation,
-} from "react-native-reanimated";
-import { LinearGradient } from "expo-linear-gradient";
 import * as WebBrowser from "expo-web-browser";
 import * as Localization from "expo-localization";
 import { useWalletStore } from "../../src/wallet/wallet-store";
 import {
   BalanceDisplay,
   ActionButton,
-  Divider,
   EmptyState,
   Badge,
 } from "../../src/ui/components";
 import { TransactionItem } from "../../src/ui/components/TransactionItem";
+import {
+  SuggestionStack,
+  type Suggestion,
+} from "../../src/ui/components/SuggestionStack";
+import { HomeOverview } from "../../src/ui/components/HomeOverview";
+import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
+import { HubIcon } from "../../src/ui/components/HubIcon";
+import { SendIcon } from "../../src/ui/components/SendIcon";
+import { WalletSwitcherSheet } from "../../src/ui/sheets/WalletSwitcherSheet";
+import { TransactionDetailSheet } from "../../src/ui/sheets/TransactionDetailSheet";
+import {
+  RefreshRainbowBar,
+  RAINBOW_BAND_HEIGHT,
+} from "../../src/ui/components/RefreshRainbowBar";
+import { SendReceiveSheet } from "../../src/ui/sheets/SendReceiveSheet";
+import { hapticSelection, hapticSuccess } from "../../src/utils/haptics";
+import { SafeAreaView } from "../../src/ui/safe-area-view";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import {
   startPricePolling,
   stopPricePolling,
@@ -42,32 +55,86 @@ import {
   type PriceData,
 } from "../../src/services/price";
 import { useTheme } from "@oxyhq/bloom/theme";
+import { Tabs, TabsTrigger } from "@oxyhq/bloom/tabs";
 import { BUY_BASE_URL } from "@fairco.in/core";
 import { t } from "../../src/i18n";
 
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+type HomeTab = "overview" | "activity";
+
 // ---------------------------------------------------------------------------
-// Constants
+// Activity date grouping
 // ---------------------------------------------------------------------------
 
-const HERO_HEIGHT = 280;
-/** Pixels of overlap between the hero image bottom and the scroll content top. */
-const HERO_OVERLAP = 60;
-/** Maximum scale applied when overscrolling (pulling the list down). */
-const OVERSCROLL_MAX_SCALE = 1.4;
-/** Pull distance (px) at which the overscroll zoom reaches its maximum. */
-const OVERSCROLL_ZOOM_DISTANCE = 200;
+type StoreTransaction = ReturnType<
+  typeof useWalletStore.getState
+>["transactions"][number];
 
-const TOP_BAR_TEXT_SHADOW = {
-  textShadowColor: "rgba(0,0,0,0.5)",
-  textShadowRadius: 4,
-} as const;
+interface ActivityGroup {
+  key: string;
+  label: string;
+  items: StoreTransaction[];
+}
+
+const DAY_MS = 86_400_000;
+const SYNCING_COLOR = "#fbbf24";
+/** Reveal (px) the pull must reach on release to trigger a refresh. */
+const REFRESH_TRIGGER = 42;
+/** Damping applied to the finger travel so the band trails the drag. */
+const PULL_DAMPING = 0.6;
+
+/** Human day label for a unix-seconds timestamp: Today / Yesterday / a date. */
+function dayLabel(timestampSec: number): string {
+  const date = new Date(timestampSec * 1000);
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const startOfDate = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  ).getTime();
+  const diffDays = Math.round((startOfToday - startOfDate) / DAY_MS);
+  if (diffDays <= 0) return t("wallet.date.today");
+  if (diffDays === 1) return t("wallet.date.yesterday");
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Group transactions (already newest-first) into ordered day buckets. */
+function groupByDay(transactions: StoreTransaction[]): ActivityGroup[] {
+  const groups: ActivityGroup[] = [];
+  const byKey = new Map<string, ActivityGroup>();
+  for (const tx of transactions) {
+    const date = new Date(tx.timestamp * 1000);
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.items.push(tx);
+    } else {
+      const group: ActivityGroup = {
+        key,
+        label: dayLabel(tx.timestamp),
+        items: [tx],
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+  }
+  return groups;
+}
 
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
 
 export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const theme = useTheme();
 
@@ -75,13 +142,74 @@ export default function HomeScreen() {
   const isSyncing = useWalletStore((s) => s.isSyncing);
   const syncProgress = useWalletStore((s) => s.syncProgress);
   const connectedPeers = useWalletStore((s) => s.connectedPeers);
-  const chainHeight = useWalletStore((s) => s.chainHeight);
   const transactions = useWalletStore((s) => s.transactions);
   const network = useWalletStore((s) => s.network);
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
   const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
-  const loading = useWalletStore((s) => s.loading);
+  const hasBackedUp = useWalletStore((s) => s.hasBackedUp);
+
+  const [price, setPrice] = useState<PriceData | null>(getCachedPrice);
+  const [tab, setTab] = useState<HomeTab>("activity");
+
+  // Send / Receive share ONE bottom-sheet with a Send|Receive toggle; the pills
+  // just open it on the right side.
+  const sheetControl = useDialogControl();
+  const [sheetMode, setSheetMode] = useState<"send" | "receive">("send");
+  // Tapping the wallet name opens a quick wallet-switcher sheet.
+  const walletSwitcherControl = useDialogControl();
+  // Tapping an activity row opens the transaction detail in a bottom sheet.
+  const txDetailControl = useDialogControl();
+  const [detailTxid, setDetailTxid] = useState<string | null>(null);
+  const openTxDetail = useCallback(
+    (txid: string) => {
+      setDetailTxid(txid);
+      txDetailControl.open();
+    },
+    [txDetailControl],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      startPricePolling((updated) => setPrice(updated));
+      return () => stopPricePolling();
+    }, []),
+  );
+
+  // Home suggestion deck (swipe a card to dismiss it and reveal the next).
+  // Dismissals are per-session; unsatisfied reminders (e.g. backup) return on
+  // the next launch until resolved.
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const dismissSuggestion = useCallback((id: string) => {
+    setDismissedSuggestions((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const list: Suggestion[] = [];
+    if (!hasBackedUp) {
+      list.push({
+        id: "backup",
+        icon: "shield-key-outline",
+        title: t("backup.banner.title"),
+        badge: t("backup.banner.required"),
+        subtitle: t("backup.banner.subtitle"),
+        onPress: () => router.push("/settings"),
+      });
+    }
+    list.push({
+      id: "notifications",
+      icon: "bell-ring-outline",
+      title: t("suggest.notifications.title"),
+      subtitle: t("suggest.notifications.subtitle"),
+      onPress: () => router.push("/notifications-settings"),
+    });
+    return list.filter((s) => !dismissedSuggestions.has(s.id));
+  }, [hasBackedUp, dismissedSuggestions, router]);
 
   const handleBuy = useCallback(async () => {
     const locale = Localization.getLocales()[0];
@@ -96,289 +224,312 @@ export default function HomeScreen() {
     await WebBrowser.openBrowserAsync(`${BUY_BASE_URL}/?${params.toString()}`);
   }, [receiveAddress]);
 
-  const [price, setPrice] = useState<PriceData | null>(getCachedPrice);
-
-  useFocusEffect(
-    useCallback(() => {
-      startPricePolling((updated) => setPrice(updated));
-      return () => stopPricePolling();
-    }, []),
-  );
-
-  const handleRefresh = useCallback(() => {
-    refreshBalance();
-  }, [refreshBalance]);
-
-  const recentTransactions = transactions.slice(0, 10);
-
-  const syncState = useMemo(() => {
-    if (connectedPeers === 0) {
-      return { dot: "bg-red-400", label: t("wallet.sync.offline") };
-    }
-    if (isSyncing) {
-      return {
-        dot: "bg-yellow-400",
-        label: t("wallet.sync.syncing", { progress: Math.round(syncProgress) }),
-      };
-    }
-    return { dot: "bg-primary", label: t("wallet.sync.synced") };
-  }, [connectedPeers, isSyncing, syncProgress]);
-
-  // ---- Parallax: track scroll, derive translate + scale on the UI thread ----
+  // Pull-to-refresh: the rainbow band IS the indicator. A Pan gesture (running
+  // alongside the scroll) reveals the band by `pull` px as the user drags down
+  // while at the top; releasing past REFRESH_TRIGGER runs the refresh and holds
+  // the band briefly before it collapses. No native RefreshControl.
+  // The scroll's own gesture, composed simultaneously with the pull so dragging
+  // at the top reveals the band while normal scrolling still works.
+  const nativeGesture = useMemo(() => Gesture.Native(), []);
   const scrollY = useSharedValue(0);
+  const pull = useSharedValue(0);
+  const refreshingSV = useSharedValue(false);
+  /** True once this drag has passed the trigger threshold (for a one-shot haptic). */
+  const passedTrigger = useSharedValue(false);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleScroll = useAnimatedScrollHandler((event) => {
+  const scrollHandler = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
   });
 
-  const heroAnimatedStyle = useAnimatedStyle(() => {
-    // Translate the image up at half the scroll rate. When the user pulls
-    // down past the top (negative scrollY), this same formula moves the
-    // image down to fill the exposed area.
-    const translateY = scrollY.value * -0.5;
-    // Scale up only on overscroll (negative scrollY), clamped at 1 for any
-    // positive scroll so the image never grows mid-scroll.
-    const scale = interpolate(
-      scrollY.value,
-      [-OVERSCROLL_ZOOM_DISTANCE, 0],
-      [OVERSCROLL_MAX_SCALE, 1],
-      Extrapolation.CLAMP,
-    );
-    return {
-      transform: [{ translateY }, { scale }],
-    };
-  });
+  const startRefresh = useCallback(() => {
+    refreshBalance();
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshingSV.value = false;
+      pull.value = withTiming(0, { duration: 220 });
+      // A distinct "done" haptic as the band collapses.
+      hapticSuccess();
+    }, 1500);
+  }, [refreshBalance, pull, refreshingSV]);
 
-  // expo-linear-gradient requires an inline tuple for the colors prop.
-  const gradientColors: readonly [string, string] = ["transparent", theme.colors.background];
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
+
+  const pullGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin(() => {
+          "worklet";
+          passedTrigger.value = false;
+        })
+        .onUpdate((event) => {
+          "worklet";
+          if (refreshingSV.value) return;
+          const next =
+            scrollY.value <= 0 && event.translationY > 0
+              ? Math.min(event.translationY * PULL_DAMPING, RAINBOW_BAND_HEIGHT)
+              : 0;
+          // Light haptic tick the first time the pull passes the trigger; re-arm
+          // if the user drags back below it so a second pull ticks again.
+          if (!passedTrigger.value && next >= REFRESH_TRIGGER) {
+            passedTrigger.value = true;
+            runOnJS(hapticSelection)();
+          } else if (passedTrigger.value && next < REFRESH_TRIGGER) {
+            passedTrigger.value = false;
+          }
+          pull.value = next;
+        })
+        .onEnd(() => {
+          "worklet";
+          if (refreshingSV.value) return;
+          if (pull.value >= REFRESH_TRIGGER) {
+            refreshingSV.value = true;
+            pull.value = withTiming(RAINBOW_BAND_HEIGHT, { duration: 140 });
+            runOnJS(startRefresh)();
+          } else {
+            pull.value = withTiming(0, { duration: 140 });
+          }
+        }),
+    [scrollY, pull, refreshingSV, passedTrigger, startRefresh],
+  );
+
+  const composedGesture = useMemo(
+    () => Gesture.Simultaneous(pullGesture, nativeGesture),
+    [pullGesture, nativeGesture],
+  );
+
+  const bandStyle = useAnimatedStyle(() => ({ height: pull.value }));
+
+  const activityGroups = useMemo(
+    () => groupByDay(transactions.slice(0, 10)),
+    [transactions],
+  );
+
+  const sync = useMemo((): { icon: IconName; color: string; label: string } => {
+    if (connectedPeers === 0) {
+      return {
+        icon: "cloud-off-outline",
+        color: theme.colors.error,
+        label: t("wallet.sync.offline"),
+      };
+    }
+    if (isSyncing) {
+      return {
+        icon: "cloud-sync-outline",
+        color: SYNCING_COLOR,
+        label: t("wallet.sync.syncing", { progress: Math.round(syncProgress) }),
+      };
+    }
+    return {
+      icon: "cloud-check-outline",
+      color: theme.colors.primary,
+      label: t("wallet.sync.synced"),
+    };
+  }, [connectedPeers, isSyncing, syncProgress, theme.colors.error, theme.colors.primary]);
 
   return (
     <View className="flex-1 bg-background">
-      {/* ---- Hero image (absolute, behind the scroll content) ---- */}
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.hero, heroAnimatedStyle]}
-      >
-        <Image
-          source={require("../../assets/home-hero.jpg")}
-          style={styles.heroImage}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-          accessibilityRole="image"
-        />
-        <LinearGradient
-          colors={gradientColors}
-          locations={[0.4, 1]}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </Animated.View>
-
-      {/* ---- Scroll content ---- */}
-      <Animated.ScrollView
-        className="flex-1"
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        contentContainerStyle={{
-          paddingTop: HERO_HEIGHT - HERO_OVERLAP,
-          paddingBottom: 24,
-        }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
+      {/* ---- Header: wallet switcher + sync-status icon ---- */}
+      <SafeAreaView edges={["top"]}>
+        <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
+        <Pressable
+          className="flex-row items-center active:opacity-60"
+          onPress={() => walletSwitcherControl.open()}
+          accessibilityRole="button"
+          accessibilityLabel={t("wallet.switchAccessibility")}
+        >
+          <View className="w-9 h-9 rounded-xl bg-primary items-center justify-center mr-2.5">
+            <MaterialCommunityIcons
+              name="wallet"
+              size={18}
+              color={theme.colors.background}
+            />
+          </View>
+          <Text className="text-foreground text-xl font-semibold">
+            {activeWalletName || t("wallet.defaultName")}
+          </Text>
+          <MaterialCommunityIcons
+            name="chevron-down"
+            size={20}
+            color={theme.colors.textSecondary}
           />
-        }
-      >
-        {/* ---- Balance (sits in the gradient fade zone) ---- */}
-        <View className="items-center pt-8 pb-6 px-6">
+        </Pressable>
+
+        <View className="flex-row items-center gap-3">
+          {network === "testnet" ? (
+            <Badge text={t("wallet.badge.testnet")} variant="warning" size="sm" />
+          ) : null}
+          <Pressable
+            onPress={() => router.push("/peers")}
+            accessibilityRole="button"
+            accessibilityLabel={t("wallet.syncAccessibility", { label: sync.label })}
+            className="active:opacity-60"
+            hitSlop={8}
+          >
+            <MaterialCommunityIcons name={sync.icon} size={24} color={sync.color} />
+          </Pressable>
+        </View>
+        </View>
+      </SafeAreaView>
+
+      <GestureDetector gesture={composedGesture}>
+        <Animated.ScrollView
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          className="flex-1"
+          contentContainerStyle={{ paddingBottom: 24 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ---- Balance ---- */}
+        <View className="px-4 pt-4 pb-5">
           <BalanceDisplay
             value={balance}
             priceUsd={price?.usd}
             change24h={price?.change24h}
             size="lg"
+            align="start"
           />
         </View>
 
-        {/* ---- Opaque content area (covers the hero behind it) ---- */}
-        <View style={{ backgroundColor: theme.colors.background }}>
-          {/* ---- Quick actions ---- */}
-          <View className="flex-row justify-evenly px-4 pb-6">
-            <ActionButton
-              icon="arrow-up-bold"
-              label={t("wallet.send")}
-              onPress={() => router.push("/(tabs)/send")}
-            />
-            <ActionButton
-              icon="arrow-down-bold"
-              label={t("wallet.receive")}
-              onPress={() => router.push("/(tabs)/receive")}
-            />
-            <ActionButton
-              icon="credit-card-plus"
-              label={t("wallet.buy")}
-              onPress={handleBuy}
-            />
-            <ActionButton
-              icon="map-marker"
-              label={t("wallet.places")}
-              onPress={() => router.push("/map")}
-            />
-            <ActionButton
-              icon="account-group"
-              label={t("wallet.contacts")}
-              onPress={() => router.push("/contacts")}
-            />
-            <ActionButton
-              icon="server-network"
-              label={t("wallet.nodes")}
-              onPress={() => router.push("/masternode")}
+        {/* ---- Quick actions ---- */}
+        <View className="flex-row gap-2.5 px-4 pb-4">
+          <ActionButton
+            icon="arrow-up"
+            label={t("wallet.send")}
+            onPress={() => {
+              setSheetMode("send");
+              sheetControl.open();
+            }}
+            renderIcon={({ color, size }) => (
+              <SendIcon color={color} size={size} />
+            )}
+          />
+          <ActionButton
+            icon="arrow-down"
+            label={t("wallet.receive")}
+            onPress={() => {
+              setSheetMode("receive");
+              sheetControl.open();
+            }}
+            renderIcon={({ color, size }) => (
+              <ArrowCircleDownIcon color={color} size={size} />
+            )}
+          />
+          <ActionButton
+            icon="credit-card-plus"
+            label={t("wallet.buy")}
+            onPress={handleBuy}
+          />
+          <ActionButton
+            icon="server-network"
+            label={t("wallet.nodes")}
+            onPress={() => router.push("/masternode")}
+            renderIcon={({ color, size }) => (
+              <HubIcon color={color} size={size} />
+            )}
+          />
+        </View>
+
+        {/* ---- Suggestion deck: swipable reminder cards (back up your wallet,
+            enable alerts…). Hidden when there's nothing to suggest. ---- */}
+        {suggestions.length > 0 ? (
+          <View className="px-4 pb-4">
+            <SuggestionStack items={suggestions} onDismiss={dismissSuggestion} />
+          </View>
+        ) : null}
+
+        {/* ---- Tabs (Bloom): compact tabs, but the bottom border spans the full
+            width (Bloom draws its underline border only under the tabs, so we
+            move it to a full-width wrapper and zero out Bloom's). ---- */}
+        <View className="border-b border-border px-4">
+          <Tabs
+            value={tab}
+            onValueChange={(next) => {
+              if (next === "overview" || next === "activity") setTab(next);
+            }}
+            variant="underline"
+            style={{ borderBottomWidth: 0 }}
+          >
+            <TabsTrigger value="overview" label={t("wallet.overview")} />
+            <TabsTrigger value="activity" label={t("wallet.activity")} />
+          </Tabs>
+        </View>
+
+        {/* ---- Pull-to-refresh rainbow band: below the tabs, grows as you drag ---- */}
+        <Animated.View style={[bandStyle, { overflow: "hidden" }]}>
+          <RefreshRainbowBar />
+        </Animated.View>
+
+        {/* ---- Tab content ---- */}
+        {tab === "overview" ? (
+          <HomeOverview />
+        ) : activityGroups.length === 0 ? (
+          <View className="px-4 pt-6">
+            <EmptyState
+              icon="swap-vertical"
+              title={t("wallet.activity.empty.title")}
+              subtitle={t("wallet.activity.empty.subtitle")}
             />
           </View>
-
-          {/* ---- Sync progress (only visible while syncing) ---- */}
-          {isSyncing ? (
-            <View className="mx-5 mb-4">
-              <View className="h-0.5 bg-border rounded-full overflow-hidden">
-                <View
-                  className="h-full bg-primary rounded-full"
-                  style={{ width: `${Math.min(100, Math.max(0, syncProgress))}%` }}
-                />
-              </View>
-              <View className="flex-row justify-between mt-1">
-                <Text className="text-muted-foreground text-[10px]">
-                  {connectedPeers}{" "}
-                  {connectedPeers === 1
-                    ? t("wallet.peer.one")
-                    : t("wallet.peer.other")}
+        ) : (
+          <View className="pt-3">
+            {activityGroups.map((group) => (
+              <View key={group.key} className="mb-2">
+                <Text className="text-muted-foreground text-xs font-semibold uppercase px-4 mb-1">
+                  {group.label}
                 </Text>
-                {chainHeight > 0 ? (
-                  <Text className="text-muted-foreground text-[10px]">
-                    {t("wallet.block", { height: chainHeight.toLocaleString() })}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-
-          {/* ---- Activity ---- */}
-          <View className="px-5">
-            <Divider className="mb-5" />
-
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className="text-foreground text-lg font-semibold">
-                {t("wallet.activity")}
-              </Text>
-              {transactions.length > 0 ? (
-                <Text className="text-muted-foreground text-xs">
-                  {transactions.length === 1
-                    ? t("wallet.transactionCount.one", {
-                        count: transactions.length,
-                      })
-                    : t("wallet.transactionCount.other", {
-                        count: transactions.length,
-                      })}
-                </Text>
-              ) : null}
-            </View>
-
-            {recentTransactions.length === 0 ? (
-              <EmptyState
-                icon="swap-vertical"
-                title={t("wallet.activity.empty.title")}
-                subtitle={t("wallet.activity.empty.subtitle")}
-              />
-            ) : (
-              <View className="bg-surface rounded-2xl overflow-hidden">
-                {recentTransactions.map((tx, idx) => (
-                  <View key={tx.txid}>
-                    <TransactionItem
-                      txid={tx.txid}
-                      type={tx.type}
-                      value={tx.amount}
-                      address={tx.address}
-                      timestamp={tx.timestamp}
-                      confirmations={tx.confirmations}
-                    />
-                    {idx < recentTransactions.length - 1 ? (
-                      <View className="h-px bg-border ml-16" />
-                    ) : null}
-                  </View>
+                {group.items.map((tx) => (
+                  <TransactionItem
+                    key={tx.txid}
+                    txid={tx.txid}
+                    type={tx.type}
+                    value={tx.amount}
+                    address={tx.address}
+                    timestamp={tx.timestamp}
+                    confirmations={tx.confirmations}
+                    onPress={openTxDetail}
+                  />
                 ))}
               </View>
-            )}
+            ))}
           </View>
-        </View>
-      </Animated.ScrollView>
+        )}
+        </Animated.ScrollView>
+      </GestureDetector>
 
-      {/* ---- Top bar (fixed, overlaid on the hero) ---- */}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          paddingTop: insets.top,
-          zIndex: 2,
-        }}
-        className="px-5 pt-3 pb-3 flex-row items-center justify-between"
+      {/* Send / Receive: one bottom-sheet with a Send|Receive toggle. title=""
+          turns ON the sheet's own scroll (for the tall Send form) without
+          rendering a header row — the sheet's toggle is the header. */}
+      {/* contentPadding={0}: the send/receive pager is full-bleed so pages
+          slide edge-to-edge; the sheet's own toggle + each page own their
+          horizontal insets. */}
+      <Dialog
+        control={sheetControl}
+        placement="bottom"
+        title=""
+        contentPadding={0}
       >
-        {/* Wallet name (tappable → wallet switcher) */}
-        <Pressable
-          className="flex-row items-center active:opacity-60"
-          onPress={() => router.push("/wallets")}
-          accessibilityRole="button"
-          accessibilityLabel={t("wallet.switchAccessibility")}
-        >
-          <Text
-            className="text-white text-base font-semibold"
-            style={TOP_BAR_TEXT_SHADOW}
-          >
-            {activeWalletName || t("wallet.defaultName")}
-          </Text>
-          <MaterialCommunityIcons name="chevron-down" size={18} color="#ffffff" />
-        </Pressable>
-
-        {/* Right: network badge + sync status (tappable → peers) */}
-        <View className="flex-row items-center gap-2">
-          {network === "testnet" ? (
-            <Badge text={t("wallet.badge.testnet")} variant="warning" size="sm" />
-          ) : null}
-          <Pressable
-            className="flex-row items-center active:opacity-60"
-            onPress={() => router.push("/peers")}
-            accessibilityRole="button"
-            accessibilityLabel={t("wallet.syncAccessibility", {
-              label: syncState.label,
-            })}
-          >
-            <View className={`w-1.5 h-1.5 rounded-full ${syncState.dot} mr-1`} />
-            <Text className="text-white text-[11px]" style={TOP_BAR_TEXT_SHADOW}>
-              {syncState.label}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+        <SendReceiveSheet mode={sheetMode} onModeChange={setSheetMode} />
+      </Dialog>
+      <Dialog
+        control={walletSwitcherControl}
+        placement="bottom"
+        title={t("wallets.title")}
+      >
+        <WalletSwitcherSheet onDone={() => walletSwitcherControl.close()} />
+      </Dialog>
+      <Dialog
+        control={txDetailControl}
+        placement="bottom"
+        title={t("transaction.title")}
+      >
+        {detailTxid ? <TransactionDetailSheet txid={detailTxid} /> : null}
+      </Dialog>
     </View>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Static styles (only for values that can't be expressed as NativeWind classes)
-// ---------------------------------------------------------------------------
-
-const styles = StyleSheet.create({
-  hero: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: HERO_HEIGHT,
-    zIndex: 0,
-  },
-  heroImage: {
-    width: "100%",
-    height: "100%",
-  },
-});

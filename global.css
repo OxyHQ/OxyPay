@@ -1,15 +1,59 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@import "nativewind/theme";
+@import "@oxyhq/bloom/design-tokens/theme.css";
+
+@source "./app/**/*.{js,jsx,ts,tsx}";
+@source "./src/**/*.{js,jsx,ts,tsx}";
+@source "./node_modules/@oxyhq/bloom/lib/**/*.{js,jsx}";
 
 /*
- * Custom scrollbar for web / Electron. Uses the Bloom theme's
- * `--muted-foreground` so the thumb tints correctly in light and dark
- * modes without any JS. Native platforms (iOS / Android) ignore this
- * file — they render the OS-native scroll indicator.
+ * FAIRWallet semantic token contract. The base `--x` variables are injected at
+ * runtime by Bloom's `BloomThemeProvider` (the active `faircoin` preset,
+ * resolved to full `rgb(...)`), so every token references `var(--x)` directly —
+ * no `hsl(... / <alpha-value>)` (that was the Tailwind 3 / NativeWind 4 form).
+ * `success`/`warning` are not part of Bloom's preset, so they're defined here.
  */
+@theme {
+  --font-sans: System, sans-serif;
+  --font-display: Phudu;
+  --spacing-18: 4.5rem;
 
-/* Chromium / WebKit / Electron */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-success: var(--primary);
+  --color-warning: rgb(231, 176, 8);
+}
+
+@layer base {
+  :root {
+    --radius: 1rem;
+  }
+}
+
+/*
+ * Custom scrollbar for web / Electron. Native platforms ignore this. Tokens are
+ * now full colors (rgb), so alpha is applied via color-mix, not `hsl(... / a)`.
+ */
 ::-webkit-scrollbar {
   width: 12px;
   height: 12px;
@@ -20,62 +64,27 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.4);
+  background-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
   border-radius: 10px;
-  /* Inset the thumb inside a transparent border so it appears thinner
-     than the track, like macOS / Android overlay scrollbars. */
   border: 3px solid transparent;
   background-clip: content-box;
   min-height: 48px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.65);
+  background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
 }
 
 ::-webkit-scrollbar-thumb:active {
-  background-color: hsl(var(--primary) / 0.8);
+  background-color: color-mix(in srgb, var(--primary) 80%, transparent);
 }
 
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Firefox */
 html {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.4) transparent;
-}
-
-
-/*
- * Fallback CSS custom properties (faircoin dark preset).
- * These are overridden at runtime by NativeWind vars() from Bloom's
- * active preset, but provide initial values before the theme hydrates.
- */
-@layer base {
-  :root {
-    --background: 69 54% 8%;
-    --foreground: 0 0% 93%;
-    --surface: 69 30% 13%;
-    --surface-foreground: 0 0% 93%;
-    --popover: 69 30% 13%;
-    --popover-foreground: 0 0% 93%;
-    --primary: 92 96% 65%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 69 20% 15%;
-    --secondary-foreground: 0 0% 93%;
-    --muted: 69 18% 16%;
-    --muted-foreground: 0 0% 46%;
-    --accent: 69 18% 16%;
-    --accent-foreground: 0 0% 93%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 69 20% 18%;
-    --input: 69 15% 20%;
-    --ring: 92 96% 65%;
-    --sidebar: 69 40% 6%;
-    --success: 92 96% 65%;
-    --warning: 45 93% 47%;
-  }
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent)
+    transparent;
 }

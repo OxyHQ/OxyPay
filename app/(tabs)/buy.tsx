@@ -28,7 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { parseFairToUnits } from "@fairco.in/core";
-import { Button, Card, EmptyState } from "../../src/ui/components";
+import { Button, EmptyState } from "../../src/ui/components";
 import { BuyAmountInput } from "../../src/components/buy/AmountInput";
 import {
   PaymentMethodPicker,
@@ -45,6 +45,10 @@ import { FONT_PHUDU_BLACK } from "../../src/utils/fonts";
 import { t } from "../../src/i18n";
 
 const CONTENT_MAX_WIDTH = 600;
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 const PRESETS = ["10", "50", "100", "500"] as const;
 
 /**
@@ -221,23 +225,18 @@ export default function BuyScreen() {
             </Text>
           </View>
 
-          {/* Amount */}
-          <Card className="px-4 pt-2 pb-5">
-            <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider px-2 mt-2">
-              {t("buy.amount.label")}
-            </Text>
+          {/* Amount — card-less hero (glyph + Phudu, like the home balance) */}
+          <View className="pt-1">
             <BuyAmountInput
               value={amount}
               onValueChange={setAmount}
               presets={PRESETS}
             />
-          </Card>
+          </View>
 
           {/* Payment method */}
           <View className="gap-2">
-            <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider px-1">
-              {t("buy.method.label")}
-            </Text>
+            <Text className={SECTION_LABEL}>{t("buy.method.label")}</Text>
             <PaymentMethodPicker
               options={paymentOptions}
               value={paymentCurrency}
@@ -260,7 +259,7 @@ export default function BuyScreen() {
 
           {/* Active-wallet badge: confirms which wallet receives FAIR. */}
           {activeWalletId ? (
-            <Card className="p-3 flex-row items-center gap-3">
+            <View className="flex-row items-center gap-3 bg-surface rounded-2xl p-3.5">
               <View className="w-9 h-9 rounded-full bg-primary/10 items-center justify-center">
                 <MaterialCommunityIcons
                   name="wallet"
@@ -279,24 +278,25 @@ export default function BuyScreen() {
                   {truncateMid(activeWalletId, 6, 6)}
                 </Text>
               </View>
-            </Card>
+            </View>
           ) : null}
 
           {error ? (
-            <Card className="border border-destructive/50 p-4">
+            <View className="bg-destructive/10 rounded-2xl p-3.5">
               <Text className="text-destructive text-sm text-center">
                 {error}
               </Text>
-            </Card>
+            </View>
           ) : null}
         </View>
       </ScrollView>
 
-      {/* Fixed bottom CTA */}
+      {/* Fixed bottom CTA — hairline divider instead of a bordered bar */}
       <View
-        className="absolute left-0 right-0 bottom-0 bg-background border-t border-border"
+        className="absolute left-0 right-0 bottom-0 bg-background"
         style={{ paddingBottom: insets.bottom + 12, paddingTop: 12 }}
       >
+        <View className="absolute left-0 right-0 top-0 h-px bg-border" />
         <View
           className="w-full self-center px-4"
           style={{ maxWidth: CONTENT_MAX_WIDTH }}

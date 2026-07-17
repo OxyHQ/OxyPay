@@ -14,14 +14,14 @@
 import "../src/crypto-polyfill";
 import "../global.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
-import { vars } from "nativewind";
 import * as Linking from "expo-linking";
+import * as Notifications from "expo-notifications";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { KeyboardProvider as NativeKeyboardProvider } from "react-native-keyboard-controller";
@@ -35,13 +35,12 @@ const KeyboardProvider =
   Platform.OS === "web"
     ? ({ children }: { children: React.ReactNode }) => <>{children}</>
     : NativeKeyboardProvider;
-import {
-  BloomThemeProvider,
-  useBloomTheme,
-  APP_COLOR_PRESETS,
-} from "@oxyhq/bloom/theme";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
+import { queryClient } from "../src/services/query-client";
+import { useExplorerRealtime } from "../src/hooks/useExplorerRealtime";
 import { useWalletStore } from "../src/wallet/wallet-store";
 import { useLockStore } from "../src/wallet/lock-store";
 import { LockGate } from "../src/ui/components/LockGate";
@@ -50,6 +49,9 @@ import { initLanguage } from "../src/i18n";
 import { useLanguageStore } from "../src/i18n/store";
 import { getItemAsync, setItemAsync } from "../src/storage/kv-store";
 import { startTxNotifier } from "../src/services/tx-notifier";
+import { startSyncNotifier } from "../src/services/sync-notifier";
+import { startPushRegistration } from "../src/services/push-registration";
+import { handleIncomingPush } from "../src/services/push-handler";
 import { registerBackgroundSync } from "../src/services/background-sync";
 
 // Module-level initialization. Resolves the persisted or device language,
@@ -67,6 +69,15 @@ const languageInitPromise = initLanguage()
 // before any wallet state is hydrated so the subscriber sees every new tx
 // beyond the initial snapshot.
 startTxNotifier();
+
+// Mirror sync progress into an ongoing notification while the wallet syncs.
+startSyncNotifier();
+
+// Keep the background-notification subscription in sync with the wallet + prefs
+// (registers the watch-only xpub when the user enables payment notifications).
+// No-op on web/electron and until the user opts in. Safe at module scope: the
+// native modules it needs are required lazily inside the call.
+startPushRegistration();
 
 // Best-effort background task registration for wake-up payment alerts.
 // Safe on platforms that don't support background tasks (web / electron).
@@ -148,6 +159,33 @@ function useDeepLinkHandler() {
   }, [initialized, locked, consumePendingDeepLink, navigateFromUrl]);
 }
 
+/**
+ * Route a silent payment push to the on-device handler. The server sends a
+ * data-only push carrying `{ txid, event }` (never an amount, spec §4.2); this
+ * listener wakes the handler, which syncs the txid and posts a LOCAL
+ * notification with the amount composed on-device.
+ *
+ * Our own local notifications (received / sent / sync) carry no `txid`, so the
+ * guard below skips them — this only acts on server pushes.
+ */
+function usePushNotificationHandler() {
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const data = notification.request.content.data;
+        const txid = data?.txid;
+        if (typeof txid !== "string" || txid.length === 0) return;
+        const event =
+          typeof data?.event === "string" ? data.event : "incoming_confirmed";
+        void handleIncomingPush({ txid, event });
+      },
+    );
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+}
+
 function useAutoLock() {
   const initialized = useWalletStore((s) => s.initialized);
   const lockWallet = useWalletStore((s) => s.lockWallet);
@@ -187,28 +225,6 @@ function useAutoLock() {
   }, [handleStateChange]);
 }
 
-/**
- * Bridges Bloom preset CSS tokens into NativeWind vars().
- * This makes Tailwind classes (bg-background, text-primary, etc.)
- * resolve to the active Bloom theme colors.
- */
-function useThemeVars() {
-  const { theme, colorPreset } = useBloomTheme();
-  const tokens = theme.isDark
-    ? APP_COLOR_PRESETS[colorPreset].dark
-    : APP_COLOR_PRESETS[colorPreset].light;
-
-  return useMemo(() => {
-    const entries: Record<`--${string}`, string> = {};
-    for (const [key, value] of Object.entries(tokens)) {
-      entries[key as `--${string}`] = value;
-    }
-    entries["--success"] = tokens["--primary"] ?? "92 96% 65%";
-    entries["--warning"] = "45 93% 47%";
-    return vars(entries);
-  }, [tokens]);
-}
-
 // ---------------------------------------------------------------------------
 // Root layout
 // ---------------------------------------------------------------------------
@@ -216,6 +232,7 @@ function useThemeVars() {
 export default function RootLayout() {
   useDeepLinkHandler();
   useAutoLock();
+  usePushNotificationHandler();
 
   const [fontsLoaded] = useFonts({
     "Phudu-Light": require("../assets/fonts/Phudu-Light.ttf"),
@@ -256,12 +273,15 @@ export default function RootLayout() {
             mode={mode}
             colorPreset="faircoin"
             onModeChange={handleModeChange}
+            fonts={false}
           >
             <BottomSheetModalProvider>
-              <AppContent
-                key={language}
-                ready={fontsLoaded && themeReady && languageReady}
-              />
+              <QueryClientProvider client={queryClient}>
+                <AppContent
+                  key={language}
+                  ready={fontsLoaded && themeReady && languageReady}
+                />
+              </QueryClientProvider>
             </BottomSheetModalProvider>
           </BloomThemeProvider>
         </SafeAreaProvider>
@@ -272,7 +292,10 @@ export default function RootLayout() {
 
 function AppContent({ ready }: { ready: boolean }) {
   const { theme } = useBloomTheme();
-  const themeVars = useThemeVars();
+
+  // Keep the Explorer realtime socket alive (foreground-gated) so the home
+  // Overview's network stats tick live off the WebSocket.
+  useExplorerRealtime();
 
   // Hide splash screen once fonts and theme are loaded
   const splashHidden = useRef(false);
@@ -282,7 +305,7 @@ function AppContent({ ready }: { ready: boolean }) {
   }
 
   return (
-    <View style={[{ flex: 1 }, themeVars]}>
+    <View style={{ flex: 1 }}>
       <StatusBar style={theme.isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
@@ -305,7 +328,7 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="peers" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="chain" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="language" options={{ headerShown: false, presentation: "modal" }} />
-        <Stack.Screen name="map" options={{ headerShown: false, presentation: "modal" }} />
+        <Stack.Screen name="notifications-settings" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="transaction/[txid]" options={{ headerShown: false }} />
         <Stack.Screen name="buy" options={{ headerShown: false }} />
       </Stack>

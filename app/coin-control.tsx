@@ -6,23 +6,19 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, Pressable } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useWalletStore, getDatabase } from "../src/wallet/wallet-store";
 import {
   AmountText,
-  Section,
-  ListItem,
-  Card,
   Button,
   EmptyState,
   ScreenHeader,
 } from "../src/ui/components";
 import { ScrollView } from "react-native";
 import { useTheme } from "@oxyhq/bloom/theme";
-import { COIN_TICKER } from "@fairco.in/core";
 import { t } from "../src/i18n";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +42,10 @@ function truncateTxid(txid: string): string {
   if (txid.length <= 16) return txid;
   return `${txid.slice(0, 8)}...${txid.slice(-8)}`;
 }
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 // ---------------------------------------------------------------------------
 // Main screen
@@ -73,7 +73,7 @@ export default function CoinControlScreen() {
     title: string;
     description: string;
   } | null>(null);
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string) => {
@@ -179,94 +179,105 @@ export default function CoinControlScreen() {
         onBack={() => router.back()}
       />
       <ScrollView className="flex-1" contentContainerClassName="px-5 pb-4">
-        {/* Selection actions */}
-        <View className="flex-row gap-3 mb-4">
+        {/* Selection actions — borderless pills */}
+        <View className="flex-row gap-2 mt-2 mb-5">
           <Pressable
-            className="bg-surface border border-border rounded-lg px-3 py-1.5"
+            className="bg-surface rounded-full px-4 py-2 active:opacity-70"
             onPress={handleSelectAll}
           >
-            <Text className="text-primary text-xs">
+            <Text className="text-primary text-xs font-semibold">
               {t("coinControl.selectAll")}
             </Text>
           </Pressable>
           <Pressable
-            className="bg-surface border border-border rounded-lg px-3 py-1.5"
+            className="bg-surface rounded-full px-4 py-2 active:opacity-70"
             onPress={handleClear}
           >
-            <Text className="text-muted-foreground text-xs">
+            <Text className="text-muted-foreground text-xs font-semibold">
               {t("coinControl.clear")}
             </Text>
           </Pressable>
         </View>
 
-        {/* UTXO list */}
-        <Section title={t("coinControl.unspentOutputs")} className="mb-4">
-          {utxos.length === 0 ? (
-            <EmptyState
-              icon="database-off"
-              title={t("coinControl.empty.title")}
-              subtitle={t("coinControl.empty.subtitle")}
-            />
-          ) : (
-            utxos.map((utxo, idx) => {
+        {/* UTXO list — borderless selectable rows */}
+        <Text className={SECTION_LABEL}>{t("coinControl.unspentOutputs")}</Text>
+        {utxos.length === 0 ? (
+          <EmptyState
+            icon="database-off"
+            title={t("coinControl.empty.title")}
+            subtitle={t("coinControl.empty.subtitle")}
+          />
+        ) : (
+          <View className="gap-2 mt-2">
+            {utxos.map((utxo, idx) => {
               const key = `${utxo.txid}:${utxo.vout}`;
               const isSelected = selected.has(key);
               return (
-                <ListItem
+                <Pressable
                   key={`utxo-${idx}-${key}`}
-                  title={`${truncateTxid(utxo.txid)}:${utxo.vout}`}
-                  subtitle={`${utxo.address.slice(0, 12)}...`}
-                  value={
+                  onPress={() => handleToggle(utxo.txid, utxo.vout)}
+                  className={`flex-row items-center rounded-2xl px-4 py-3.5 active:opacity-80 ${
+                    isSelected ? "bg-primary/15" : "bg-surface"
+                  }`}
+                >
+                  <View className="flex-1 mr-3">
+                    <Text
+                      className={`text-sm font-semibold ${
+                        isSelected ? "text-primary" : "text-foreground"
+                      }`}
+                      numberOfLines={1}
+                    >
+                      {`${truncateTxid(utxo.txid)}:${utxo.vout}`}
+                    </Text>
+                    <Text
+                      className="text-muted-foreground text-xs mt-0.5"
+                      numberOfLines={1}
+                    >
+                      {`${utxo.address.slice(0, 12)}...`}
+                    </Text>
+                  </View>
+                  <View className="mr-3">
                     <AmountText
                       value={utxo.value}
-                      fixedDecimalScale
-                      suffix={` ${COIN_TICKER}`}
-                      className="text-muted-foreground text-sm"
-                    />
-                  }
-                  isLast={idx === utxos.length - 1}
-                  onPress={() => handleToggle(utxo.txid, utxo.vout)}
-                  showChevron={false}
-                  trailing={
-                    <View
-                      className={`w-5 h-5 rounded border items-center justify-center ${
-                        isSelected
-                          ? "bg-primary border-primary"
-                          : "bg-transparent border-muted-foreground"
+                      symbol
+                      symbolSize={12}
+                      className={`text-sm font-semibold ${
+                        isSelected ? "text-primary" : "text-foreground"
                       }`}
-                    >
-                      {isSelected ? (
-                         <MaterialCommunityIcons
-                          name="check"
-                          size={14}
-                          color={theme.colors.background}
-                        />
-                      ) : null}
-                    </View>
-                  }
-                />
+                      numberOfLines={1}
+                    />
+                  </View>
+                  <MaterialCommunityIcons
+                    name={
+                      isSelected ? "check-circle" : "checkbox-blank-circle-outline"
+                    }
+                    size={22}
+                    color={
+                      isSelected ? theme.colors.primary : theme.colors.textSecondary
+                    }
+                  />
+                </Pressable>
               );
-            })
-          )}
-        </Section>
+            })}
+          </View>
+        )}
 
-        {/* Selection summary */}
+        {/* Selection summary — card-less bordered surface */}
         {selectedCount > 0 ? (
-          <Card className="p-4 mb-4">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-muted-foreground text-sm">
-                {selectedCount === 1
-                  ? t("coinControl.selected.one", { count: selectedCount })
-                  : t("coinControl.selected.other", { count: selectedCount })}
-              </Text>
-              <AmountText
-                value={selectedTotal}
-                fixedDecimalScale
-                suffix={` ${COIN_TICKER}`}
-                className="text-primary text-sm font-semibold"
-              />
-            </View>
-          </Card>
+          <View className="bg-surface border border-border rounded-2xl px-4 py-3.5 mt-5 flex-row items-center justify-between">
+            <Text className="text-muted-foreground text-sm">
+              {selectedCount === 1
+                ? t("coinControl.selected.one", { count: selectedCount })
+                : t("coinControl.selected.other", { count: selectedCount })}
+            </Text>
+            <AmountText
+              value={selectedTotal}
+              fixedDecimalScale
+              symbol
+              symbolSize={14}
+              className="text-primary text-sm font-semibold"
+            />
+          </View>
         ) : null}
       </ScrollView>
 
@@ -286,16 +297,20 @@ export default function CoinControlScreen() {
         />
       </View>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => {
-          setMessage(null);
-          router.back();
-        }}
-        showCancel={false}
+        actions={[
+          {
+            label: t("common.ok"),
+            onPress: () => {
+              setMessage(null);
+              router.back();
+            },
+          },
+        ]}
       />
     </SafeAreaView>
   );

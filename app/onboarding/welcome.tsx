@@ -5,7 +5,7 @@
 import { useCallback, useMemo } from "react";
 import { View, Text, Image, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { Button } from "../../src/ui/components/Button";
 import { FONT_PHUDU_BLACK } from "../../src/utils/fonts";
 import { APP_NAME } from "@fairco.in/core";

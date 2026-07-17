@@ -6,7 +6,7 @@
  */
 
 import { View, Text, Image, Pressable } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";

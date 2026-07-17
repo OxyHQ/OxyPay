@@ -28,21 +28,32 @@ export function LockGate() {
     // the secret and initialize now; if the wallet is still initialized (no-PIN
     // path), this is a cheap no-op.
     const run = async () => {
-      if (!useWalletStore.getState().initialized) {
-        const mnemonic = await getMnemonic();
-        if (mnemonic) {
-          // Re-open the SAME wallet's database. `getMnemonic` resolves the
-          // active wallet's secret, so the database must be scoped to that same
-          // wallet id — otherwise a re-init after locking a switched (non-
-          // default) wallet would open the default `fairwallet.db` instead.
-          const activeId =
-            useWalletStore.getState().activeWalletId ??
-            (await getActiveWalletId()) ??
-            undefined;
-          await initialize(mnemonic, activeId);
-        }
+      if (useWalletStore.getState().initialized) {
+        unlock();
+        return;
       }
-      unlock();
+      const mnemonic = await getMnemonic();
+      if (!mnemonic) {
+        unlock();
+        return;
+      }
+      // Re-open the SAME wallet's database. `getMnemonic` resolves the active
+      // wallet's secret, so the database must be scoped to that same wallet id
+      // — otherwise a re-init after locking a switched (non-default) wallet
+      // would open the default `fairwallet.db` instead.
+      const activeId =
+        useWalletStore.getState().activeWalletId ??
+        (await getActiveWalletId()) ??
+        undefined;
+      // Lift the lock the instant persisted state is hydrated (onReady), so the
+      // wallet is usable immediately after PIN entry; the SPV/P2P sync then
+      // continues in the background. If init fails during hydration onReady
+      // never fires, so unlock below still lifts the overlay (the wallet error
+      // state surfaces the failure) rather than trapping the user behind it.
+      await initialize(mnemonic, activeId, unlock);
+      if (!useWalletStore.getState().initialized) {
+        unlock();
+      }
     };
     // The unlock transition must happen regardless of initialization outcome,
     // so surface nothing here — a failed init lands in the wallet error state.

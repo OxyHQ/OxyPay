@@ -6,14 +6,17 @@ import { useCallback, useState } from "react";
 import { View, Text, ScrollView, TextInput } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { getDatabase } from "../../src/wallet/wallet-store";
-import { Card } from "../../src/ui/components/Card";
 import { Button } from "../../src/ui/components/Button";
 import { COIN_NAME } from "@fairco.in/core";
 import { t } from "../../src/i18n";
 
 const DEFAULT_PORT = "46372";
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 function isValidIPv4(ip: string): boolean {
   const octets = ip.split(".");
@@ -57,7 +60,7 @@ export default function AddPeerScreen() {
     description: string;
     onConfirm?: () => void;
   } | null>(null);
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
 
   const showMessage = useCallback(
     (title: string, description: string, onConfirm?: () => void) => {
@@ -104,75 +107,90 @@ export default function AddPeerScreen() {
     <>
       <ScrollView
         className="flex-1 bg-background"
-        contentContainerClassName="px-5 pt-6 pb-8"
+        contentContainerClassName="px-5 pt-6 pb-10"
         keyboardShouldPersistTaps="handled"
       >
-        <Text className="text-muted-foreground text-sm mb-6">
+        <Text className="text-muted-foreground text-sm mb-6 leading-5">
           {t("peers.add.description", { coin: COIN_NAME, port: DEFAULT_PORT })}
         </Text>
 
-        <Card className="p-4 mb-6">
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("peers.add.ipLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-4"
-            placeholder={t("peers.add.ipPlaceholder")}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={ip}
-            onChangeText={(text) => {
-              setIp(text);
-              setError(null);
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="numbers-and-punctuation"
-            returnKeyType="next"
-          />
+        {/* Card-less: filled surface fields, no borders (matches the send sheet) */}
+        <View className="gap-5">
+          <View>
+            <Text className={SECTION_LABEL}>{t("peers.add.ipLabel")}</Text>
+            <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2">
+              <TextInput
+                className="text-foreground text-base"
+                style={{ paddingVertical: 2 }}
+                placeholder={t("peers.add.ipPlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={ip}
+                onChangeText={(text) => {
+                  setIp(text);
+                  setError(null);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="numbers-and-punctuation"
+                returnKeyType="next"
+              />
+            </View>
+          </View>
 
-          <Text className="text-muted-foreground text-xs mb-1">
-            {t("peers.add.portLabel")}
-          </Text>
-          <TextInput
-            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base"
-            placeholder={DEFAULT_PORT}
-            placeholderTextColor={theme.colors.textSecondary}
-            value={port}
-            onChangeText={(text) => {
-              setPort(text);
-              setError(null);
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="number-pad"
-            returnKeyType="done"
-          />
-        </Card>
+          <View>
+            <Text className={SECTION_LABEL}>{t("peers.add.portLabel")}</Text>
+            <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2">
+              <TextInput
+                className="text-foreground text-base"
+                style={{ paddingVertical: 2 }}
+                placeholder={DEFAULT_PORT}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={port}
+                onChangeText={(text) => {
+                  setPort(text);
+                  setError(null);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="number-pad"
+                returnKeyType="done"
+              />
+            </View>
+          </View>
+        </View>
 
         {error ? (
-          <Text className="text-destructive text-sm mb-4 px-1">{error}</Text>
+          <View className="bg-destructive/10 rounded-2xl p-3.5 mt-5">
+            <Text className="text-destructive text-sm text-center">{error}</Text>
+          </View>
         ) : null}
 
-        <Button
-          title={t("peers.add.cta")}
-          onPress={handleAdd}
-          variant="primary"
-          loading={loading}
-          disabled={loading}
-        />
+        <View className="mt-6">
+          <Button
+            title={t("peers.add.cta")}
+            onPress={handleAdd}
+            variant="primary"
+            loading={loading}
+            disabled={loading}
+          />
+        </View>
       </ScrollView>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => {
-          const cb = message?.onConfirm;
-          setMessage(null);
-          cb?.();
-        }}
-        showCancel={false}
+        actions={[
+          {
+            label: t("common.ok"),
+            onPress: () => {
+              const cb = message?.onConfirm;
+              setMessage(null);
+              cb?.();
+            },
+          },
+        ]}
       />
     </>
   );

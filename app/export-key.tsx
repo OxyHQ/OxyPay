@@ -7,7 +7,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -16,20 +16,22 @@ import { verifyPin } from "../src/storage/secure-store";
 import { encryptBIP38, getNetwork } from "@fairco.in/core";
 import { KeyManager } from "../src/wallet/key-manager";
 import {
-  Card,
   Button,
   ListItem,
-  Section,
   EmptyState,
   ScreenHeader,
 } from "../src/ui/components";
 import { PinDots } from "../src/ui/components/PinDots";
 import { PinPad } from "../src/ui/components/PinPad";
 import { useTheme } from "@oxyhq/bloom/theme";
-import * as Prompt from "@oxyhq/bloom/prompt";
+import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { t } from "../src/i18n";
 
 const PIN_LENGTH = 6;
+
+/** Uppercase section label — matches the home screen's section headers. */
+const SECTION_LABEL =
+  "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
 // ---------------------------------------------------------------------------
 // Step type for the export flow
@@ -57,7 +59,7 @@ export default function ExportKeyScreen() {
   const [encryptedKey, setEncryptedKey] = useState<string | null>(null);
   const [encrypting, setEncrypting] = useState(false);
 
-  const messageControl = Prompt.usePromptControl();
+  const messageControl = useDialogControl();
   const [message, setMessage] = useState<{
     title: string;
     description: string;
@@ -253,7 +255,7 @@ export default function ExportKeyScreen() {
           </View>
 
           {pinError ? (
-            <Text className="text-red-400 text-xs text-center mb-3">
+            <Text className="text-destructive text-xs text-center mb-3">
               {pinError}
             </Text>
           ) : null}
@@ -285,15 +287,15 @@ export default function ExportKeyScreen() {
           className="flex-1"
           contentContainerClassName="px-5 pt-4 pb-8"
         >
-          <Section className="mt-4">
-            {addresses.length === 0 ? (
-              <EmptyState
-                icon="key-remove"
-                title={t("exportKey.select.empty.title")}
-                subtitle={t("exportKey.select.empty.subtitle")}
-              />
-            ) : (
-              addresses.map((address, idx) => (
+          {addresses.length === 0 ? (
+            <EmptyState
+              icon="key-remove"
+              title={t("exportKey.select.empty.title")}
+              subtitle={t("exportKey.select.empty.subtitle")}
+            />
+          ) : (
+            <View className="bg-surface border border-border rounded-2xl overflow-hidden mt-4">
+              {addresses.map((address, idx) => (
                 <ListItem
                   key={`addr-${idx}-${address}`}
                   icon="key"
@@ -302,9 +304,9 @@ export default function ExportKeyScreen() {
                   isLast={idx === addresses.length - 1}
                   onPress={() => handleSelectAddress(address)}
                 />
-              ))
-            )}
-          </Section>
+              ))}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     );
@@ -326,41 +328,47 @@ export default function ExportKeyScreen() {
           contentContainerClassName="px-5 pt-4 pb-8"
           keyboardShouldPersistTaps="handled"
         >
-          <Card className="p-4 mt-4 mb-4">
-            <Text className="text-muted-foreground text-xs mb-1">
-              {t("exportKey.passphrase.label")}
-            </Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base mb-3"
-              placeholder={t("exportKey.passphrase.placeholder")}
-              placeholderTextColor={theme.colors.textSecondary}
-              value={passphrase}
-              onChangeText={setPassphrase}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+          <View className="gap-5 mt-4 mb-4">
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("exportKey.passphrase.label")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
+                placeholder={t("exportKey.passphrase.placeholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={passphrase}
+                onChangeText={setPassphrase}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
 
-            <Text className="text-muted-foreground text-xs mb-1">
-              {t("exportKey.passphrase.confirmLabel")}
-            </Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-base"
-              placeholder={t("exportKey.passphrase.confirmPlaceholder")}
-              placeholderTextColor={theme.colors.textSecondary}
-              value={confirmPassphrase}
-              onChangeText={setConfirmPassphrase}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <View>
+              <Text className={SECTION_LABEL}>
+                {t("exportKey.passphrase.confirmLabel")}
+              </Text>
+              <TextInput
+                className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
+                placeholder={t("exportKey.passphrase.confirmPlaceholder")}
+                placeholderTextColor={theme.colors.textSecondary}
+                value={confirmPassphrase}
+                onChangeText={setConfirmPassphrase}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
 
             {passphraseError ? (
-              <Text className="text-red-400 text-xs mt-3">
-                {passphraseError}
-              </Text>
+              <View className="bg-destructive/10 rounded-2xl p-3.5">
+                <Text className="text-destructive text-sm text-center">
+                  {passphraseError}
+                </Text>
+              </View>
             ) : null}
-          </Card>
+          </View>
 
           <Button
             title={
@@ -375,13 +383,12 @@ export default function ExportKeyScreen() {
           />
         </ScrollView>
 
-        <Prompt.Basic
+        <Dialog
           control={messageControl}
+          placement="bottom"
           title={message?.title ?? ""}
           description={message?.description ?? ""}
-          confirmButtonCta={t("common.ok")}
-          onConfirm={() => setMessage(null)}
-          showCancel={false}
+          actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
         />
       </SafeAreaView>
     );
@@ -402,16 +409,16 @@ export default function ExportKeyScreen() {
         className="flex-1"
         contentContainerClassName="px-5 pt-4 pb-8"
       >
-        {/* Encrypted key display */}
+        {/* Encrypted key display — card-less bordered surface, tap to copy */}
         <Pressable onPress={handleCopyEncrypted}>
-          <Card className="p-4 mt-4 mb-4 border border-primary">
+          <View className="bg-surface border border-border rounded-2xl p-4 mt-4 mb-4">
             <Text
               className="text-primary text-sm text-center font-mono"
               selectable
             >
               {encryptedKey}
             </Text>
-          </Card>
+          </View>
         </Pressable>
 
         <Button
@@ -427,24 +434,23 @@ export default function ExportKeyScreen() {
           }
         />
 
-        {/* Warning */}
-        <Card className="p-4 mt-6">
+        {/* Warning — borderless tinted strip */}
+        <View className="bg-yellow-400/10 rounded-2xl p-4 mt-6">
           <Text className="text-yellow-400 text-sm font-semibold mb-1">
             {t("exportKey.warning.title")}
           </Text>
           <Text className="text-yellow-400/80 text-xs leading-5">
             {t("exportKey.warning.description")}
           </Text>
-        </Card>
+        </View>
       </ScrollView>
 
-      <Prompt.Basic
+      <Dialog
         control={messageControl}
+        placement="bottom"
         title={message?.title ?? ""}
         description={message?.description ?? ""}
-        confirmButtonCta={t("common.ok")}
-        onConfirm={() => setMessage(null)}
-        showCancel={false}
+        actions={[{ label: t("common.ok"), onPress: () => setMessage(null) }]}
       />
     </SafeAreaView>
   );

@@ -62,14 +62,23 @@ export class KeyManager {
   }
 
   /**
-   * Create a KeyManager from a BIP39 mnemonic.
-   * Derives the BIP44 account key: m/44'/coinType'/0'
+   * Derive the raw BIP39 seed from a mnemonic. Exposed separately from
+   * {@link fromSeed} because this is the single expensive step (PBKDF2, 2048
+   * rounds — several seconds on Hermes): callers that persist the seed (so
+   * unlock can skip re-deriving it) run this once, then build every subsequent
+   * KeyManager from the cached bytes via {@link fromSeed}.
    */
-  static fromMnemonic(
-    mnemonic: string,
-    network: NetworkConfig,
-  ): KeyManager {
-    const seed = mnemonicToSeedSync(mnemonic);
+  static deriveSeed(mnemonic: string): Uint8Array {
+    return mnemonicToSeedSync(mnemonic);
+  }
+
+  /**
+   * Create a KeyManager from a raw BIP39 seed. Derives the BIP44 account key
+   * (m/44'/coinType'/0') and the initial address batch. This is the cheap part
+   * of {@link fromMnemonic} — it does NOT run the PBKDF2 mnemonic→seed step, so
+   * it's used on unlock with a cached seed.
+   */
+  static fromSeed(seed: Uint8Array, network: NetworkConfig): KeyManager {
     const root = HDKey.fromMasterSeed(seed, {
       public: network.bip32.public,
       private: network.bip32.private,
@@ -87,6 +96,14 @@ export class KeyManager {
     }
 
     return manager;
+  }
+
+  /**
+   * Create a KeyManager from a BIP39 mnemonic. Derives the seed then the BIP44
+   * account key: m/44'/coinType'/0'.
+   */
+  static fromMnemonic(mnemonic: string, network: NetworkConfig): KeyManager {
+    return KeyManager.fromSeed(KeyManager.deriveSeed(mnemonic), network);
   }
 
   /**
@@ -141,6 +158,26 @@ export class KeyManager {
   /** Whether this manager is watch-only (xpub) and therefore cannot sign. */
   isWatchOnly(): boolean {
     return this.watchOnly;
+  }
+
+  /**
+   * The account-level extended PUBLIC key (the xpub at m/44'/coinType'/0').
+   *
+   * This is the watch-only key the wallet registers with a notification server:
+   * it lets the server derive our receive/change addresses (BIP32 public
+   * derivation) but carries NO private material, so it can never sign or spend.
+   * Exposing it here means push registration needs no private key and works even
+   * while the wallet is PIN-locked.
+   *
+   * @throws If the underlying account key has no extended public key (should
+   *         never happen — every manager is built from a public-capable key).
+   */
+  accountXpub(): string {
+    const xpub = this.accountKey.publicExtendedKey;
+    if (!xpub) {
+      throw new Error("Account key has no extended public key");
+    }
+    return xpub;
   }
 
   /**

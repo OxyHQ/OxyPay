@@ -1,27 +1,26 @@
 /**
  * BuyAmountInput — large hero amount input for the Buy-FAIR flow.
  *
- * Wraps the shared `AmountInput` with the "⊜ ###.##" hero typography used on
- * the Send screen, plus a USD conversion line below the field. The conversion
- * uses the cached spot price from the explorer-backed price service; if the
- * price isn't available yet we hide the line rather than show "$0.00".
+ * Mirrors the home balance / SendSheet hero: the FairCoin logo glyph
+ * (`FairCoinSymbol`) sitting beside a big Phudu number, with a USD conversion
+ * line below the field. The conversion uses the cached spot price from the
+ * explorer-backed price service; if the price isn't available yet we hide the
+ * line rather than show "$0.00". Preset chips are borderless pills — active
+ * `bg-primary/15`, inactive `bg-surface` — matching the app's card-less look.
  */
 
 import { useMemo } from "react";
 import { View, Text, Pressable } from "react-native";
 import { useTheme } from "@oxyhq/bloom/theme";
-import { COIN_SYMBOL, parseFairToUnits, UNITS_PER_COIN } from "@fairco.in/core";
+import { parseFairToUnits, UNITS_PER_COIN } from "@fairco.in/core";
 import { AmountInput } from "../../ui/components/AmountInput";
-import {
-  FONT_PHUDU_BLACK,
-  FONT_PHUDU_LIGHT,
-} from "../../utils/fonts";
+import { FairCoinSymbol } from "../../ui/components/FairCoinSymbol";
+import { FONT_PHUDU_BLACK } from "../../utils/fonts";
 import { t } from "../../i18n";
 import { getCachedPrice } from "../../services/price";
 
 const AMOUNT_FONT_SIZE_MAX = 44;
 const AMOUNT_FONT_SIZE_MIN = 22;
-const AMOUNT_SYMBOL_RATIO = 34 / 44;
 const AMOUNT_SHRINK_THRESHOLD = 9;
 const AMOUNT_SHRINK_FLOOR = 18;
 
@@ -58,22 +57,17 @@ export function BuyAmountInput({
 
   const lengthForSizing = value.length > 0 ? value.length : 1;
   const amountFontSize = getAmountFontSize(lengthForSizing);
-  const symbolFontSize = Math.round(amountFontSize * AMOUNT_SYMBOL_RATIO);
 
   return (
     <View className="items-center pt-4 pb-2">
-      <View className="flex-row items-baseline justify-center w-full px-4">
-        <Text
-          className="text-primary mr-1"
-          style={{
-            fontFamily: FONT_PHUDU_LIGHT,
-            fontSize: symbolFontSize,
-            includeFontPadding: false,
-          }}
-          numberOfLines={1}
+      {/* Hero amount — FairCoin glyph + Phudu number, like the home balance */}
+      <View className="flex-row items-end justify-center w-full px-4">
+        <View
+          className="mr-1.5"
+          style={{ marginBottom: amountFontSize * 0.16 }}
         >
-          {COIN_SYMBOL}
-        </Text>
+          <FairCoinSymbol size={Math.round(amountFontSize * 0.6)} />
+        </View>
         <AmountInput
           className="text-foreground flex-shrink"
           style={{
@@ -104,9 +98,7 @@ export function BuyAmountInput({
                 key={preset}
                 onPress={() => onValueChange(preset)}
                 className={`rounded-full px-4 py-2 ${
-                  selected
-                    ? "bg-primary/20 border border-primary"
-                    : "bg-surface border border-transparent"
+                  selected ? "bg-primary/15" : "bg-surface"
                 }`}
               >
                 <Text

@@ -1,54 +1,49 @@
 /**
- * ActionButton — circular icon button with label below.
- * Used for primary actions like Send, Receive, Stake, etc.
+ * ActionButton — a rounded "pill" quick action (icon above a label) used in the
+ * home actions row. Sits in a `flex-row` with `flex-1` siblings so a row of them
+ * divides the width evenly. Card-less: a `surface` fill with primary-coloured,
+ * left-aligned icon + label.
  */
 
-import { useMemo } from "react";
-import { View, Text, Pressable } from "react-native";
+import { Text, Pressable } from "react-native";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-type ActionButtonSize = "sm" | "md" | "lg";
 
 interface ActionButtonProps {
   icon: IconName;
   label: string;
   onPress: () => void;
-  size?: ActionButtonSize;
+  /** Custom icon renderer; overrides `icon`. Receives the themed color + size. */
+  renderIcon?: (opts: { color: string; size: number }) => React.ReactNode;
 }
-
-interface SizeConfig {
-  circle: string;
-  iconSize: number;
-  textClass: string;
-}
-
-const SIZE_CONFIG: Record<ActionButtonSize, SizeConfig> = {
-  sm: { circle: "w-11 h-11", iconSize: 18, textClass: "text-[10px]" },
-  md: { circle: "w-14 h-14", iconSize: 22, textClass: "text-xs" },
-  lg: { circle: "w-16 h-16", iconSize: 26, textClass: "text-sm" },
-};
 
 export function ActionButton({
   icon,
   label,
   onPress,
-  size = "md",
+  renderIcon,
 }: ActionButtonProps) {
-  const config = useMemo(() => SIZE_CONFIG[size], [size]);
   const theme = useTheme();
 
   return (
-    <Pressable onPress={onPress} className="items-center active:opacity-70">
-      <View
-        className={`${config.circle} rounded-full bg-primary/10 items-center justify-center`}
-      >
-        <MaterialCommunityIcons name={icon} size={config.iconSize} color={theme.colors.primary} />
-      </View>
-      <Text className={`text-muted-foreground ${config.textClass} mt-1.5 font-medium`}>
-        {label}
-      </Text>
+    <Pressable
+      onPress={onPress}
+      className="flex-1 items-start bg-surface border border-border rounded-3xl px-3.5 py-4 active:opacity-70"
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      {renderIcon ? (
+        renderIcon({ color: theme.colors.primary, size: 22 })
+      ) : (
+        <MaterialCommunityIcons
+          name={icon}
+          size={22}
+          color={theme.colors.primary}
+        />
+      )}
+      <Text className="text-primary text-xs mt-1.5 font-medium">{label}</Text>
     </Pressable>
   );
 }

@@ -118,6 +118,33 @@ function accountXprv(): string {
   return root.derive(`m/44'/${MAINNET.bip44CoinType}'/0'`).privateExtendedKey;
 }
 
+describe("KeyManager.accountXpub", () => {
+  test("returns the account-level extended public key (m/44'/119'/0')", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    // Must equal the independently-derived account xpub for this mnemonic, so
+    // the watch-only registration payload carries the SAME key the server needs
+    // to derive our receive/change addresses.
+    expect(km.accountXpub()).toBe(accountXpub());
+  });
+
+  test("round-trips: fromXpub(accountXpub()) derives the same addresses", () => {
+    const full = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    const xpub = full.accountXpub();
+    expect(typeof xpub).toBe("string");
+    expect(xpub.length).toBeGreaterThan(0);
+
+    const watch = KeyManager.fromXpub(xpub, MAINNET);
+    expect(watch.getExternalAddresses()[0]).toBe(full.getExternalAddresses()[0]);
+    expect(watch.getExternalAddresses()).toEqual(full.getExternalAddresses());
+  });
+
+  test("a watch-only manager re-exports the SAME xpub it was built from", () => {
+    const xpub = accountXpub();
+    const watch = KeyManager.fromXpub(xpub, MAINNET);
+    expect(watch.accountXpub()).toBe(xpub);
+  });
+});
+
 describe("KeyManager.fromXpub (watch-only)", () => {
   test("derives the SAME addresses a full wallet would (watches the right keys)", () => {
     const full = KeyManager.fromMnemonic(MNEMONIC, MAINNET);

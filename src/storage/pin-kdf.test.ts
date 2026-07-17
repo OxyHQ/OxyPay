@@ -8,6 +8,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { scryptAsync } from "@noble/hashes/scrypt";
+import { bytesToHex } from "@fairco.in/core";
 import {
   buildPinRecord,
   verifyPinRecord,
@@ -18,6 +20,21 @@ import {
 
 const PIN = "135790";
 const WRONG = "000000";
+
+/** Reproduce a pre-embedding record: `scrypt$<salt>$<hash>` at the old N=2^15. */
+async function buildLegacyScryptRecord(pin: string): Promise<string> {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const hash = bytesToHex(
+    await scryptAsync(new TextEncoder().encode(pin), salt, {
+      N: 2 ** 15,
+      r: 8,
+      p: 1,
+      dkLen: 32,
+    }),
+  );
+  return `${PIN_SCHEME_PREFIX}${bytesToHex(salt)}$${hash}`;
+}
 
 describe("M2: salted-scrypt PIN records", () => {
   test("a correct PIN verifies against its scrypt record", async () => {
@@ -53,6 +70,45 @@ describe("M2: salted-scrypt PIN records", () => {
     const bad = `${PIN_SCHEME_PREFIX}nothex$deadbeef`;
     const { valid } = await verifyPinRecord(PIN, bad);
     expect(valid).toBe(false);
+  });
+
+  test("a new record embeds its scrypt cost params (self-describing)", async () => {
+    const record = await buildPinRecord(PIN);
+    // scrypt$<N>$<r>$<p>$<salt>$<hash> — six `$`-separated fields incl. prefix.
+    const fields = record.split("$");
+    expect(fields[0]).toBe("scrypt");
+    expect(Number(fields[1])).toBeGreaterThan(1); // N (power of two)
+    expect(Number(fields[2])).toBeGreaterThan(0); // r
+    expect(Number(fields[3])).toBeGreaterThan(0); // p
+    expect(fields.length).toBe(6);
+  });
+});
+
+describe("scrypt cost migration (legacy fixed-cost → self-describing)", () => {
+  test("a legacy N=2^15 record verifies and upgrades to the current cost", async () => {
+    const legacy = await buildLegacyScryptRecord(PIN);
+    // Two fields after the prefix: no embedded params.
+    expect(legacy.split("$").length).toBe(3);
+
+    const result = await verifyPinRecord(PIN, legacy);
+    expect(result.valid).toBe(true);
+    // The slow record must be re-costed to the current (fast) params.
+    expect(result.upgradedRecord).not.toBeNull();
+    const upgraded = result.upgradedRecord ?? "";
+    expect(upgraded.split("$").length).toBe(6); // now self-describing
+
+    // The upgraded record still verifies the same PIN and rejects a wrong one.
+    expect((await verifyPinRecord(PIN, upgraded)).valid).toBe(true);
+    expect((await verifyPinRecord(WRONG, upgraded)).valid).toBe(false);
+    // A correct verify of the already-current record needs no further upgrade.
+    expect((await verifyPinRecord(PIN, upgraded)).upgradedRecord).toBeNull();
+  });
+
+  test("a wrong PIN against a legacy fixed-cost record fails with no upgrade", async () => {
+    const legacy = await buildLegacyScryptRecord(PIN);
+    const result = await verifyPinRecord(WRONG, legacy);
+    expect(result.valid).toBe(false);
+    expect(result.upgradedRecord).toBeNull();
   });
 });
 
