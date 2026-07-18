@@ -21,8 +21,8 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon-foreground.png",
-        "monochromeImage": "./assets/adaptive-icon-foreground.png",
-        "backgroundColor": "#1b1e09"
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#FFFFFF"
       },
       "predictiveBackGestureEnabled": true,
       "package": "so.oxy.pay",
@@ -61,10 +61,10 @@
         {
           "image": "./assets/adaptive-icon-foreground.png",
           "imageWidth": 200,
-          "backgroundColor": "#1b1e09",
+          "backgroundColor": "#FFFFFF",
           "dark": {
             "image": "./assets/adaptive-icon-foreground.png",
-            "backgroundColor": "#1b1e09"
+            "backgroundColor": "#FFFFFF"
           }
         }
       ],
@@ -85,7 +85,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#9ffb4f",
+          "color": "#0064B3",
           "sounds": [
             "./assets/sounds/sent.mp3",
             "./assets/sounds/received.mp3",
