@@ -44,6 +44,7 @@ const CHANGE_GAP_LIMIT = 10;
 export class KeyManager {
   private readonly accountKey: HDKey;
   private readonly network: NetworkConfig;
+  private readonly account: number;
   private readonly externalKeys: Map<string, DerivedKeyEntry> = new Map();
   private readonly changeKeys: Map<string, DerivedKeyEntry> = new Map();
   private nextExternalIndex = 0;
@@ -55,10 +56,12 @@ export class KeyManager {
     accountKey: HDKey,
     network: NetworkConfig,
     watchOnly: boolean,
+    account: number,
   ) {
     this.accountKey = accountKey;
     this.network = network;
     this.watchOnly = watchOnly;
+    this.account = account;
   }
 
   /**
@@ -74,18 +77,22 @@ export class KeyManager {
 
   /**
    * Create a KeyManager from a raw BIP39 seed. Derives the BIP44 account key
-   * (m/44'/coinType'/0') and the initial address batch. This is the cheap part
+   * (m/44'/coinType'/account') and the initial address batch. This is the cheap part
    * of {@link fromMnemonic} — it does NOT run the PBKDF2 mnemonic→seed step, so
    * it's used on unlock with a cached seed.
    */
-  static fromSeed(seed: Uint8Array, network: NetworkConfig): KeyManager {
+  static fromSeed(
+    seed: Uint8Array,
+    network: NetworkConfig,
+    account = 0,
+  ): KeyManager {
     const root = HDKey.fromMasterSeed(seed, {
       public: network.bip32.public,
       private: network.bip32.private,
     });
-    const accountPath = `m/44'/${network.bip44CoinType}'/0'`;
+    const accountPath = `m/44'/${network.bip44CoinType}'/${account}'`;
     const accountKey = root.derive(accountPath);
-    const manager = new KeyManager(accountKey, network, false);
+    const manager = new KeyManager(accountKey, network, false, account);
 
     // Pre-generate initial batch of addresses up to the gap limit
     for (let i = 0; i < EXTERNAL_GAP_LIMIT; i++) {
@@ -100,15 +107,19 @@ export class KeyManager {
 
   /**
    * Create a KeyManager from a BIP39 mnemonic. Derives the seed then the BIP44
-   * account key: m/44'/coinType'/0'.
+   * account key: m/44'/coinType'/account'.
    */
-  static fromMnemonic(mnemonic: string, network: NetworkConfig): KeyManager {
-    return KeyManager.fromSeed(KeyManager.deriveSeed(mnemonic), network);
+  static fromMnemonic(
+    mnemonic: string,
+    network: NetworkConfig,
+    account = 0,
+  ): KeyManager {
+    return KeyManager.fromSeed(KeyManager.deriveSeed(mnemonic), network, account);
   }
 
   /**
    * Create a watch-only KeyManager from an account-level extended public key
-   * (the xpub at m/44'/coinType'/0'). Derives receive/change addresses from the
+   * (the xpub at m/44'/coinType'/account'). Derives receive/change addresses from the
    * neutered public key — NO private keys are ever produced, so the wallet can
    * track balances but cannot sign or spend.
    *
@@ -119,7 +130,7 @@ export class KeyManager {
    * @throws If the string is not a valid extended public key for this network,
    *         or if it carries private material (an xprv was supplied).
    */
-  static fromXpub(xpub: string, network: NetworkConfig): KeyManager {
+  static fromXpub(xpub: string, network: NetworkConfig, account = 0): KeyManager {
     const trimmed = xpub.trim();
     let accountKey: HDKey;
     try {
@@ -143,7 +154,7 @@ export class KeyManager {
       throw new Error("Extended key has no public key");
     }
 
-    const manager = new KeyManager(accountKey, network, true);
+    const manager = new KeyManager(accountKey, network, true, account);
 
     for (let i = 0; i < EXTERNAL_GAP_LIMIT; i++) {
       manager.deriveExternal(i);
@@ -158,6 +169,11 @@ export class KeyManager {
   /** Whether this manager is watch-only (xpub) and therefore cannot sign. */
   isWatchOnly(): boolean {
     return this.watchOnly;
+  }
+
+  /** The BIP44 account index (Pocket) this manager derives under. */
+  getAccount(): number {
+    return this.account;
   }
 
   /**
@@ -515,7 +531,7 @@ export class KeyManager {
     const hash = hash160(publicKey);
     const address = encodeAddress(hash, this.network.pubKeyHash);
     const isChange = chain === 1;
-    const path = `m/44'/${this.network.bip44CoinType}'/0'/${chain}/${index}`;
+    const path = `m/44'/${this.network.bip44CoinType}'/${this.account}'/${chain}/${index}`;
 
     const entry: DerivedKeyEntry = {
       address,

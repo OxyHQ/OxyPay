@@ -31,6 +31,7 @@ import { planRescan, type RescanProgress } from "../p2p/rescan";
 import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
+import { resolveMoveDestinationAddress } from "./move-address";
 import { UTXOSet, type UTXO } from "./utxo-set";
 import {
   selectInputsForSend,
@@ -75,6 +76,22 @@ import {
   buildSeedSecret,
   deriveIdentitySeed,
 } from "./identity-wallet";
+import {
+  getPockets,
+  savePockets,
+  getActivePocket,
+  setActivePocket,
+  clearPockets,
+} from "../storage/pockets-store";
+import {
+  type PocketInfo,
+  MAIN_POCKET_ACCOUNT,
+  addPocket,
+  renamePocket as renamePocketList,
+  updatePocketMeta as updatePocketMetaList,
+  removePocket as removePocketList,
+  canDeletePocket,
+} from "./pockets";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +146,12 @@ export interface WalletState {
   isWatchOnly: boolean;
   /** Whether the active wallet's recovery phrase has been backed up. */
   hasBackedUp: boolean;
+  /** Active Pocket (BIP44 account index) within the current wallet. */
+  activeAccount: number;
+  /** Pockets (BIP44 sub-accounts) of the current wallet. */
+  pockets: PocketInfo[];
+  /** Per-Pocket balance (account index → confirmed+unconfirmed sats). */
+  pocketBalances: Record<number, bigint>;
 
   // Balance
   balance: bigint;
@@ -180,6 +203,7 @@ export interface WalletState {
     mnemonic: string,
     walletId?: string,
     onReady?: () => void,
+    account?: number,
   ) => Promise<void>;
   /**
    * Bring up the SINGLE Oxy-identity-derived wallet. Derives the seed from the
@@ -216,6 +240,28 @@ export interface WalletState {
   importWatchOnly: (name: string, xpub: string) => Promise<void>;
   deleteWallet: (walletId: string) => Promise<void>;
   renameActiveWallet: (name: string) => Promise<void>;
+
+  // Pockets
+  loadPockets: () => Promise<void>;
+  switchPocket: (account: number) => Promise<void>;
+  createPocket: (
+    name: string,
+    emoji: string,
+    color: string,
+    goal?: number,
+  ) => Promise<number>;
+  renamePocket: (account: number, name: string) => Promise<void>;
+  /** Update a Pocket's emoji/color/goal. Pass `goal: null` to clear an existing goal. */
+  updatePocketMeta: (
+    account: number,
+    updates: { emoji?: string; color?: string; goal?: number | null },
+  ) => Promise<void>;
+  deletePocket: (account: number) => Promise<void>;
+  moveBetweenPockets: (
+    toAccount: number,
+    amount: bigint,
+    feeRate: number,
+  ) => Promise<string>;
 
   // Network switching
   switchNetwork: (network: NetworkType) => Promise<void>;
@@ -368,6 +414,25 @@ export function getActiveAccountXpub(): string | null {
  */
 export function getActiveWalletAddresses(): string[] {
   return keyManager?.getAllAddresses() ?? [];
+}
+
+/**
+ * Sum the confirmed+unconfirmed unspent value persisted for a Pocket by reading
+ * its isolated database directly. Used to show balances for Pockets that are not
+ * the active one (their UTXO set is not loaded into memory). Opens read-only and
+ * always closes.
+ */
+async function readPocketUnspentTotal(
+  walletId: string,
+  account: number,
+): Promise<bigint> {
+  const db = await Database.open(walletId, account);
+  try {
+    const rows = await db.getUnspentUTXOs();
+    return rows.reduce((sum, row) => sum + BigInt(row.value), 0n);
+  } finally {
+    await db.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +939,9 @@ const DEFAULT_WALLET_STATE = {
   masternodeUTXOs: [] as MasternodeUTXO[],
   isWatchOnly: false,
   hasBackedUp: false,
+  activeAccount: 0,
+  pockets: [] as PocketInfo[],
+  pocketBalances: {} as Record<number, bigint>,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
 
@@ -945,6 +1013,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   wallets: [],
   isWatchOnly: false,
   hasBackedUp: false,
+  activeAccount: 0,
+  pockets: [],
+  pocketBalances: {},
 
   balance: 0n,
   confirmedBalance: 0n,
@@ -975,6 +1046,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     mnemonic: string,
     walletId?: string,
     onReady?: () => void,
+    account?: number,
   ): Promise<void> => {
     // N-1: serialise wallet initialisation. If two callers race (deep-link +
     // boot, double-tap wallet switch, restore + network switch, …) we must
@@ -998,32 +1070,45 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       try {
       networkConfig = getNetwork(state.network);
-      database = await Database.open(walletId);
+
+      // Resolve the wallet + active Pocket once, up front. When `account` is
+      // omitted (boot / unlock / wallet switch) restore the persisted active
+      // Pocket; explicit callers (switchPocket) pass it. Account 0 keeps the
+      // legacy DB file, so pre-Pockets wallets open exactly where they always did.
+      const activeId = walletId ?? (await getActiveWalletId());
+      const resolvedAccount =
+        account ?? (activeId ? await getActivePocket(activeId) : 0);
+
+      database = await Database.open(activeId ?? undefined, resolvedAccount);
       // A wallet's stored secret is either a BIP39 mnemonic or the watch-only
       // marker `xpub:<extended public key>`. The marker MUST route to the
       // public-only KeyManager: feeding it into mnemonicToSeedSync would
       // silently derive a random spendable keypair (BIP39 doesn't validate),
-      // producing a dangerous fake wallet (review finding C2).
+      // producing a dangerous fake wallet (review finding C2). Watch-only
+      // wallets have no Pockets, so they always open at account 0.
       if (mnemonic.startsWith(SEED_SECRET_PREFIX)) {
         // Identity-derived wallet: the "secret" carries the 32-byte HKDF seed
         // directly (never persisted, re-derived from the Oxy identity each
-        // boot). Build straight from the seed — no BIP39 detour.
+        // boot). Build straight from the seed — no BIP39 detour. Still
+        // account-aware so the identity wallet supports Pockets like any
+        // other wallet.
         const seed = hexToBytes(mnemonic.slice(SEED_SECRET_PREFIX.length));
-        keyManager = KeyManager.fromSeed(seed, networkConfig);
+        keyManager = KeyManager.fromSeed(seed, networkConfig, resolvedAccount);
       } else if (mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
         const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
         keyManager = KeyManager.fromXpub(xpub, networkConfig);
       } else {
         // Reuse the cached BIP39 seed when present so unlock skips the
         // multi-second PBKDF2 mnemonic→seed derivation; derive + cache it on the
-        // first run. Keyed by the same wallet identity the mnemonic belongs to.
-        const seedCacheId = walletId ?? (await getActiveWalletId()) ?? "default";
+        // first run. The seed is shared by every Pocket of this wallet, so it is
+        // keyed by the wallet identity, and the account selects the subtree.
+        const seedCacheId = activeId ?? "default";
         let seed = await getCachedWalletSeed(seedCacheId);
         if (!seed) {
           seed = KeyManager.deriveSeed(mnemonic);
           await cacheWalletSeed(seedCacheId, seed);
         }
-        keyManager = KeyManager.fromSeed(seed, networkConfig);
+        keyManager = KeyManager.fromSeed(seed, networkConfig, resolvedAccount);
       }
       utxoSet = new UTXOSet();
 
@@ -1061,8 +1146,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         addressList.push(derived.address);
       }
 
-      // Load wallet info
-      const activeId = walletId ?? await getActiveWalletId();
+      // Load wallet info. `activeId` was already resolved above (alongside
+      // the active Pocket) so the DB-open path and this lookup agree.
       const wallets = await getWalletIndex();
       const activeWallet = activeId
         ? wallets.find((w) => w.id === activeId)
@@ -1128,6 +1213,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         hasBackedUp: backedUp,
         wallets,
         isWatchOnly: watchOnly,
+        activeAccount: resolvedAccount,
       });
 
       // The wallet is now fully hydrated from persisted SQLite state (cached
@@ -1870,6 +1956,180 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     });
   },
 
+  loadPockets: async (): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    const activeAccount = get().activeAccount;
+    const balances: Record<number, bigint> = {};
+    for (const pocket of list) {
+      balances[pocket.account] =
+        pocket.account === activeAccount
+          ? get().balance
+          : await readPocketUnspentTotal(walletId, pocket.account);
+    }
+    set({ pockets: list, pocketBalances: balances });
+  },
+
+  switchPocket: async (account: number): Promise<void> => {
+    const state = get();
+    if (state.activeAccount === account) return;
+    const walletId = state.activeWalletId;
+    if (!walletId) return;
+
+    // Serialise the whole switch, exactly like switchWallet: tear the current
+    // Pocket down (close its DB, wipe the KeyManager, clear intervals) and
+    // re-init the module globals for the new account.
+    return queueWalletInit(async () => {
+      set({ loading: true, error: null });
+      try {
+        if (database) {
+          await database.close();
+        }
+        resetWalletInternals();
+        set({
+          ...DEFAULT_WALLET_STATE,
+          network: state.network,
+          activeWalletId: walletId,
+          activeWalletName: state.activeWalletName,
+          wallets: state.wallets,
+          pockets: state.pockets,
+          activeAccount: account,
+          loading: true,
+        });
+        await setActivePocket(walletId, account);
+        const mnemonic = await getWalletMnemonic(walletId);
+        if (!mnemonic) {
+          throw new Error("Wallet mnemonic not found");
+        }
+        await get().initialize(mnemonic, walletId, undefined, account);
+        await get().loadPockets();
+      } catch (err: unknown) {
+        set({
+          loading: false,
+          error: err instanceof Error ? err.message : "Failed to switch pocket",
+        });
+      }
+    });
+  },
+
+  createPocket: async (
+    name: string,
+    emoji: string,
+    color: string,
+    goal?: number,
+  ): Promise<number> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) {
+      throw new Error("No active wallet");
+    }
+    const list = await getPockets(walletId);
+    const updated = addPocket(list, name.trim(), emoji, color, goal, Date.now());
+    await savePockets(walletId, updated);
+    await get().loadPockets();
+    return updated[updated.length - 1].account;
+  },
+
+  renamePocket: async (account: number, name: string): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    await savePockets(walletId, renamePocketList(list, account, name.trim()));
+    await get().loadPockets();
+  },
+
+  updatePocketMeta: async (
+    account: number,
+    updates: { emoji?: string; color?: string; goal?: number | null },
+  ): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    await savePockets(walletId, updatePocketMetaList(list, account, updates));
+    await get().loadPockets();
+  },
+
+  deletePocket: async (account: number): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    if (!canDeletePocket(list, account)) {
+      throw new Error("This pocket cannot be deleted");
+    }
+    const total = await readPocketUnspentTotal(walletId, account);
+    if (total > 0n) {
+      throw new Error("Move funds out of this pocket before deleting it");
+    }
+    await savePockets(walletId, removePocketList(list, account));
+    if (get().activeAccount === account) {
+      await get().switchPocket(MAIN_POCKET_ACCOUNT);
+    } else {
+      await get().loadPockets();
+    }
+  },
+
+  moveBetweenPockets: async (
+    toAccount: number,
+    amount: bigint,
+    feeRate: number,
+  ): Promise<string> => {
+    const state = get();
+    const walletId = state.activeWalletId;
+    if (!walletId) {
+      throw new Error("No active wallet");
+    }
+    if (state.isWatchOnly) {
+      throw new Error("Watch-only wallets cannot move funds");
+    }
+    if (toAccount === state.activeAccount) {
+      throw new Error("Choose a different destination pocket");
+    }
+    if (!networkConfig) {
+      throw new Error("Wallet not initialized");
+    }
+
+    // The shared seed is cached during initialize; fall back to deriving it from
+    // the mnemonic if the cache was cleared. Watch-only wallets have no seed.
+    let seed = await getCachedWalletSeed(walletId);
+    if (!seed) {
+      const mnemonic = await getWalletMnemonic(walletId);
+      if (!mnemonic || mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
+        throw new Error("Wallet seed unavailable");
+      }
+      seed = KeyManager.deriveSeed(mnemonic);
+      await cacheWalletSeed(walletId, seed);
+    }
+
+    // Resolve + persist the destination Pocket's next receive address in ITS own
+    // isolated database so that Pocket watches it once it next syncs.
+    const destDb = await Database.open(walletId, toAccount);
+    let destAddress: string;
+    try {
+      const nextIndex = await destDb.getNextUnusedIndex(false);
+      const dest = resolveMoveDestinationAddress(
+        seed,
+        networkConfig,
+        toAccount,
+        nextIndex,
+      );
+      await destDb.insertAddress(dest.address, dest.path, dest.index, false);
+      // Mark it used immediately: this address is about to receive the move, so
+      // treating it as unused until the destination Pocket next syncs would let
+      // a second move (before that sync) derive and reuse the SAME address —
+      // this advances getNextUnusedIndex so back-to-back moves never collide.
+      await destDb.markAddressUsed(dest.address);
+      destAddress = dest.address;
+    } finally {
+      await destDb.close();
+    }
+
+    // Reuse the existing send path: an ordinary on-chain self-transfer spending
+    // from the active (source) Pocket to the destination Pocket's address.
+    const txid = await get().sendTransaction(destAddress, amount, feeRate);
+    await get().loadPockets();
+    return txid;
+  },
+
   createNewWallet: async (name: string): Promise<string> => {
     set({ loading: true, error: null });
 
@@ -1979,6 +2239,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       await removeWalletFromIndex(walletId);
       await deleteWalletMnemonic(walletId);
       await deleteCachedWalletSeed(walletId);
+      await clearPockets(walletId);
 
       // Reload wallet list
       const remainingWallets = await getWalletIndex();

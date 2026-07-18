@@ -11,6 +11,7 @@
  */
 
 import * as SQLite from "expo-sqlite";
+import { databaseFileName } from "./db-name";
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -243,8 +244,6 @@ const UTXO_MIGRATION_COLUMNS: readonly { name: string; ddl: string }[] = [
 // Database class
 // ---------------------------------------------------------------------------
 
-const DEFAULT_DATABASE_NAME = "fairwallet.db";
-
 export class Database {
   private readonly db: SQLite.SQLiteDatabase;
 
@@ -253,13 +252,11 @@ export class Database {
   }
 
   /**
-   * Open a database. If a walletId is provided, the database file
-   * is scoped to that wallet (fairwallet_{walletId}.db).
+   * Open a database for a wallet + Pocket. `account` (BIP44 account index)
+   * partitions each Pocket into its own file; account 0 keeps the legacy name.
    */
-  static async open(walletId?: string): Promise<Database> {
-    const dbName = walletId
-      ? `fairwallet_${walletId}.db`
-      : DEFAULT_DATABASE_NAME;
+  static async open(walletId?: string, account = 0): Promise<Database> {
+    const dbName = databaseFileName(walletId, account);
     const db = await SQLite.openDatabaseAsync(dbName);
     const instance = new Database(db);
     await instance.initialize();

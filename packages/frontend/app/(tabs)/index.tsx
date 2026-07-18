@@ -39,6 +39,8 @@ import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon
 import { HubIcon } from "../../src/ui/components/HubIcon";
 import { SendIcon } from "../../src/ui/components/SendIcon";
 import { WalletSwitcherSheet } from "../../src/ui/sheets/WalletSwitcherSheet";
+import { PocketSwitcherSheet } from "../../src/ui/sheets/PocketSwitcherSheet";
+import { findPocket, MAIN_POCKET_ACCOUNT } from "../../src/wallet/pockets";
 import { TransactionDetailSheet } from "../../src/ui/sheets/TransactionDetailSheet";
 import {
   RefreshRainbowBar,
@@ -150,6 +152,10 @@ export default function HomeScreen() {
   const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
   const refreshBalance = useWalletStore((s) => s.refreshBalance);
   const hasBackedUp = useWalletStore((s) => s.hasBackedUp);
+  const pockets = useWalletStore((s) => s.pockets);
+  const activeAccount = useWalletStore((s) => s.activeAccount);
+  const isWatchOnly = useWalletStore((s) => s.isWatchOnly);
+  const loadPockets = useWalletStore((s) => s.loadPockets);
 
   const [price, setPrice] = useState<PriceData | null>(getCachedPrice);
   const [tab, setTab] = useState<HomeTab>("activity");
@@ -160,6 +166,16 @@ export default function HomeScreen() {
   const [sheetMode, setSheetMode] = useState<"send" | "receive">("send");
   // Tapping the wallet name opens a quick wallet-switcher sheet.
   const walletSwitcherControl = useDialogControl();
+  // Tapping the active-Pocket pill opens a quick Pocket-switcher sheet.
+  const pocketSwitcherControl = useDialogControl();
+  const activePocket = useMemo(
+    () => findPocket(pockets, activeAccount),
+    [pockets, activeAccount],
+  );
+  const activePocketName =
+    !activePocket || activePocket.account === MAIN_POCKET_ACCOUNT
+      ? t("pockets.mainName")
+      : activePocket.name;
   // Tapping an activity row opens the transaction detail in a bottom sheet.
   const txDetailControl = useDialogControl();
   const [detailTxid, setDetailTxid] = useState<string | null>(null);
@@ -174,8 +190,9 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       startPricePolling((updated) => setPrice(updated));
+      loadPockets();
       return () => stopPricePolling();
-    }, []),
+    }, [loadPockets]),
   );
 
   // Home suggestion deck (swipe a card to dismiss it and reveal the next).
@@ -403,6 +420,32 @@ export default function HomeScreen() {
             size="lg"
             align="start"
           />
+          {/* Active-Pocket pill — opens the Pocket switcher. Watch-only
+              wallets have no Pockets, so the pill (and the whole Pockets
+              surface) is hidden for them. */}
+          {!isWatchOnly ? (
+            <Pressable
+              className="self-start flex-row items-center bg-surface rounded-full pl-1.5 pr-3 py-1.5 mt-2 active:opacity-70"
+              onPress={() => pocketSwitcherControl.open()}
+              accessibilityRole="button"
+              accessibilityLabel={t("pockets.switcherTitle")}
+            >
+              <View
+                className="w-5 h-5 rounded-full items-center justify-center mr-1.5"
+                style={{ backgroundColor: `${activePocket?.color ?? theme.colors.primary}29` }}
+              >
+                <Text style={{ fontSize: 11 }}>{activePocket?.emoji ?? "💧"}</Text>
+              </View>
+              <Text className="text-foreground text-sm font-medium">
+                {activePocketName}
+              </Text>
+              <MaterialCommunityIcons
+                name="chevron-down"
+                size={16}
+                color={theme.colors.textSecondary}
+              />
+            </Pressable>
+          ) : null}
         </View>
 
         {/* ---- Quick actions ---- */}
@@ -531,6 +574,13 @@ export default function HomeScreen() {
         title={t("wallets.title")}
       >
         <WalletSwitcherSheet onDone={() => walletSwitcherControl.close()} />
+      </Dialog>
+      <Dialog
+        control={pocketSwitcherControl}
+        placement="bottom"
+        title={t("pockets.switcherTitle")}
+      >
+        <PocketSwitcherSheet onDone={() => pocketSwitcherControl.close()} />
       </Dialog>
       <Dialog
         control={txDetailControl}
