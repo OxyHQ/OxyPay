@@ -29,7 +29,7 @@
     "@noble/hashes": "1.8.0",
     "@noble/secp256k1": "2.3.0",
     "@oxyhq/bloom": "0.35.5",
-    "@oxyhq/core": "^12.5.4",
+    "@oxyhq/core": "^12.7.0",
     "@oxyhq/services": "^22.4.0",
     "@oxypay/shared-types": "*",
     "@react-native-async-storage/async-storage": "^2.2.0",

@@ -9,6 +9,7 @@
  */
 
 import { create, type StoreApi } from "zustand";
+import { Platform } from "react-native";
 import {
   generateMnemonic,
   validateMnemonic,
@@ -68,12 +69,20 @@ import {
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
+import {
+  OXY_IDENTITY_WALLET_ID,
+  SEED_SECRET_PREFIX,
+  buildSeedSecret,
+  deriveIdentitySeed,
+} from "./identity-wallet";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type FeeLevel = "low" | "medium" | "high";
+
+export type IdentityInitResult = "initialized" | "no-identity" | "web-unsupported";
 
 /**
  * Discrete P2P network states. Stored on the wallet store as a key (rather
@@ -172,6 +181,13 @@ export interface WalletState {
     walletId?: string,
     onReady?: () => void,
   ) => Promise<void>;
+  /**
+   * Bring up the SINGLE Oxy-identity-derived wallet. Derives the seed from the
+   * on-device identity, builds the KeyManager, and runs the normal init. No
+   * mnemonic. Native-only; returns "web-unsupported" on web and "no-identity"
+   * for a keyless account (routes onboarding to create an Oxy ID).
+   */
+  initializeFromIdentity: (onReady?: () => void) => Promise<IdentityInitResult>;
   createWallet: () => Promise<string>;
   restoreWallet: (mnemonic: string) => Promise<void>;
   refreshBalance: () => void;
@@ -988,7 +1004,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // public-only KeyManager: feeding it into mnemonicToSeedSync would
       // silently derive a random spendable keypair (BIP39 doesn't validate),
       // producing a dangerous fake wallet (review finding C2).
-      if (mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
+      if (mnemonic.startsWith(SEED_SECRET_PREFIX)) {
+        // Identity-derived wallet: the "secret" carries the 32-byte HKDF seed
+        // directly (never persisted, re-derived from the Oxy identity each
+        // boot). Build straight from the seed — no BIP39 detour.
+        const seed = hexToBytes(mnemonic.slice(SEED_SECRET_PREFIX.length));
+        keyManager = KeyManager.fromSeed(seed, networkConfig);
+      } else if (mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
         const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
         keyManager = KeyManager.fromXpub(xpub, networkConfig);
       } else {
@@ -1052,7 +1074,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // "back up your wallet" reminder. Watch-only wallets have no phrase to
       // back up, so they never prompt.
       const backedUp =
-        activeId && !watchOnly ? await isWalletBackedUp(activeId) : true;
+        activeId === OXY_IDENTITY_WALLET_ID
+          ? true
+          : activeId && !watchOnly
+            ? await isWalletBackedUp(activeId)
+            : true;
 
       // Reconstruct the persisted transaction history into the display list.
       // The `transactions` table stores raw_hex + block metadata but not the
@@ -1255,6 +1281,22 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         set({ loading: false, error: message });
       }
     });
+  },
+
+  initializeFromIdentity: async (onReady?: () => void): Promise<IdentityInitResult> => {
+    // The wallet is native-only: the identity key is unavailable on web
+    // (spec §9). Distinguish "web" (permanently unsupported) from "no-identity"
+    // (a keyless account that can create an Oxy ID) so onboarding routes each
+    // correctly.
+    if (Platform.OS === "web") {
+      return "web-unsupported";
+    }
+    const seed = await deriveIdentitySeed();
+    if (!seed) {
+      return "no-identity";
+    }
+    await get().initialize(buildSeedSecret(seed), OXY_IDENTITY_WALLET_ID, onReady);
+    return "initialized";
   },
 
   createWallet: async (): Promise<string> => {
