@@ -1969,9 +1969,6 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     if (!walletId) return;
     const list = await getPockets(walletId);
     await savePockets(walletId, renamePocketList(list, account, name.trim()));
-    if (account === get().activeAccount) {
-      set({ activeWalletName: name.trim() });
-    }
     await get().loadPockets();
   },
 
