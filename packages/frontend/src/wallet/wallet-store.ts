@@ -2409,13 +2409,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           loading: true,
         });
 
-        // Re-initialize with the current wallet's mnemonic on the new network
+        // Re-initialize with the current wallet's secret on the new network.
+        // Identity-wallet-aware, mirroring switchPocket: the identity
+        // wallet's seed is re-derived from the Oxy identity and can't be
+        // fetched via `getWalletMnemonic` like a BIP39 wallet's, so route
+        // through `resolveWalletSeed` instead. Unlike Pockets (gated off for
+        // watch-only wallets in the UI), network switching IS reachable for
+        // watch-only wallets from Settings — they carry an `xpub:` marker,
+        // not a spending seed, so they stay on the plain marker path via
+        // `getWalletMnemonic`. Any resolution failure throws into the catch
+        // below instead of silently leaving the wallet torn down.
         if (state.activeWalletId) {
-          const mnemonic = await getWalletMnemonic(state.activeWalletId);
-          if (mnemonic) {
-            await get().initialize(mnemonic, state.activeWalletId);
+          if (state.isWatchOnly) {
+            const marker = await getWalletMnemonic(state.activeWalletId);
+            if (!marker) {
+              throw new Error("Wallet xpub not found");
+            }
+            await get().initialize(marker, state.activeWalletId);
           } else {
-            set({ loading: false });
+            const seed = await resolveWalletSeed(
+              state.activeWalletId,
+              walletSeedDeps,
+            );
+            await get().initialize(buildSeedSecret(seed), state.activeWalletId);
           }
         } else {
           set({ loading: false });
