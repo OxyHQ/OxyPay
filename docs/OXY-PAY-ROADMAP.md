@@ -46,7 +46,9 @@
 - [x] Suscripción Socket.io al estado del intent (`gateway-socket.subscribeToIntent`, token en handshake)
 - [x] **Pantalla aprobar-pago** (`app/pay/[intent].tsx`) + parser `oxypay://pay` + deep-link → aprobar → `sendTransaction` → `submitTx` → estado en vivo _(tsc + expo export + pay test verdes)_
 - [x] **Rebrand a `so.oxy.pay`** + variante dev/prod (`app.config.js`, `APP_VARIANT`) + **dev build Android instalado en dispositivo** (`so.oxy.pay.dev`, standalone arm64, FAIRWallet intacto). Fix de raíz: dedup `lightningcss` 1.30.1 vía override en `package.json` RAÍZ (bun solo honra el override de la raíz del workspace)
-- [ ] **Runtime:** verificar cold-boot de OxyProvider + `signIn()` + flujo aprobar-pago en el dispositivo (interactivo)
+- [x] **Runtime — arranque:** la app arranca en dispositivo sin crash. Bug encontrado y arreglado **de raíz**: `@oxyhq/core` publicaba Unicode property-escapes (`\p{scx=…}`, `\p{Zl}`, …) que el Hermes móvil (RN 0.86, `HERMES_ENABLE_UNICODE_REGEXP_PROPERTY_ESCAPES` OFF) rechaza en runtime → `Invalid RegExp: Invalid property name` al importar el barrel en boot. Fix en **@oxyhq/core@12.5.4** (regexpu-core transpila los `\p{}` a rangos en build; dist con 0 property-escapes; 979 tests + barrido de 1.1M code-points). OxyPay dedup a un único core 12.5.4 vía override en `package.json` raíz.
+- [ ] **Runtime — flujos (interactivo, pendiente usuario):** verificar cold-boot de OxyProvider + `signIn()` + flujo aprobar-pago en el dispositivo
+- [ ] **Rebrand interno:** el header/nombre de cuenta in-app aún dice "FAIRWallet" (strings del fork); rebrandear a "Oxy Pay" en la UI (i18n/strings del subtree)
 - [ ] Console: actualizar redirect URIs/scopes del client id reutilizado (acción en Console/oxy-api)
 
 ### Track C — Integración end-to-end
