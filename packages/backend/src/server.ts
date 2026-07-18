@@ -103,6 +103,14 @@ async function onIntentChange(
  */
 export function createGateway(deps: GatewayDeps = {}): Gateway {
   const app = express();
+
+  // Unauthenticated liveness probe for the ALB target-group health check.
+  // Mounted first so it is never CORS-blocked or rate-limited, and returns 200
+  // regardless of auth (every other route is auth-gated). It reveals nothing.
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
   app.use(createOxyCors());
   app.use(createOxyRateLimit(oxyClient));
   app.use(express.json());

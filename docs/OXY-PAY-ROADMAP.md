@@ -70,7 +70,10 @@
 - [ ] Refunds · Payouts · Antifraude · Disputas · Analítica
 
 ## Cross-cutting — Infra / CI  _(AWS, NO DigitalOcean)_
-- [ ] `Dockerfile` backend + `.dockerignore` (`**/node_modules`, `**/dist`)
-- [ ] `.github/workflows/deploy-aws.yml` (ECR→ECS, OIDC, bun 1.3.14) + `deploy-cloudflare.yml`
-- [ ] `oxy-infra/terraform-uswest2/app-oxypay.tf` + SSM `/oxy/oxypay/*`
+- [x] `Dockerfile` backend (2-stage, arm64, bun 1.3.14, hoisted, non-root) + `.dockerignore`
+- [x] `.github/workflows/deploy-aws.yml` (OIDC, ECR→ECS rolling, SSM secret sync)
+- [x] `GET /health` (liveness sin auth para el health check del ALB)
+- [ ] `deploy-cloudflare.yml` (frontend — bloqueado con Track B)
+- [ ] `oxy-infra/terraform-uswest2/app-oxypay.tf` — **prereq duro**: crea ECR `oxy/oxypay` + servicio ECS `oxypay` (port 3001, target group apunta a `/health`) + SSM `/oxy/oxypay/*`
+- [ ] GitHub repo secrets: `MONGODB_URI`, `SERVICE_TOKEN_SECRET` (= el que la Oxy API usa para mintear service tokens), `IP_HASH_SALT`, `DEVICE_ID_SALT`, `OXY_API_URL`
 - [ ] `pay.oxy.so` (CF Pages) + `api.pay.oxy.so` (ALB)

@@ -126,6 +126,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
+test("GET /health is an unauthenticated 200 liveness probe", async () => {
+  const res = await fetch(`${baseUrl}/health`);
+  expect(res.status).toBe(200);
+  expect((await res.json()) as { status: string }).toEqual({ status: "ok" });
+});
+
 test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", async () => {
   // 1. Merchant creates the charge.
   const createRes = await fetch(`${baseUrl}/v1/payment_intents`, {

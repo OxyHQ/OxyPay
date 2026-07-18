@@ -1,0 +1,29 @@
+# Build context excludes for the @oxypay/backend image (context = repo root).
+#
+# Use the **/ prefix so BuildKit matches NESTED directories too — a bare
+# `node_modules` / `dist` only matches the top-level entry, leaving stale
+# per-package copies in the context (and, for node_modules, a bloated/incorrect
+# install layer). See ~/Oxy/AGENTS.md (.dockerignore rule).
+**/node_modules
+**/dist
+**/build
+**/.expo
+**/tsconfig.tsbuildinfo
+**/__tests__
+
+.git
+.github
+docs
+*.md
+*.log
+coverage
+.DS_Store
+.env
+.env.local
+
+# Exclude the heavy Expo frontend source from the backend build context, but
+# KEEP its package.json: bun's frozen-lockfile install requires every workspace
+# member's manifest to be present, otherwise the lockfile is treated as
+# out-of-date and the install fails.
+packages/frontend/*
+!packages/frontend/package.json

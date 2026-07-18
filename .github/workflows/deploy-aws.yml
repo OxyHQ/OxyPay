@@ -1,0 +1,136 @@
+# Deploy the Oxy Pay Gateway backend (@oxypay/backend) to AWS ECS Fargate.
+#
+# Adapted from the canonical Mention backend workflow. Builds a native arm64
+# image on an arm64 runner, pushes it to ECR, and rolls the ECS service. The
+# ECR repo (oxy/oxypay) and the ECS service (oxypay on cluster oxy-cluster,
+# port 3001) are provisioned in terraform (~/Oxy/oxy-infra); the deploy step
+# no-ops gracefully until the service exists, so the first push can run before
+# the service is created (the image still lands in ECR).
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+    # The backend image bundles shared-types and the root manifests, so a change
+    # to any of them must trigger a redeploy — not just packages/backend/**.
+    paths:
+      - 'packages/backend/**'
+      - 'packages/shared-types/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'bunfig.toml'
+      - '.github/workflows/deploy-aws.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 237343248947.dkr.ecr.us-west-2.amazonaws.com
+  APP: oxypay
+  CLUSTER: oxy-cluster
+  DOCKERFILE: packages/backend/Dockerfile
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6
+        with:
+          role-to-assume: arn:aws:iam::237343248947:role/oxy-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync GitHub secrets -> SSM (GitHub is the source of truth)
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          # Explicit backend runtime allowlist. MONGODB_URI is read by config.ts;
+          # SERVICE_TOKEN_SECRET / IP_HASH_SALT / DEVICE_ID_SALT / OXY_API_URL are
+          # read by @oxyhq/core (service-auth verification + hashing). Do NOT sync
+          # unrelated CI/CD credentials into the SSM parameter hierarchy.
+          SSM_SECRET_ALLOWLIST: >-
+            MONGODB_URI SERVICE_TOKEN_SECRET IP_HASH_SALT DEVICE_ID_SALT
+            OXY_API_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+        run: |
+          SHARED="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY"
+          echo "$SECRETS_JSON" | jq -r --arg allowlist "$SSM_SECRET_ALLOWLIST" '
+            ($allowlist | split(" ")) as $allowed
+            | to_entries[]
+            | select(.key as $k | $allowed | index($k))
+            | [.key,.value]|@tsv
+          ' | \
+          while IFS=$'\t' read -r k v; do
+            [ -z "$k" ] && continue
+            if [ -z "$v" ] || [ "$v" = "-" ]; then
+              echo "::warning::skip empty/placeholder secret $k; SSM unchanged"
+              continue
+            fi
+            case " $SHARED " in *" $k "*) path="/oxy/_shared/$k";; *) path="/oxy/$APP/$k";; esac
+            aws ssm put-parameter --name "$path" --value "$v" --type SecureString --overwrite >/dev/null && echo "synced -> $path"
+          done
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
+
+      - name: Build and push (linux/arm64)
+        run: |
+          IMG=$ECR_REGISTRY/oxy/$APP
+          docker build -f "$DOCKERFILE" -t "$IMG:${{ github.sha }}" -t "$IMG:latest" .
+          docker push "$IMG:${{ github.sha }}"
+          docker push "$IMG:latest"
+
+      - name: Deploy to ECS (rolling; skipped until the service exists)
+        run: |
+          set -euo pipefail
+
+          # Poll the PRIMARY deployment's rolloutState instead of the fixed
+          # `aws ecs wait services-stable` waiter (which caps at 10 min and
+          # false-fails on a longer rollout + ALB drain).
+          MAX_WAIT_SECS=1200   # 20 min hard cap before we call it a real timeout
+          POLL_INTERVAL=15     # seconds between describe-services polls
+
+          STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" --query 'services[0].status' --output text 2>/dev/null || echo NONE)
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "ECS service $APP not created yet — image is in ECR, skipping deploy"
+            exit 0
+          fi
+
+          aws ecs update-service --cluster "$CLUSTER" --service "$APP" --force-new-deployment >/dev/null
+          echo "Triggered new deployment for $APP; polling rolloutState (timeout ${MAX_WAIT_SECS}s)..."
+
+          elapsed=0
+          while [ "$elapsed" -lt "$MAX_WAIT_SECS" ]; do
+            # describe-services must not abort the loop on a transient error (set -e safe).
+            DESC=$(aws ecs describe-services \
+              --cluster "$CLUSTER" --services "$APP" \
+              --query 'services[0].deployments[?status==`PRIMARY`]|[0].[rolloutState,runningCount,desiredCount]' \
+              --output text 2>/dev/null) || DESC=""
+
+            if [ -z "$DESC" ] || [ "$DESC" = "None" ]; then
+              echo "  ($elapsed s) no PRIMARY deployment info yet, retrying..."
+            else
+              ROLLOUT_STATE=$(echo "$DESC" | awk '{print $1}')
+              RUNNING=$(echo "$DESC" | awk '{print $2}')
+              DESIRED=$(echo "$DESC" | awk '{print $3}')
+              echo "  ($elapsed s) rolloutState=$ROLLOUT_STATE running=$RUNNING desired=$DESIRED"
+
+              if [ "$ROLLOUT_STATE" = "COMPLETED" ] && [ "$RUNNING" = "$DESIRED" ]; then
+                echo "deployed $APP — rollout COMPLETED ($RUNNING/$DESIRED tasks running)"
+                exit 0
+              fi
+              if [ "$ROLLOUT_STATE" = "FAILED" ]; then
+                echo "::error::ECS rollout for $APP FAILED — see service events in the AWS console"
+                exit 1
+              fi
+            fi
+
+            sleep "$POLL_INTERVAL"
+            elapsed=$((elapsed + POLL_INTERVAL))
+          done
+
+          echo "::error::ECS rollout for $APP did not reach COMPLETED within ${MAX_WAIT_SECS}s (genuine timeout)"
+          exit 1
