@@ -30,6 +30,7 @@ import { planRescan, type RescanProgress } from "../p2p/rescan";
 import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
+import { resolveMoveDestinationAddress } from "./move-address";
 import { UTXOSet, type UTXO } from "./utxo-set";
 import {
   selectInputsForSend,
@@ -229,6 +230,11 @@ export interface WalletState {
   createPocket: (name: string) => Promise<number>;
   renamePocket: (account: number, name: string) => Promise<void>;
   deletePocket: (account: number) => Promise<void>;
+  moveBetweenPockets: (
+    toAccount: number,
+    amount: bigint,
+    feeRate: number,
+  ) => Promise<string>;
 
   // Network switching
   switchNetwork: (network: NetworkType) => Promise<void>;
@@ -1989,6 +1995,63 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     } else {
       await get().loadPockets();
     }
+  },
+
+  moveBetweenPockets: async (
+    toAccount: number,
+    amount: bigint,
+    feeRate: number,
+  ): Promise<string> => {
+    const state = get();
+    const walletId = state.activeWalletId;
+    if (!walletId) {
+      throw new Error("No active wallet");
+    }
+    if (state.isWatchOnly) {
+      throw new Error("Watch-only wallets cannot move funds");
+    }
+    if (toAccount === state.activeAccount) {
+      throw new Error("Choose a different destination pocket");
+    }
+    if (!networkConfig) {
+      throw new Error("Wallet not initialized");
+    }
+
+    // The shared seed is cached during initialize; fall back to deriving it from
+    // the mnemonic if the cache was cleared. Watch-only wallets have no seed.
+    let seed = await getCachedWalletSeed(walletId);
+    if (!seed) {
+      const mnemonic = await getWalletMnemonic(walletId);
+      if (!mnemonic || mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
+        throw new Error("Wallet seed unavailable");
+      }
+      seed = KeyManager.deriveSeed(mnemonic);
+      await cacheWalletSeed(walletId, seed);
+    }
+
+    // Resolve + persist the destination Pocket's next receive address in ITS own
+    // isolated database so that Pocket watches it once it next syncs.
+    const destDb = await Database.open(walletId, toAccount);
+    let destAddress: string;
+    try {
+      const nextIndex = await destDb.getNextUnusedIndex(false);
+      const dest = resolveMoveDestinationAddress(
+        seed,
+        networkConfig,
+        toAccount,
+        nextIndex,
+      );
+      await destDb.insertAddress(dest.address, dest.path, dest.index, false);
+      destAddress = dest.address;
+    } finally {
+      await destDb.close();
+    }
+
+    // Reuse the existing send path: an ordinary on-chain self-transfer spending
+    // from the active (source) Pocket to the destination Pocket's address.
+    const txid = await get().sendTransaction(destAddress, amount, feeRate);
+    await get().loadPockets();
+    return txid;
   },
 
   createNewWallet: async (name: string): Promise<string> => {
