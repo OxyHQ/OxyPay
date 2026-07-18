@@ -68,6 +68,7 @@ import {
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
+import { getActivePocket, setActivePocket } from "../storage/pockets-store";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +121,8 @@ export interface WalletState {
   isWatchOnly: boolean;
   /** Whether the active wallet's recovery phrase has been backed up. */
   hasBackedUp: boolean;
+  /** Active Pocket (BIP44 account index) within the current wallet. */
+  activeAccount: number;
 
   // Balance
   balance: bigint;
@@ -171,6 +174,7 @@ export interface WalletState {
     mnemonic: string,
     walletId?: string,
     onReady?: () => void,
+    account?: number,
   ) => Promise<void>;
   createWallet: () => Promise<string>;
   restoreWallet: (mnemonic: string) => Promise<void>;
@@ -858,6 +862,7 @@ const DEFAULT_WALLET_STATE = {
   masternodeUTXOs: [] as MasternodeUTXO[],
   isWatchOnly: false,
   hasBackedUp: false,
+  activeAccount: 0,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
 
@@ -929,6 +934,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   wallets: [],
   isWatchOnly: false,
   hasBackedUp: false,
+  activeAccount: 0,
 
   balance: 0n,
   confirmedBalance: 0n,
@@ -959,6 +965,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     mnemonic: string,
     walletId?: string,
     onReady?: () => void,
+    account?: number,
   ): Promise<void> => {
     // N-1: serialise wallet initialisation. If two callers race (deep-link +
     // boot, double-tap wallet switch, restore + network switch, …) we must
@@ -982,26 +989,37 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
       try {
       networkConfig = getNetwork(state.network);
-      database = await Database.open(walletId);
+
+      // Resolve the wallet + active Pocket once, up front. When `account` is
+      // omitted (boot / unlock / wallet switch) restore the persisted active
+      // Pocket; explicit callers (switchPocket) pass it. Account 0 keeps the
+      // legacy DB file, so pre-Pockets wallets open exactly where they always did.
+      const activeId = walletId ?? (await getActiveWalletId());
+      const resolvedAccount =
+        account ?? (activeId ? await getActivePocket(activeId) : 0);
+
+      database = await Database.open(activeId ?? undefined, resolvedAccount);
       // A wallet's stored secret is either a BIP39 mnemonic or the watch-only
       // marker `xpub:<extended public key>`. The marker MUST route to the
       // public-only KeyManager: feeding it into mnemonicToSeedSync would
       // silently derive a random spendable keypair (BIP39 doesn't validate),
-      // producing a dangerous fake wallet (review finding C2).
+      // producing a dangerous fake wallet (review finding C2). Watch-only
+      // wallets have no Pockets, so they always open at account 0.
       if (mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
         const xpub = mnemonic.slice(XPUB_MARKER_PREFIX.length);
         keyManager = KeyManager.fromXpub(xpub, networkConfig);
       } else {
         // Reuse the cached BIP39 seed when present so unlock skips the
         // multi-second PBKDF2 mnemonic→seed derivation; derive + cache it on the
-        // first run. Keyed by the same wallet identity the mnemonic belongs to.
-        const seedCacheId = walletId ?? (await getActiveWalletId()) ?? "default";
+        // first run. The seed is shared by every Pocket of this wallet, so it is
+        // keyed by the wallet identity, and the account selects the subtree.
+        const seedCacheId = activeId ?? "default";
         let seed = await getCachedWalletSeed(seedCacheId);
         if (!seed) {
           seed = KeyManager.deriveSeed(mnemonic);
           await cacheWalletSeed(seedCacheId, seed);
         }
-        keyManager = KeyManager.fromSeed(seed, networkConfig);
+        keyManager = KeyManager.fromSeed(seed, networkConfig, resolvedAccount);
       }
       utxoSet = new UTXOSet();
 
@@ -1039,8 +1057,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         addressList.push(derived.address);
       }
 
-      // Load wallet info
-      const activeId = walletId ?? await getActiveWalletId();
+      // Load wallet info. `activeId` was already resolved above (alongside
+      // the active Pocket) so the DB-open path and this lookup agree.
       const wallets = await getWalletIndex();
       const activeWallet = activeId
         ? wallets.find((w) => w.id === activeId)
@@ -1102,6 +1120,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         hasBackedUp: backedUp,
         wallets,
         isWatchOnly: watchOnly,
+        activeAccount: resolvedAccount,
       });
 
       // The wallet is now fully hydrated from persisted SQLite state (cached
