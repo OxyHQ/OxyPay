@@ -103,9 +103,20 @@ export function createMerchantsRouter(deps: {
     }),
   );
 
+  // `oxyClient.requireScope()` answers 403 SERVICE_TOKEN_REQUIRED when
+  // `req.serviceApp` is missing entirely, not 401 — gate on serviceApp
+  // presence FIRST so a fully unauthenticated caller gets 401 like every
+  // other route in this gateway, and requireScope's 403 is reserved for
+  // "authenticated but missing the required scope".
+  const requireAuthenticated: RequestHandler = (req, res, next) => {
+    if (!requireServiceApp(req, res)) return;
+    next();
+  };
+
   router.get(
     "/v1/merchants/me",
     requireMerchant,
+    requireAuthenticated,
     oxyClient.requireScope("payments:read"),
     wrap(async (req, res) => {
       const merchant = await resolveMerchant(req, res);
@@ -123,6 +134,7 @@ export function createMerchantsRouter(deps: {
   router.patch(
     "/v1/merchants/me",
     requireMerchant,
+    requireAuthenticated,
     oxyClient.requireScope("payments:write"),
     wrap(async (req, res) => {
       const merchant = await resolveMerchant(req, res);

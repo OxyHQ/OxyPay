@@ -280,6 +280,19 @@ describe("GET /v1/merchants/me", () => {
       s.close();
     }
   });
+
+  test("no service app credentials at all -> 401", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(createMerchantsRouter({ requireMerchant: (_req, _res, next) => next() }));
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      const res = await fetch(`${url}/v1/merchants/me`);
+      expect(res.status).toBe(401);
+    } finally {
+      s.close();
+    }
+  });
 });
 
 describe("PATCH /v1/merchants/me", () => {
@@ -330,6 +343,23 @@ describe("PATCH /v1/merchants/me", () => {
       expect(res.status).toBe(200);
       const body = await readJson(res);
       expect(body.xpub).toBe(XPUB);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("no service app credentials at all -> 401", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(createMerchantsRouter({ requireMerchant: (_req, _res, next) => next() }));
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      const res = await fetch(`${url}/v1/merchants/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requiredConfirmations: 2 }),
+      });
+      expect(res.status).toBe(401);
     } finally {
       s.close();
     }
