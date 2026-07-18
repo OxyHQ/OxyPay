@@ -416,6 +416,9 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "onboarding.signInSubtitle": "Sign in with your Oxy account — your money is just there.",
     "onboarding.createIdentityTitle": "Set up your Oxy ID",
     "onboarding.createIdentitySubtitle": "Your wallet is secured by your Oxy identity. Create it to continue.",
+    "onboarding.createIdentityCta": "Continue in Commons",
+    "onboarding.commonsNotInstalled": "Commons by Oxy isn't installed on this device. Install it to set up your Oxy ID.",
+    "onboarding.createIdentityError": "Couldn't reach Oxy. Check your connection and try again.",
     "onboarding.webUnsupportedTitle": "Open Oxy Pay on your phone",
     "onboarding.webUnsupportedSubtitle": "The wallet is available on the mobile app only.",
 
@@ -1185,6 +1188,9 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "onboarding.signInSubtitle": "Inicia sesi\u00f3n con tu cuenta Oxy \u2014 tu dinero ya est\u00e1 ah\u00ed.",
     "onboarding.createIdentityTitle": "Configura tu Oxy ID",
     "onboarding.createIdentitySubtitle": "Tu monedero est\u00e1 protegido por tu identidad Oxy. Cr\u00e9ala para continuar.",
+    "onboarding.createIdentityCta": "Continuar en Commons",
+    "onboarding.commonsNotInstalled": "Commons by Oxy no est\u00e1 instalada en este dispositivo. Inst\u00e1lala para configurar tu Oxy ID.",
+    "onboarding.createIdentityError": "No se pudo conectar con Oxy. Comprueba tu conexi\u00f3n e int\u00e9ntalo de nuevo.",
     "onboarding.webUnsupportedTitle": "Abre Oxy Pay en tu tel\u00e9fono",
     "onboarding.webUnsupportedSubtitle": "El monedero solo est\u00e1 disponible en la app m\u00f3vil.",
 

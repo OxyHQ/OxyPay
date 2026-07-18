@@ -20,6 +20,7 @@ import { useLockStore } from "../src/wallet/lock-store";
 import { hasPin } from "../src/storage/secure-store";
 import { decideEntryRoute } from "../src/wallet/entry-route";
 import { Button } from "../src/ui/components/Button";
+import { CreateOxyIdView } from "../src/ui/components/CreateOxyIdView";
 import { t } from "../src/i18n";
 
 export default function IndexScreen() {
@@ -99,13 +100,7 @@ export default function IndexScreen() {
         </View>
       );
     case "create-identity":
-      // Minimal keyless branch; enriched with Commons handoff in Task 5.
-      return (
-        <View className="flex-1 bg-background items-center justify-center px-8">
-          <Text className="text-foreground text-2xl text-center mb-3">{t("onboarding.createIdentityTitle")}</Text>
-          <Text className="text-muted-foreground text-base text-center">{t("onboarding.createIdentitySubtitle")}</Text>
-        </View>
-      );
+      return <CreateOxyIdView />;
     case "web-unsupported":
       return (
         <View className="flex-1 bg-background items-center justify-center px-8">
