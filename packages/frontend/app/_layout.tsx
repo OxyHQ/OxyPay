@@ -291,7 +291,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <BloomThemeProvider
             mode={mode}
-            colorPreset="faircoin"
+            colorPreset="blue"
             onModeChange={handleModeChange}
             fonts={false}
           >
