@@ -13,7 +13,7 @@ Oxy Pay is the FairCoin money app of the Oxy ecosystem: **you sign in with your 
 1. **100% self-custody (MiCA legal firewall).** The user's FairCoin private keys are derived and held **only on the user's device**; the backend and Oxy servers NEVER see, hold, or can reconstruct a spending key or custody funds. Only the identity holder can spend. This is the legal basis (avoids CASP licensing) and MUST NOT be weakened.
 2. **Keys never leave the device.** Identity/derived keys live in Keychain/SecureStore (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`, hardware-backed where available). Spending requires device unlock + app PIN/biometric.
 3. **Security review before mainnet.** The derivation scheme (esp. the identity-key-derived social-receive branch) MUST pass a `security-reviewer` audit before any mainnet build ships. No "100% unhackable" claims — standard self-custody threat model applies and is documented in §10.
-4. **Fix upstream, never patch the consumer.** Generic wallet-core work (Pockets) is implemented in **FAIRWallet upstream** and pulled into OxyPay via `git subtree pull`. Shared crypto (identity→seed, identity→address) is added **once in `@oxyhq/core`**. Only Oxy-specific product code (onboarding, social send UI, identity wiring) diverges in OxyPay.
+4. **Fix upstream, never patch the consumer.** Generic wallet-core work (Pockets) is implemented in **FAIRWallet upstream** and pulled into OxyPay via `git subtree pull`. Generic identity-key access (identity→seed via `deriveScopedSeed`, raw key via `getPrivateKey`/`getSharedPrivateKey`) lives in `@oxyhq/core` (platform-agnostic, MUST NOT import faircoin). FairCoin-specific crypto (the identity-pubkey→FairCoin social-receive address derivation) lives in **`@fairco.in/core`** (generic secp256k1 inputs, no Oxy dep). Only Oxy-specific product code (onboarding, social send UI, identity wiring, the glue) diverges in OxyPay.
 
 ## 3. Scope & decomposition
 
@@ -135,10 +135,12 @@ Three enrichment sources, each keyed to a transaction (txid) or address:
 
 ## 5. Upstream additions (fix de raíz)
 
-**`@oxyhq/core` (published):**
-- `KeyManager.deriveScopedSeed(info: string): Promise<Uint8Array>` — HKDF the identity key to a 32-byte, domain-separated seed without exposing the raw private key.
-- A shared **identity → FairCoin social-receive** helper (build `xpub_social`/`xprv_social` + `addr(i)`), used identically by payer (public), recipient (private), and backend (public). One implementation, no divergence. secp256k1 + `@fairco.in/core.publicKeyToAddress`.
-- (Reuse existing) `resolveDid`, `searchProfiles`, `getProfileByUsername`, `listAuthMethods`, identity-creation/link.
+**`@oxyhq/core` (platform-agnostic — NO FairCoin, NO new WS-S publish):**
+- `KeyManager.deriveScopedSeed(info: string): Promise<Uint8Array>` — HKDF the identity key to a 32-byte, domain-separated seed without exposing the raw key (used by the identity WALLET, WS-F, already published).
+- (Reuse existing) `getPrivateKey()`/`getSharedPrivateKey()` — the raw identity secp256k1 key the recipient's social-receive spending-key derivation needs (already exposed; no change). Plus `resolveDid`, `searchProfiles`, `getProfileByUsername`, `listAuthMethods`, identity-creation/link.
+
+**`@fairco.in/core` (the social-receive helper lives HERE — FairCoin crypto, generic secp256k1 inputs, no Oxy dep; published):**
+- A shared **identity → FairCoin social-receive** helper — `deriveSocialReceiveAddress(identityPubKeyHex, index, network)` (payer/backend, public) + `deriveSocialReceiveSpendingKey(identityPrivKeyHex, index, network)` (recipient, private) — building `xpub_social`/`xprv_social` + `addr(i)` from a NORMALIZED (compressed) secp256k1 key. One implementation, used identically by payer/recipient/backend. Coordinate the release with the multisig Layer-1 work (same repo/branch).
 
 **FAIRWallet (upstream, subtree source):** Pockets (§4.6).
 
@@ -176,7 +178,7 @@ The identity key is unavailable on web (`getPrivateKey`/`getSharedPrivateKey` �
 
 1. **WS-P Pockets** in FAIRWallet upstream → push → `git subtree pull` into OxyPay. (Independent; can start first.)
 2. **WS-F Foundation:** `@oxyhq/core` `deriveScopedSeed` (+ publish) → OxyPay wallet-init from identity → Oxy-first onboarding + keyless handling. Remove multi-wallet UI.
-3. **WS-S Social:** `@oxyhq/core` social-receive helper (+ publish) → backend user-address reservation + transaction-attribution/enrichment service (§4.8) → OxyPay social send/receive UI (user search, default+fresh addresses) + rich transaction history (merchant name+logo / user avatar+name) → demote raw-address send.
+3. **WS-S Social:** `@fairco.in/core` social-receive helper (+ publish; `@oxyhq/core` unchanged — recipient uses its existing raw-identity-key access) → backend user-address reservation + transaction-attribution/enrichment service (§4.8) → OxyPay social send/receive UI (user search, default+fresh addresses) + rich transaction history (merchant name+logo / user avatar+name) → demote raw-address send.
 4. **Security review** (`security-reviewer`) of the full derivation + social scheme → address findings → only then a mainnet-capable build.
 
 Each phase gets its own implementation plan (`writing-plans`).
