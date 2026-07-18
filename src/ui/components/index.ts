@@ -14,6 +14,7 @@ export { ContactPicker } from "./ContactPicker";
 export { EmptyState } from "./EmptyState";
 export { HomeOverview } from "./HomeOverview";
 export { ListItem } from "./ListItem";
+export { PocketCard } from "./PocketCard";
 export { PriceSparkline } from "./PriceSparkline";
 export { PinDots } from "./PinDots";
 export { PinPad } from "./PinPad";

@@ -168,13 +168,14 @@ export default function HomeScreen() {
   const walletSwitcherControl = useDialogControl();
   // Tapping the active-Pocket pill opens a quick Pocket-switcher sheet.
   const pocketSwitcherControl = useDialogControl();
-  const activePocketName = useMemo(() => {
-    const pocket = findPocket(pockets, activeAccount);
-    if (!pocket || pocket.account === MAIN_POCKET_ACCOUNT) {
-      return t("pockets.mainName");
-    }
-    return pocket.name;
-  }, [pockets, activeAccount]);
+  const activePocket = useMemo(
+    () => findPocket(pockets, activeAccount),
+    [pockets, activeAccount],
+  );
+  const activePocketName =
+    !activePocket || activePocket.account === MAIN_POCKET_ACCOUNT
+      ? t("pockets.mainName")
+      : activePocket.name;
   // Tapping an activity row opens the transaction detail in a bottom sheet.
   const txDetailControl = useDialogControl();
   const [detailTxid, setDetailTxid] = useState<string | null>(null);
@@ -424,17 +425,18 @@ export default function HomeScreen() {
               surface) is hidden for them. */}
           {!isWatchOnly ? (
             <Pressable
-              className="self-start flex-row items-center bg-surface rounded-full px-3 py-1.5 mt-2 active:opacity-70"
+              className="self-start flex-row items-center bg-surface rounded-full pl-1.5 pr-3 py-1.5 mt-2 active:opacity-70"
               onPress={() => pocketSwitcherControl.open()}
               accessibilityRole="button"
               accessibilityLabel={t("pockets.switcherTitle")}
             >
-              <MaterialCommunityIcons
-                name="wallet-outline"
-                size={14}
-                color={theme.colors.textSecondary}
-              />
-              <Text className="text-foreground text-sm font-medium ml-1.5">
+              <View
+                className="w-5 h-5 rounded-full items-center justify-center mr-1.5"
+                style={{ backgroundColor: `${activePocket?.color ?? theme.colors.primary}29` }}
+              >
+                <Text style={{ fontSize: 11 }}>{activePocket?.emoji ?? "💧"}</Text>
+              </View>
+              <Text className="text-foreground text-sm font-medium">
                 {activePocketName}
               </Text>
               <MaterialCommunityIcons

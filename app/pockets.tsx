@@ -1,31 +1,25 @@
 /**
- * Pockets management screen.
- * Lists the wallet's Pockets, creates/renames/deletes them, and opens the
- * move sheet. Presented as a modal from the switcher's "Manage pockets" row.
- * Modeled on app/wallets.tsx.
+ * Pockets home — Revolut-style cards screen. Header, a total-across-pockets
+ * hero, the Pocket card list (colored emoji chip + optional goal bar), and a
+ * dashed "New pocket" row. Tapping a card opens that Pocket's detail sheet
+ * (`PocketDetailSheet`), which owns its own Move/Add/Switch/Manage flows.
+ * Presented as a modal from the home pill's "Manage pockets" row.
  */
 
 import { useCallback, useState } from "react";
-import { View, Text, ScrollView, Modal, TextInput, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter, useFocusEffect } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useWalletStore } from "../src/wallet/wallet-store";
-import { MAIN_POCKET_ACCOUNT, canDeletePocket } from "../src/wallet/pockets";
-import {
-  ListItem,
-  Button,
-  Badge,
-  EmptyState,
-  ScreenHeader,
-  AmountText,
-} from "../src/ui/components";
-import { MovePocketSheet } from "../src/ui/sheets/MovePocketSheet";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
+import { AmountText, EmptyState, PocketCard, ScreenHeader } from "../src/ui/components";
+import { MovePocketSheet } from "../src/ui/sheets/MovePocketSheet";
+import { PocketFormSheet } from "../src/ui/sheets/PocketFormSheet";
+import { PocketDetailSheet } from "../src/ui/sheets/PocketDetailSheet";
 import { t } from "../src/i18n";
 
-/** Uppercase field label — matches the home / send screens' section headers. */
 const SECTION_LABEL =
   "text-muted-foreground text-xs font-semibold uppercase tracking-wider";
 
@@ -33,106 +27,28 @@ export default function PocketsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const pockets = useWalletStore((s) => s.pockets);
-  const activeAccount = useWalletStore((s) => s.activeAccount);
   const pocketBalances = useWalletStore((s) => s.pocketBalances);
   const isWatchOnly = useWalletStore((s) => s.isWatchOnly);
   const loading = useWalletStore((s) => s.loading);
   const loadPockets = useWalletStore((s) => s.loadPockets);
-  const switchPocket = useWalletStore((s) => s.switchPocket);
-  const createPocket = useWalletStore((s) => s.createPocket);
-  const renamePocket = useWalletStore((s) => s.renamePocket);
-  const deletePocket = useWalletStore((s) => s.deletePocket);
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<{
-    account: number;
-    name: string;
-  } | null>(null);
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [actionsTarget, setActionsTarget] = useState<{
-    account: number;
-    name: string;
-  } | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{
-    account: number;
-    name: string;
-  } | null>(null);
-  const [message, setMessage] = useState<string>("");
-
+  const [detailAccount, setDetailAccount] = useState<number | null>(null);
+  const createControl = useDialogControl();
   const moveControl = useDialogControl();
-  const actionsControl = useDialogControl();
-  const deleteControl = useDialogControl();
-  const messageControl = useDialogControl();
+  const detailControl = useDialogControl();
 
-  const openMessage = useCallback(
-    (text: string) => {
-      setMessage(text);
-      messageControl.open();
+  const openDetail = useCallback(
+    (account: number) => {
+      setDetailAccount(account);
+      detailControl.open();
     },
-    [messageControl],
+    [detailControl],
   );
 
   useFocusEffect(
     useCallback(() => {
       loadPockets();
     }, [loadPockets]),
-  );
-
-  const submitCreate = useCallback(async () => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError(t("pockets.create.error.nameRequired"));
-      return;
-    }
-    setShowCreate(false);
-    setName("");
-    setError(null);
-    try {
-      await createPocket(trimmed);
-    } catch {
-      openMessage(t("pockets.create.error.failed"));
-    }
-  }, [name, createPocket, openMessage]);
-
-  const submitRename = useCallback(async () => {
-    if (!renameTarget) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError(t("pockets.create.error.nameRequired"));
-      return;
-    }
-    const target = renameTarget;
-    setRenameTarget(null);
-    setName("");
-    setError(null);
-    await renamePocket(target.account, trimmed);
-  }, [renameTarget, name, renamePocket]);
-
-  const openActions = useCallback(
-    (account: number, pocketName: string) => {
-      setActionsTarget({ account, name: pocketName });
-      actionsControl.open();
-    },
-    [actionsControl],
-  );
-
-  const openRename = useCallback((account: number, currentName: string) => {
-    setRenameTarget({ account, name: currentName });
-    setName(currentName);
-    setError(null);
-  }, []);
-
-  const requestDelete = useCallback(
-    (account: number, pocketName: string) => {
-      if (!canDeletePocket(pockets, account)) {
-        openMessage(t("pockets.delete.cannotMain"));
-        return;
-      }
-      setPendingDelete({ account, name: pocketName });
-      deleteControl.open();
-    },
-    [pockets, deleteControl, openMessage],
   );
 
   if (isWatchOnly) {
@@ -164,6 +80,12 @@ export default function PocketsScreen() {
     );
   }
 
+  const total = Object.values(pocketBalances).reduce((sum, v) => sum + v, 0n);
+  const countLabel =
+    pockets.length === 1
+      ? t("pockets.subtitle.one", { count: pockets.length })
+      : t("pockets.subtitle.other", { count: pockets.length });
+
   return (
     <SafeAreaView
       className="flex-1 bg-background"
@@ -171,206 +93,99 @@ export default function PocketsScreen() {
     >
       <ScreenHeader
         title={t("pockets.title")}
-        subtitle={
-          pockets.length === 1
-            ? t("pockets.subtitle.one", { count: pockets.length })
-            : t("pockets.subtitle.other", { count: pockets.length })
-        }
         onBack={() => router.back()}
+        rightAction={
+          <Pressable
+            onPress={() => createControl.open()}
+            className="w-9 h-9 rounded-full bg-surface items-center justify-center active:opacity-70"
+            accessibilityRole="button"
+            accessibilityLabel={t("pockets.createCta")}
+          >
+            <MaterialCommunityIcons name="plus" size={20} color={theme.colors.text} />
+          </Pressable>
+        }
       />
-      <ScrollView className="flex-1" contentContainerClassName="px-5 pt-4 pb-8">
+      <ScrollView className="flex-1" contentContainerClassName="px-5 pt-2 pb-8">
+        {/* Total across pockets */}
         <View className="mb-6">
-          {pockets.map((pocket, idx) => {
-            const isActive = pocket.account === activeAccount;
-            const label =
-              pocket.account === MAIN_POCKET_ACCOUNT
-                ? t("pockets.mainName")
-                : pocket.name;
-            return (
-              <ListItem
-                key={pocket.account}
-                icon="wallet-outline"
-                iconBg={isActive ? "bg-green-500/15" : "bg-primary/10"}
-                iconColor={isActive ? theme.colors.success : theme.colors.tint}
-                title={label}
-                isLast={idx === pockets.length - 1}
-                onPress={() => {
-                  if (!isActive) switchPocket(pocket.account);
-                }}
-                trailing={
-                  <View className="flex-row items-center gap-2">
-                    <AmountText
-                      value={pocketBalances[pocket.account] ?? 0n}
-                      className="text-muted-foreground text-sm"
-                    />
-                    {isActive ? (
-                      <Badge text={t("pockets.active")} variant="success" />
-                    ) : null}
-                    {pocket.account !== MAIN_POCKET_ACCOUNT ? (
-                      <Pressable
-                        onPress={() => openActions(pocket.account, label)}
-                        hitSlop={8}
-                        className="p-1 active:opacity-60"
-                        accessibilityRole="button"
-                        accessibilityLabel={t("pockets.options")}
-                      >
-                        <MaterialCommunityIcons
-                          name="dots-vertical"
-                          size={18}
-                          color={theme.colors.textSecondary}
-                        />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                }
-              />
-            );
-          })}
+          <Text className={SECTION_LABEL}>{t("pockets.total.label")}</Text>
+          <AmountText
+            value={total}
+            suffix=" FAIR"
+            className="text-foreground text-4xl font-bold mt-1"
+          />
+          <Text className="text-muted-foreground text-sm mt-1.5">{countLabel}</Text>
         </View>
 
-        <View className="gap-3">
-          <Button
-            title={t("pockets.createCta")}
-            onPress={() => {
-              setName("");
-              setError(null);
-              setShowCreate(true);
-            }}
-            variant="primary"
-          />
-          <Button
-            title={t("pockets.move.title")}
-            onPress={() => moveControl.open()}
-            variant="outline"
-          />
+        {/* Section header + quick move link */}
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className={SECTION_LABEL}>{t("pockets.yourPockets")}</Text>
+          <Pressable onPress={() => moveControl.open()}>
+            <Text className="text-primary text-[13px] font-semibold">
+              {t("pockets.moveLink")}
+            </Text>
+          </Pressable>
         </View>
+
+        {/* Pocket cards */}
+        <View>
+          {pockets.map((pocket) => (
+            <PocketCard
+              key={pocket.account}
+              pocket={pocket}
+              balance={pocketBalances[pocket.account] ?? 0n}
+              onPress={() => openDetail(pocket.account)}
+            />
+          ))}
+        </View>
+
+        {/* New pocket — dashed CTA */}
+        <Pressable
+          onPress={() => createControl.open()}
+          className="flex-row items-center gap-3.5 rounded-2xl px-4 py-3.5 mt-1 border-[1.5px] border-dashed border-border active:opacity-70"
+        >
+          <View className="w-12 h-12 rounded-2xl items-center justify-center bg-primary/10">
+            <MaterialCommunityIcons name="plus" size={22} color={theme.colors.primary} />
+          </View>
+          <View>
+            <Text className="text-foreground text-[15px] font-semibold">
+              {t("pockets.createCta")}
+            </Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">
+              {t("pockets.create.subtitle")}
+            </Text>
+          </View>
+        </Pressable>
       </ScrollView>
 
-      {/* Create / rename modal (shared TextInput modal) */}
-      <Modal
-        visible={showCreate || renameTarget !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setShowCreate(false);
-          setRenameTarget(null);
-        }}
-      >
-        <View className="flex-1 bg-black/70 items-center justify-center px-8">
-          <View className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm">
-            <Text className="text-foreground text-lg font-bold mb-5 text-center">
-              {renameTarget ? t("pockets.rename.title") : t("pockets.create.title")}
-            </Text>
-            <View className="gap-4">
-              <View>
-                <Text className={SECTION_LABEL}>
-                  {t("pockets.create.nameLabel")}
-                </Text>
-                <TextInput
-                  className="bg-surface rounded-2xl px-4 py-3.5 text-foreground text-base mt-2"
-                  placeholder={t("pockets.create.namePlaceholder")}
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                />
-              </View>
-              {error ? (
-                <View className="bg-destructive/10 rounded-2xl p-3">
-                  <Text className="text-destructive text-sm text-center">
-                    {error}
-                  </Text>
-                </View>
-              ) : null}
-              <View className="gap-3">
-                <Button
-                  title={renameTarget ? t("pockets.rename.cta") : t("pockets.create.cta")}
-                  onPress={renameTarget ? submitRename : submitCreate}
-                  variant="primary"
-                />
-                <Button
-                  title={t("common.cancel")}
-                  onPress={() => {
-                    setShowCreate(false);
-                    setRenameTarget(null);
-                    setName("");
-                    setError(null);
-                  }}
-                  variant="secondary"
-                />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Create pocket */}
+      <Dialog control={createControl} placement="bottom" title={t("pockets.create.title")}>
+        <PocketFormSheet target={null} onDone={() => createControl.close()} />
+      </Dialog>
 
+      {/* Quick move */}
       <Dialog control={moveControl} placement="bottom" title={t("pockets.move.title")}>
         <MovePocketSheet onDone={() => moveControl.close()} />
       </Dialog>
 
-      {/* Per-Pocket actions (rename / delete) — a "..." row opens this instead
-          of an onLongPress on the row itself, since the shared `ListItem`
-          wrapper doesn't expose a long-press prop. */}
+      {/* Pocket detail — keyed by account so switching which Pocket is being
+          viewed forces a full remount: its own nested Move/Edit sheets seed
+          `useState` from props once at mount (see their file docs), so
+          without this key they'd keep showing the FIRST-viewed Pocket's
+          context after tapping a different card. */}
       <Dialog
-        control={actionsControl}
+        control={detailControl}
         placement="bottom"
-        title={actionsTarget?.name ?? ""}
-        actions={[
-          {
-            label: t("pockets.rename.action"),
-            onPress: () => {
-              if (actionsTarget) openRename(actionsTarget.account, actionsTarget.name);
-            },
-          },
-          {
-            label: t("common.delete"),
-            color: "destructive",
-            onPress: () => {
-              if (actionsTarget) requestDelete(actionsTarget.account, actionsTarget.name);
-            },
-          },
-          { label: t("common.cancel"), color: "cancel" },
-        ]}
-      />
-
-      <Dialog
-        control={deleteControl}
-        placement="bottom"
-        title={t("pockets.delete.title")}
-        description={
-          pendingDelete
-            ? t("pockets.delete.description", { name: pendingDelete.name })
-            : ""
-        }
-        actions={[
-          {
-            label: t("common.delete"),
-            color: "destructive",
-            onPress: async () => {
-              if (!pendingDelete) return;
-              const target = pendingDelete;
-              setPendingDelete(null);
-              try {
-                await deletePocket(target.account);
-              } catch (err: unknown) {
-                openMessage(
-                  err instanceof Error ? err.message : t("pockets.delete.notEmpty"),
-                );
-              }
-            },
-          },
-          { label: t("common.cancel"), color: "cancel" },
-        ]}
-      />
-
-      <Dialog
-        control={messageControl}
-        placement="bottom"
-        title={t("common.error")}
-        description={message}
-        actions={[{ label: t("common.ok") }]}
-      />
+        title=""
+      >
+        {detailAccount !== null ? (
+          <PocketDetailSheet
+            key={detailAccount}
+            account={detailAccount}
+            onDone={() => detailControl.close()}
+          />
+        ) : null}
+      </Dialog>
     </SafeAreaView>
   );
 }

@@ -14,7 +14,7 @@
 
 import type React from "react";
 import { useCallback, useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
@@ -22,6 +22,9 @@ import { useWalletStore } from "../../wallet/wallet-store";
 import { MAIN_POCKET_ACCOUNT } from "../../wallet/pockets";
 import { ListItem, AmountText } from "../components";
 import { t } from "../../i18n";
+
+/** ~16% alpha, matching PocketCard's chip tint. */
+const CHIP_TINT_ALPHA = "29";
 
 const CONTENT_MAX_WIDTH = 500;
 
@@ -75,7 +78,8 @@ export function PocketSwitcherSheet({
       // convention for content-only sheet bodies.
       onLayout={() => loadPockets()}
     >
-      {/* Pocket list — card-less surface container */}
+      {/* Pocket list — card-less surface container, one row per Pocket with
+          its own emoji chip in its accent color (matches PocketCard). */}
       <View className="bg-surface rounded-2xl overflow-hidden">
         {pockets.map((pocket, idx) => {
           const isActive = pocket.account === activeAccount;
@@ -85,35 +89,43 @@ export function PocketSwitcherSheet({
               ? t("pockets.mainName")
               : pocket.name;
           return (
-            <ListItem
+            <Pressable
               key={pocket.account}
-              icon="wallet-outline"
-              iconBg={isActive ? "bg-green-500/15" : "bg-primary/10"}
-              iconColor={isActive ? theme.colors.success : theme.colors.tint}
-              title={label}
               onPress={() => handleSelect(pocket.account)}
-              showChevron={false}
-              isLast={idx === pockets.length - 1}
-              trailing={
-                isSwitching ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <View className="flex-row items-center gap-2">
-                    <AmountText
-                      value={pocketBalances[pocket.account] ?? 0n}
-                      className="text-muted-foreground text-sm"
-                    />
-                    {isActive ? (
-                      <MaterialCommunityIcons
-                        name="check-circle"
-                        size={22}
-                        color={theme.colors.success}
-                      />
-                    ) : null}
-                  </View>
-                )
+              className="flex-row items-center px-4 py-3 active:opacity-70"
+              style={
+                idx === pockets.length - 1
+                  ? undefined
+                  : { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }
               }
-            />
+            >
+              <View
+                className="w-9 h-9 rounded-full items-center justify-center mr-3"
+                style={{ backgroundColor: `${pocket.color}${CHIP_TINT_ALPHA}` }}
+              >
+                <Text style={{ fontSize: 16 }}>{pocket.emoji}</Text>
+              </View>
+              <Text className="text-foreground text-base font-medium flex-1" numberOfLines={1}>
+                {label}
+              </Text>
+              {isSwitching ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <View className="flex-row items-center gap-2">
+                  <AmountText
+                    value={pocketBalances[pocket.account] ?? 0n}
+                    className="text-muted-foreground text-sm"
+                  />
+                  {isActive ? (
+                    <MaterialCommunityIcons
+                      name="check-circle"
+                      size={22}
+                      color={theme.colors.success}
+                    />
+                  ) : null}
+                </View>
+              )}
+            </Pressable>
           );
         })}
       </View>
