@@ -493,6 +493,42 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallets.cannotDelete.description":
       "You must have at least one wallet. Create a new wallet before deleting this one.",
 
+    // ---------- Pockets ----------
+    "pockets.title": "Pockets",
+    "pockets.subtitle.one": "{count} pocket",
+    "pockets.subtitle.other": "{count} pockets",
+    "pockets.active": "Active",
+    "pockets.mainName": "Main",
+    "pockets.switcherTitle": "Switch pocket",
+    "pockets.manage": "Manage pockets",
+    "pockets.options": "Pocket options",
+    "pockets.createCta": "New pocket",
+    "pockets.create.title": "New pocket",
+    "pockets.create.nameLabel": "POCKET NAME",
+    "pockets.create.namePlaceholder": "e.g. Savings",
+    "pockets.create.cta": "Create pocket",
+    "pockets.create.error.nameRequired": "Enter a name for the pocket",
+    "pockets.create.error.failed": "Could not create the pocket",
+    "pockets.rename.title": "Rename pocket",
+    "pockets.rename.action": "Rename",
+    "pockets.rename.cta": "Save",
+    "pockets.delete.title": "Delete pocket?",
+    "pockets.delete.description": "Remove \"{name}\" from your pockets?",
+    "pockets.delete.notEmpty": "Move funds out of this pocket before deleting it.",
+    "pockets.delete.cannotMain": "The main pocket cannot be deleted.",
+    "pockets.move.title": "Move between pockets",
+    "pockets.move.to": "TO POCKET",
+    "pockets.move.amountLabel": "AMOUNT",
+    "pockets.move.cta": "Move",
+    "pockets.move.sameAccount": "Choose a different destination pocket.",
+    "pockets.move.failed": "Could not move funds",
+    "pockets.move.noDestinations.title": "No other pockets yet",
+    "pockets.move.noDestinations.subtitle":
+      "Create another pocket first, then come back here to move funds.",
+    "pockets.watchOnly.title": "Watch-Only Wallet",
+    "pockets.watchOnly.subtitle":
+      "Pockets are unavailable for watch-only wallets. Import the full wallet with a recovery phrase to use Pockets.",
+
     // ---------- Coin Control ----------
     "coinControl.title": "Coin Control",
     "coinControl.subtitle.one": "{count} UTXO available",
@@ -1263,6 +1299,43 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallets.cannotDelete.title": "No se Puede Eliminar",
     "wallets.cannotDelete.description":
       "Debes tener al menos una billetera. Crea una nueva billetera antes de eliminar esta.",
+
+    // ---------- Bolsillos ----------
+    "pockets.title": "Bolsillos",
+    "pockets.subtitle.one": "{count} bolsillo",
+    "pockets.subtitle.other": "{count} bolsillos",
+    "pockets.active": "Activo",
+    "pockets.mainName": "Principal",
+    "pockets.switcherTitle": "Cambiar de bolsillo",
+    "pockets.manage": "Gestionar bolsillos",
+    "pockets.options": "Opciones del bolsillo",
+    "pockets.createCta": "Nuevo bolsillo",
+    "pockets.create.title": "Nuevo bolsillo",
+    "pockets.create.nameLabel": "NOMBRE DEL BOLSILLO",
+    "pockets.create.namePlaceholder": "p. ej. Ahorros",
+    "pockets.create.cta": "Crear bolsillo",
+    "pockets.create.error.nameRequired": "Ingresa un nombre para el bolsillo",
+    "pockets.create.error.failed": "No se pudo crear el bolsillo",
+    "pockets.rename.title": "Renombrar bolsillo",
+    "pockets.rename.action": "Renombrar",
+    "pockets.rename.cta": "Guardar",
+    "pockets.delete.title": "¿Eliminar bolsillo?",
+    "pockets.delete.description": "¿Quitar \"{name}\" de tus bolsillos?",
+    "pockets.delete.notEmpty":
+      "Mueve los fondos fuera de este bolsillo antes de eliminarlo.",
+    "pockets.delete.cannotMain": "El bolsillo principal no se puede eliminar.",
+    "pockets.move.title": "Mover entre bolsillos",
+    "pockets.move.to": "BOLSILLO DESTINO",
+    "pockets.move.amountLabel": "CANTIDAD",
+    "pockets.move.cta": "Mover",
+    "pockets.move.sameAccount": "Elige un bolsillo destino diferente.",
+    "pockets.move.failed": "No se pudieron mover los fondos",
+    "pockets.move.noDestinations.title": "Aún no hay otros bolsillos",
+    "pockets.move.noDestinations.subtitle":
+      "Crea otro bolsillo primero y luego vuelve aquí para mover fondos.",
+    "pockets.watchOnly.title": "Billetera de Solo Lectura",
+    "pockets.watchOnly.subtitle":
+      "Los bolsillos no están disponibles en billeteras de solo lectura. Importa la billetera completa con una frase de recuperación para usar los bolsillos.",
 
     // ---------- Coin Control ----------
     "coinControl.title": "Control de Monedas",
