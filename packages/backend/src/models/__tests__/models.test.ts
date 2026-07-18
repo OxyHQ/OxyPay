@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { TESTNET, mnemonicToSeed, deriveKeyFromSeed } from "@fairco.in/core";
+import { TESTNET, MAINNET, mnemonicToSeed, deriveKeyFromSeed } from "@fairco.in/core";
 import { Merchant } from "../Merchant";
 import { PaymentIntent } from "../PaymentIntent";
 import { reserveNextAddress } from "../../services/reserveAddress";
@@ -16,6 +16,14 @@ const XPUB =
 // matching PRIVATE xprv that the non-custody firewall must reject.
 const MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+
+// The same mnemonic's MAINNET-network account xpub (distinct BIP32 version
+// bytes from XPUB above) — the non-custody derivation firewall in Merchant's
+// pre-validate hook enforces that `xpub`'s encoded network matches `network`,
+// so a "production environment on mainnet" fixture needs a real mainnet xpub.
+const MAINNET_XPUB = deriveKeyFromSeed(mnemonicToSeed(MNEMONIC), MAINNET)
+  .derive(`m/44'/${MAINNET.bip44CoinType}'/0'`)
+  .hdKey.publicExtendedKey;
 
 let mongod: MongoMemoryServer;
 
@@ -36,6 +44,7 @@ afterAll(async () => {
 test("saves a Merchant with a watch-only testnet xpub", async () => {
   const merchant = await Merchant.create({
     oxyAppId: "app_watch_only_ok",
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
     webhookUrl: "https://example.test/webhook",
@@ -57,6 +66,7 @@ test("rejects a Merchant whose xpub is a private xprv (non-custody firewall)", a
 
   const attempt = Merchant.create({
     oxyAppId: "app_private_xprv_rejected",
+    environment: "development",
     network: "testnet",
     xpub: xprv,
   });
@@ -74,6 +84,7 @@ test("the Merchant schema exposes no private-key / mnemonic / seed field", () =>
 test("reserveNextAddress claims monotonically increasing indexes with distinct addresses", async () => {
   const merchant = await Merchant.create({
     oxyAppId: "app_reserve_addresses",
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
   });
@@ -143,4 +154,39 @@ test("toBaseUnits rejects a fractional amount", () => {
 
 test("fromBaseUnits rejects a negative amount", () => {
   expect(() => fromBaseUnits(-1n)).toThrow();
+});
+
+test("two Merchant docs with the same oxyAppId but different environment coexist", async () => {
+  await Merchant.create({
+    oxyAppId: "app_env_split",
+    environment: "development",
+    network: "testnet",
+    xpub: XPUB,
+  });
+  const prod = await Merchant.create({
+    oxyAppId: "app_env_split",
+    environment: "production",
+    network: "mainnet",
+    xpub: MAINNET_XPUB,
+  });
+  expect(prod.environment).toBe("production");
+
+  const count = await Merchant.countDocuments({ oxyAppId: "app_env_split" });
+  expect(count).toBe(2);
+});
+
+test("the SAME oxyAppId + environment pair collides (compound unique index)", async () => {
+  await Merchant.create({
+    oxyAppId: "app_env_dup",
+    environment: "development",
+    network: "testnet",
+    xpub: XPUB,
+  });
+  const dup = Merchant.create({
+    oxyAppId: "app_env_dup",
+    environment: "development",
+    network: "testnet",
+    xpub: XPUB,
+  });
+  await expect(dup).rejects.toThrow();
 });

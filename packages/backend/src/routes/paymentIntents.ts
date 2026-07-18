@@ -1,6 +1,5 @@
 import { Router } from "express";
 import type {
-  NextFunction,
   Request,
   RequestHandler,
   Response,
@@ -8,7 +7,6 @@ import type {
 import type { HydratedDocument } from "mongoose";
 import { z } from "zod";
 import { verifySecret } from "@oxyhq/core/server";
-import type { OxyAuthRequest } from "@oxyhq/core/server";
 import {
   isBaseUnitString,
   type CreatePaymentIntentParams,
@@ -21,10 +19,10 @@ import { reserveNextAddress } from "../services/reserveAddress";
 import { newId, clientSecretFor } from "../lib/ids";
 import { applyEvent } from "../services/intentState";
 import { toPaymentIntentDTO } from "../lib/serialize";
+import { sendError, wrap, isDuplicateKeyError, requireServiceApp } from "../lib/http";
 
 const DEFAULT_EXPIRY_SECONDS = 15 * 60;
 const MS_PER_SECOND = 1000;
-const MONGO_DUPLICATE_KEY = 11000;
 
 // Zod schema for the create body. Its inferred output is asserted assignable to
 // `CreatePaymentIntentParams` (see `params` below) so the wire contract and the
@@ -45,48 +43,26 @@ const submitTxBodySchema = z.object({
   txid: z.string().min(1),
 });
 
-// Stripe-ish error envelope: `{ error: { type, message } }`.
-function sendError(
-  res: Response,
-  status: number,
-  type: string,
-  message: string,
-): void {
-  res.status(status).json({ error: { type, message } });
-}
-
-// Express 4 does not forward rejected promises to the error handler, so wrap
-// each async handler and route any rejection to `next`.
-type AsyncHandler = (req: Request, res: Response) => Promise<void>;
-function wrap(handler: AsyncHandler): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    handler(req, res).catch(next);
-  };
-}
-
-function isDuplicateKeyError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    err.code === MONGO_DUPLICATE_KEY
-  );
-}
-
-// Resolve the merchant behind the authenticated service app. Returns null AND
-// writes the error response when the caller is unauthenticated (401) or the app
-// has no registered merchant (403), so callers just `if (!merchant) return`.
-async function resolveMerchant(
+/**
+ * Resolve the merchant behind the authenticated service app, scoped to BOTH
+ * the caller's Application AND its credential's `environment` (F2.0 task 1b —
+ * test/live isolation). Returns null AND writes the error response when the
+ * caller is unauthenticated (401) or the app has no merchant registered for
+ * this specific environment (403), so callers just `if (!merchant) return`.
+ *
+ * Exported: `routes/merchants.ts` reuses this unchanged for the merchant-authed
+ * GET/PATCH `/v1/merchants/me` routes.
+ */
+export async function resolveMerchant(
   req: Request,
   res: Response,
 ): Promise<HydratedDocument<MerchantDoc> | null> {
-  const { serviceApp } = req as OxyAuthRequest;
-  const appId = serviceApp?.appId;
-  if (!appId) {
-    sendError(res, 401, "authentication_error", "missing service app credentials");
-    return null;
-  }
-  const merchant = await Merchant.findOne({ oxyAppId: appId });
+  const serviceApp = requireServiceApp(req, res);
+  if (!serviceApp) return null;
+  const merchant = await Merchant.findOne({
+    oxyAppId: serviceApp.appId,
+    environment: serviceApp.environment,
+  });
   if (!merchant) {
     sendError(res, 403, "permission_error", "no merchant registered for this app");
     return null;

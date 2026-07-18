@@ -60,6 +60,7 @@ beforeAll(async () => {
   await PaymentIntent.init();
   await Merchant.create({
     oxyAppId: APP_ID,
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
   });

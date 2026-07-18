@@ -87,6 +87,7 @@ beforeAll(async () => {
 
   await Merchant.create({
     oxyAppId: APP_ID,
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
     webhookUrl: "https://merchant.example/oxypay/webhook",

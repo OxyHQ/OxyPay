@@ -42,6 +42,7 @@ afterEach(async () => {
 test("advances a paid intent broadcast → confirming → settled as confirmations climb", async () => {
   const merchant = await Merchant.create({
     oxyAppId: "app_settle",
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
     requiredConfirmations: REQUIRED_CONFIRMATIONS,
@@ -103,6 +104,7 @@ test("advances a paid intent broadcast → confirming → settled as confirmatio
 test("marks an under-value payment as failed", async () => {
   const merchant = await Merchant.create({
     oxyAppId: "app_under",
+    environment: "development",
     network: "testnet",
     xpub: XPUB,
     requiredConfirmations: REQUIRED_CONFIRMATIONS,
