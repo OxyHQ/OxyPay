@@ -40,7 +40,7 @@
 ### Track B — App monedero (Oxy Pay)  _(desbloqueado; en curso en rama `feat/oxy-pay-wallet`)_
 - [x] Subtree de FAIRWallet `main` en `packages/frontend` (`git subtree pull` para mejoras) + rename a `@oxypay/frontend` + `bun install` OK
 - [x] Wiring del monorepo (Expo auto-detecta el workspace; blockList backend/shared-types; root tsconfig solution-file; scripts dev/build) _(expo export web + tsc -b verdes)_
-- [ ] Alinear Expo SDK 55 → 57 (sub-fase previa)
+- [x] Alinear Expo SDK 55 → 57 — hecho **en FAIRWallet upstream** (`chore/expo-sdk-57`, pusheado) y traído vía `git subtree pull`. Web/JS verde (bundle + 234 tests wallet). **Follow-up nativo:** `@maplibre/maplibre-react-native` v10→v11 (breaking, `map.tsx`) + test SPV de `react-native-tcp-socket` en dispositivo
 - [ ] Montar `OxyProvider` (identidad Oxy) — orden de providers Bloom
 - [ ] Cliente backend vía `createLinkedClient`
 - [ ] Pantalla aprobar-pago + bandeja de payment-requests + push
