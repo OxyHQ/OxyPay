@@ -104,7 +104,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.activity.empty.subtitle": "Your transactions will appear here",
     "wallet.transactionCount.one": "{count} transaction",
     "wallet.transactionCount.other": "{count} transactions",
-    "wallet.switchAccessibility": "Switch wallet",
     "wallet.syncAccessibility": "Sync status: {label}",
     "wallet.defaultName": "FAIRWallet",
     "wallet.sync.offline": "Offline",
@@ -301,7 +300,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
 
     // ---------- Settings ----------
     "settings.title": "Settings",
-    "settings.wallets": "Manage Wallets",
     "settings.contacts": "Contacts",
     "settings.security": "Security",
     "settings.network": "Network",
@@ -320,10 +318,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.appearance.system": "System",
     "settings.language.title": "Language",
     "settings.walletsGroup": "Wallets",
-    "settings.noWallets": "No wallets",
-    "settings.walletsCountSingle": "1 wallet",
-    "settings.walletsCountMultiple": "{name} ({count} total)",
-    "settings.walletsActive": "Active",
     "settings.autoLockValue": "{minutes} min",
     "settings.exportKey": "Export Encrypted Key",
     "settings.mainnet": "Mainnet",
@@ -447,65 +441,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "index.loading": "Loading wallet...",
     "index.error.load": "Failed to load wallet",
     "index.error.help": "Try restarting the app or wiping and restoring your wallet.",
-
-    // ---------- Wallets manager ----------
-    "wallets.title": "Wallets",
-    "wallets.subtitle.one": "{count} wallet - Tap to switch, long-press to delete",
-    "wallets.subtitle.other": "{count} wallets - Tap to switch, long-press to delete",
-    "wallets.switching": "Switching wallet...",
-    "wallets.loading": "Loading...",
-    "wallets.empty.title": "No wallets found",
-    "wallets.empty.subtitle": "Create or import one below",
-    "wallets.createdOn": "Created {date}",
-    "wallets.active": "Active",
-    "wallets.createCta": "Create New Wallet",
-    "wallets.importCta": "Import Wallet",
-    "wallets.watchOnlyCta": "Watch Only (xpub)",
-    "wallets.create.title": "Create New Wallet",
-    "wallets.create.nameLabel": "Wallet Name",
-    "wallets.create.namePlaceholder": "My Wallet",
-    "wallets.create.error.nameRequired": "Please enter a wallet name.",
-    "wallets.create.cta": "Create",
-    "wallets.create.error.failed": "Failed to create wallet. Please try again.",
-    "wallets.import.title": "Import Wallet",
-    "wallets.import.nameLabel": "Wallet Name",
-    "wallets.import.namePlaceholder": "My Wallet",
-    "wallets.import.phraseLabel": "Recovery Phrase",
-    "wallets.import.phrasePlaceholder": "Enter 12 or 24 word recovery phrase",
-    "wallets.import.error.nameRequired": "Please enter a wallet name.",
-    "wallets.import.error.phraseRequired": "Please enter the recovery phrase.",
-    "wallets.import.error.wordCount": "Recovery phrase must be 12 or 24 words.",
-    "wallets.import.cta": "Import",
-    "wallets.import.failed.title": "Import Failed",
-    "wallets.import.failed.description":
-      "Could not import wallet. Check your recovery phrase and try again.",
-    "wallets.watchOnly.title": "Watch-Only Wallet",
-    "wallets.watchOnly.nameLabel": "Wallet Name",
-    "wallets.watchOnly.namePlaceholder": "My Watch Wallet",
-    "wallets.watchOnly.xpubLabel": "Extended Public Key (xpub)",
-    "wallets.watchOnly.xpubPlaceholder": "xpub...",
-    "wallets.watchOnly.error.nameRequired": "Please enter a wallet name.",
-    "wallets.watchOnly.error.xpubRequired":
-      "Please enter the extended public key (xpub).",
-    "wallets.watchOnly.error.xpubFormat":
-      "That doesn't look like a valid extended public key. Paste the account xpub from your wallet's export.",
-    "wallets.watchOnly.cta": "Import Watch-Only",
-    "wallets.watchOnly.imported.title": "Watch-Only Wallet",
-    "wallets.watchOnly.imported.description":
-      "Watch-only wallet imported. You can view balances and addresses, but sending is disabled.",
-    "wallets.watchOnly.failed.title": "Import Failed",
-    "wallets.watchOnly.failed.description":
-      "Could not import watch-only wallet. Check your xpub and try again.",
-    "wallets.mnemonic.title": "Recovery Phrase",
-    "wallets.mnemonic.description":
-      "Write down these words in order. They are the only way to recover this wallet.",
-    "wallets.mnemonic.cta": "I've Written It Down",
-    "wallets.delete.title": "Delete Wallet",
-    "wallets.delete.description":
-      "Are you sure you want to delete \"{name}\"? This action cannot be undone. Make sure you have the recovery phrase backed up.",
-    "wallets.cannotDelete.title": "Cannot Delete",
-    "wallets.cannotDelete.description":
-      "You must have at least one wallet. Create a new wallet before deleting this one.",
 
     // ---------- Pockets ----------
     "pockets.title": "Pockets",
@@ -928,7 +863,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.activity.empty.subtitle": "Tus transacciones aparecer\u00e1n aqu\u00ed",
     "wallet.transactionCount.one": "{count} transacci\u00f3n",
     "wallet.transactionCount.other": "{count} transacciones",
-    "wallet.switchAccessibility": "Cambiar billetera",
     "wallet.syncAccessibility": "Estado de sincronizaci\u00f3n: {label}",
     "wallet.defaultName": "FAIRWallet",
     "wallet.sync.offline": "Sin conexi\u00f3n",
@@ -1127,7 +1061,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
 
     // ---------- Settings ----------
     "settings.title": "Ajustes",
-    "settings.wallets": "Gestionar Billeteras",
     "settings.contacts": "Contactos",
     "settings.security": "Seguridad",
     "settings.network": "Red",
@@ -1146,10 +1079,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.appearance.system": "Sistema",
     "settings.language.title": "Idioma",
     "settings.walletsGroup": "Billeteras",
-    "settings.noWallets": "Sin billeteras",
-    "settings.walletsCountSingle": "1 billetera",
-    "settings.walletsCountMultiple": "{name} ({count} total)",
-    "settings.walletsActive": "Activa",
     "settings.autoLockValue": "{minutes} min",
     "settings.exportKey": "Exportar Clave Cifrada",
     "settings.mainnet": "Mainnet",
@@ -1286,74 +1215,6 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "index.error.load": "Fall\u00f3 la carga de la billetera",
     "index.error.help":
       "Intenta reiniciar la app o borrar y restaurar tu billetera.",
-
-    // ---------- Wallets manager ----------
-    "wallets.title": "Billeteras",
-    "wallets.subtitle.one":
-      "{count} billetera - Toca para cambiar, mant\u00e9n presionado para eliminar",
-    "wallets.subtitle.other":
-      "{count} billeteras - Toca para cambiar, mant\u00e9n presionado para eliminar",
-    "wallets.switching": "Cambiando billetera...",
-    "wallets.loading": "Cargando...",
-    "wallets.empty.title": "No se encontraron billeteras",
-    "wallets.empty.subtitle": "Crea o importa una a continuaci\u00f3n",
-    "wallets.createdOn": "Creada {date}",
-    "wallets.active": "Activa",
-    "wallets.createCta": "Crear Nueva Billetera",
-    "wallets.importCta": "Importar Billetera",
-    "wallets.watchOnlyCta": "Solo Lectura (xpub)",
-    "wallets.create.title": "Crear Nueva Billetera",
-    "wallets.create.nameLabel": "Nombre de Billetera",
-    "wallets.create.namePlaceholder": "Mi Billetera",
-    "wallets.create.error.nameRequired":
-      "Por favor, ingresa un nombre de billetera.",
-    "wallets.create.cta": "Crear",
-    "wallets.create.error.failed":
-      "Fall\u00f3 la creaci\u00f3n de la billetera. Int\u00e9ntalo de nuevo.",
-    "wallets.import.title": "Importar Billetera",
-    "wallets.import.nameLabel": "Nombre de Billetera",
-    "wallets.import.namePlaceholder": "Mi Billetera",
-    "wallets.import.phraseLabel": "Frase de Recuperaci\u00f3n",
-    "wallets.import.phrasePlaceholder":
-      "Ingresa la frase de recuperaci\u00f3n de 12 o 24 palabras",
-    "wallets.import.error.nameRequired":
-      "Por favor, ingresa un nombre de billetera.",
-    "wallets.import.error.phraseRequired":
-      "Por favor, ingresa la frase de recuperaci\u00f3n.",
-    "wallets.import.error.wordCount":
-      "La frase de recuperaci\u00f3n debe tener 12 o 24 palabras.",
-    "wallets.import.cta": "Importar",
-    "wallets.import.failed.title": "Fall\u00f3 la Importaci\u00f3n",
-    "wallets.import.failed.description":
-      "No se pudo importar la billetera. Revisa tu frase de recuperaci\u00f3n e int\u00e9ntalo de nuevo.",
-    "wallets.watchOnly.title": "Billetera de Solo Lectura",
-    "wallets.watchOnly.nameLabel": "Nombre de Billetera",
-    "wallets.watchOnly.namePlaceholder": "Mi Billetera de Lectura",
-    "wallets.watchOnly.xpubLabel": "Clave P\u00fablica Extendida (xpub)",
-    "wallets.watchOnly.xpubPlaceholder": "xpub...",
-    "wallets.watchOnly.error.nameRequired":
-      "Por favor, ingresa un nombre de billetera.",
-    "wallets.watchOnly.error.xpubRequired":
-      "Por favor, ingresa la clave p\u00fablica extendida (xpub).",
-    "wallets.watchOnly.error.xpubFormat":
-      "Eso no parece una clave p\u00fablica extendida v\u00e1lida. Pega el xpub de cuenta exportado por tu billetera.",
-    "wallets.watchOnly.cta": "Importar Solo Lectura",
-    "wallets.watchOnly.imported.title": "Billetera de Solo Lectura",
-    "wallets.watchOnly.imported.description":
-      "Billetera de solo lectura importada. Puedes ver saldos y direcciones, pero el env\u00edo est\u00e1 deshabilitado.",
-    "wallets.watchOnly.failed.title": "Fall\u00f3 la Importaci\u00f3n",
-    "wallets.watchOnly.failed.description":
-      "No se pudo importar la billetera de solo lectura. Revisa tu xpub e int\u00e9ntalo de nuevo.",
-    "wallets.mnemonic.title": "Frase de Recuperaci\u00f3n",
-    "wallets.mnemonic.description":
-      "Escribe estas palabras en orden. Son la \u00fanica forma de recuperar esta billetera.",
-    "wallets.mnemonic.cta": "La He Anotado",
-    "wallets.delete.title": "Eliminar Billetera",
-    "wallets.delete.description":
-      "\u00bfEst\u00e1s seguro de eliminar \"{name}\"? Esta acci\u00f3n no se puede deshacer. Aseg\u00farate de tener respaldada la frase de recuperaci\u00f3n.",
-    "wallets.cannotDelete.title": "No se Puede Eliminar",
-    "wallets.cannotDelete.description":
-      "Debes tener al menos una billetera. Crea una nueva billetera antes de eliminar esta.",
 
     // ---------- Bolsillos ----------
     "pockets.title": "Bolsillos",

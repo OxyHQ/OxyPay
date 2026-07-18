@@ -2,10 +2,10 @@
  * Pocket switcher sheet content.
  *
  * Content-only body for a quick Pocket switch, rendered inside a Bloom
- * bottom-sheet `<Dialog placement="bottom">` opened from the home header
- * (mirrors `WalletSwitcherSheet`). It renders NO full-screen wrapper, NO
- * safe-area padding, and NO scroll container of its own — the host `<Dialog>`
- * supplies its own internal scroll.
+ * bottom-sheet `<Dialog placement="bottom">` opened from the home header.
+ * It renders NO full-screen wrapper, NO safe-area padding, and NO scroll
+ * container of its own — the host `<Dialog>` supplies its own internal
+ * scroll.
  *
  * Tapping a non-active Pocket switches to it and closes the sheet; the active
  * one just closes. A bottom "Manage pockets" row closes the sheet and opens

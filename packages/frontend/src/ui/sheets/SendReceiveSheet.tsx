@@ -8,8 +8,8 @@
  * {@link ReceiveSheet} with `heading={false}` for `"receive"` — the toggle is
  * the header, so the receive body suppresses its own "Receive" title.
  *
- * Like `SendSheet` / `ReceiveSheet` / `WalletSwitcherSheet`, this renders NO
- * full-screen wrapper and NO safe-area padding — it lives inside a Bloom
+ * Like `SendSheet` / `ReceiveSheet`, this renders NO full-screen wrapper and
+ * NO safe-area padding — it lives inside a Bloom
  * bottom-sheet `<Dialog placement="bottom">`. It also renders NO scroll
  * container of its own, and that is deliberate: the host `<Dialog>` must own the
  * scroll.

@@ -347,7 +347,6 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="lock" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="masternode" options={{ headerShown: false, presentation: "modal" }} />
-        <Stack.Screen name="wallets" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="pockets" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="contacts" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="export-key" options={{ headerShown: false, presentation: "modal" }} />

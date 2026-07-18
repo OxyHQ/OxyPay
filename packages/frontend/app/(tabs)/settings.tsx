@@ -265,7 +265,6 @@ export default function SettingsScreen() {
   const markBackedUp = useWalletStore((s) => s.markBackedUp);
   const activeWalletName = useWalletStore((s) => s.activeWalletName);
   const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
-  const wallets = useWalletStore((s) => s.wallets);
   const switchNetwork = useWalletStore((s) => s.switchNetwork);
   const exportBackup = useWalletStore((s) => s.exportBackup);
   const importBackup = useWalletStore((s) => s.importBackup);
@@ -339,20 +338,6 @@ export default function SettingsScreen() {
       };
     }, []),
   );
-
-  const walletCountLabel = useMemo(() => {
-    if (wallets.length === 0) return t("settings.noWallets");
-    if (wallets.length === 1)
-      return activeWalletName || t("settings.walletsCountSingle");
-    return t("settings.walletsCountMultiple", {
-      name: activeWalletName || t("settings.walletsActive"),
-      count: wallets.length,
-    });
-  }, [wallets.length, activeWalletName]);
-
-  const handleManageWallets = useCallback(() => {
-    router.push("/wallets");
-  }, [router]);
 
   const handleContacts = useCallback(() => {
     router.push("/contacts");
@@ -588,12 +573,7 @@ export default function SettingsScreen() {
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
       {/* Fixed wallet-identity header — mirrors the home's fixed header (no
           separate "Settings" title bar; the sections scroll under it). */}
-      <Pressable
-        onPress={handleManageWallets}
-        className="flex-row items-center gap-3 px-4 pt-2 pb-3 active:opacity-70"
-        accessibilityRole="button"
-        accessibilityLabel={t("settings.wallets")}
-      >
+      <View className="flex-row items-center gap-3 px-4 pt-2 pb-3">
           <View className="w-12 h-12 rounded-2xl bg-primary items-center justify-center">
             <MaterialCommunityIcons
               name="wallet"
@@ -632,7 +612,7 @@ export default function SettingsScreen() {
               />
             </Pressable>
           ) : null}
-      </Pressable>
+      </View>
       <View className="h-px bg-border" />
       <ScrollView
         className="flex-1"
@@ -641,14 +621,6 @@ export default function SettingsScreen() {
       >
         {/* Wallets */}
         <SettingsSection title={t("settings.walletsGroup")}>
-          <ListItem
-            title={t("settings.wallets")}
-            value={walletCountLabel}
-            icon="wallet"
-            iconColor={themeColors.primary}
-            iconBg="bg-primary/10"
-            onPress={handleManageWallets}
-          />
           <ListItem
             title={t("settings.contacts")}
             icon="account-group"

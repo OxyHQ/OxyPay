@@ -2,7 +2,7 @@
  * Home screen — a Coinbase-style wallet home, themed with Bloom and wired to
  * real wallet data.
  *
- * Header (wallet switcher + a sync-status icon), a left-aligned balance, a row
+ * Header (wallet identity + a sync-status icon), a left-aligned balance, a row
  * of bordered action pills, an Overview / Activity tab switch, an animated
  * rainbow refresh band below the tabs, then the selected tab's content:
  * Overview shows the FairCoin holding, Activity shows the day-grouped feed.
@@ -38,7 +38,6 @@ import { HomeOverview } from "../../src/ui/components/HomeOverview";
 import { ArrowCircleDownIcon } from "../../src/ui/components/ArrowCircleDownIcon";
 import { HubIcon } from "../../src/ui/components/HubIcon";
 import { SendIcon } from "../../src/ui/components/SendIcon";
-import { WalletSwitcherSheet } from "../../src/ui/sheets/WalletSwitcherSheet";
 import { PocketSwitcherSheet } from "../../src/ui/sheets/PocketSwitcherSheet";
 import { findPocket, MAIN_POCKET_ACCOUNT } from "../../src/wallet/pockets";
 import { TransactionDetailSheet } from "../../src/ui/sheets/TransactionDetailSheet";
@@ -164,8 +163,6 @@ export default function HomeScreen() {
   // just open it on the right side.
   const sheetControl = useDialogControl();
   const [sheetMode, setSheetMode] = useState<"send" | "receive">("send");
-  // Tapping the wallet name opens a quick wallet-switcher sheet.
-  const walletSwitcherControl = useDialogControl();
   // Tapping the active-Pocket pill opens a quick Pocket-switcher sheet.
   const pocketSwitcherControl = useDialogControl();
   const activePocket = useMemo(
@@ -363,12 +360,7 @@ export default function HomeScreen() {
       {/* ---- Header: wallet switcher + sync-status icon ---- */}
       <SafeAreaView edges={["top"]}>
         <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
-        <Pressable
-          className="flex-row items-center active:opacity-60"
-          onPress={() => walletSwitcherControl.open()}
-          accessibilityRole="button"
-          accessibilityLabel={t("wallet.switchAccessibility")}
-        >
+        <View className="flex-row items-center">
           <View className="w-9 h-9 rounded-xl bg-primary items-center justify-center mr-2.5">
             <MaterialCommunityIcons
               name="wallet"
@@ -379,12 +371,7 @@ export default function HomeScreen() {
           <Text className="text-foreground text-xl font-semibold">
             {activeWalletName || t("wallet.defaultName")}
           </Text>
-          <MaterialCommunityIcons
-            name="chevron-down"
-            size={20}
-            color={theme.colors.textSecondary}
-          />
-        </Pressable>
+        </View>
 
         <View className="flex-row items-center gap-3">
           {network === "testnet" ? (
@@ -567,13 +554,6 @@ export default function HomeScreen() {
         contentPadding={0}
       >
         <SendReceiveSheet mode={sheetMode} onModeChange={setSheetMode} />
-      </Dialog>
-      <Dialog
-        control={walletSwitcherControl}
-        placement="bottom"
-        title={t("wallets.title")}
-      >
-        <WalletSwitcherSheet onDone={() => walletSwitcherControl.close()} />
       </Dialog>
       <Dialog
         control={pocketSwitcherControl}
