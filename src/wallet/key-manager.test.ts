@@ -256,3 +256,66 @@ describe("KeyManager.wipe (M1 zeroization)", () => {
     expect(watch.getAllAddresses()).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// BIP44 account index (Pockets). Each account is an isolated subtree; account 0
+// must remain byte-for-byte identical to the pre-Pockets single-account wallet.
+// ---------------------------------------------------------------------------
+
+import { deriveAddress } from "@fairco.in/core";
+
+describe("KeyManager account index (Pockets)", () => {
+  test("defaults to account 0 and reports it via getAccount()", () => {
+    const km = KeyManager.fromMnemonic(MNEMONIC, MAINNET);
+    expect(km.getAccount()).toBe(0);
+  });
+
+  test("account 0 addresses are unchanged (backward compatible)", () => {
+    const seed = mnemonicToSeedSync(MNEMONIC);
+    const withDefault = KeyManager.fromSeed(seed, MAINNET);
+    const withExplicitZero = KeyManager.fromSeed(seed, MAINNET, 0);
+    expect(withExplicitZero.getExternalAddresses()).toEqual(
+      withDefault.getExternalAddresses(),
+    );
+  });
+
+  test("account 1 derives a DIFFERENT external chain than account 0", () => {
+    const seed = mnemonicToSeedSync(MNEMONIC);
+    const acct0 = KeyManager.fromSeed(seed, MAINNET, 0);
+    const acct1 = KeyManager.fromSeed(seed, MAINNET, 1);
+    expect(acct1.getAccount()).toBe(1);
+    expect(acct1.getExternalAddresses()[0]).not.toBe(
+      acct0.getExternalAddresses()[0],
+    );
+  });
+
+  test("account 1 addresses match @fairco.in/core deriveAddress(seed, 1, ...)", () => {
+    const seed = mnemonicToSeedSync(MNEMONIC);
+    const acct1 = KeyManager.fromSeed(seed, MAINNET, 1);
+    const external = acct1.getExternalAddresses();
+    for (let i = 0; i < 5; i++) {
+      expect(external[i]).toBe(deriveAddress(seed, 1, 0, i, MAINNET).address);
+    }
+  });
+
+  test("the per-address path string carries the account index", () => {
+    const seed = mnemonicToSeedSync(MNEMONIC);
+    const acct2 = KeyManager.fromSeed(seed, MAINNET, 2);
+    const first = acct2.getNextAddress();
+    expect(first.path).toBe(`m/44'/${MAINNET.bip44CoinType}'/2'/0/0`);
+  });
+
+  test("accountXpub differs per account and round-trips through fromXpub", () => {
+    const seed = mnemonicToSeedSync(MNEMONIC);
+    const acct0 = KeyManager.fromSeed(seed, MAINNET, 0);
+    const acct1 = KeyManager.fromSeed(seed, MAINNET, 1);
+    expect(acct1.accountXpub()).not.toBe(acct0.accountXpub());
+
+    const watch1 = KeyManager.fromXpub(acct1.accountXpub(), MAINNET, 1);
+    expect(watch1.getAccount()).toBe(1);
+    expect(watch1.getExternalAddresses()).toEqual(acct1.getExternalAddresses());
+    expect(watch1.getExternalAddresses()[0]).not.toBe(
+      acct0.getExternalAddresses()[0],
+    );
+  });
+});
