@@ -14,3 +14,10 @@ export {
   type Merchant,
   MERCHANT_ENVIRONMENTS,
 } from './merchant';
+export {
+  type SocialNextAddressResponse,
+  type EnrichmentKind,
+  type EnrichmentResult,
+  type EnrichRequest,
+  type EnrichResponse,
+} from './social';
