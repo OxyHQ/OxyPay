@@ -1,19 +1,18 @@
 {
   "expo": {
-    "name": "FAIRWallet",
-    "slug": "fairwallet",
+    "name": "Oxy Pay",
+    "slug": "oxypay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": [
-      "fairwallet",
-      "faircoin",
-      "oxypay"
+      "oxypay",
+      "faircoin"
     ],
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "in.fairco.wallet",
+      "bundleIdentifier": "so.oxy.pay",
       "icon": "./assets/icon.png",
       "entitlements": {
         "aps-environment": "production"
@@ -26,8 +25,7 @@
         "backgroundColor": "#1b1e09"
       },
       "predictiveBackGestureEnabled": true,
-      "package": "in.fairco.wallet",
-      "googleServicesFile": "./google-services.json",
+      "package": "so.oxy.pay",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -73,13 +71,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "FAIRWallet needs camera access to scan QR codes."
+          "cameraPermission": "Oxy Pay needs camera access to scan QR codes."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "FAIRWallet uses your location to show nearby places that accept FairCoin."
+          "locationWhenInUsePermission": "Oxy Pay uses your location to show nearby places that accept FairCoin."
         }
       ],
       "@maplibre/maplibre-react-native",
