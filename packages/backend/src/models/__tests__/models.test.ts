@@ -60,6 +60,37 @@ test("saves a Merchant with a watch-only testnet xpub", async () => {
   expect(merchant.livemode).toBe(false);
 });
 
+test("saves a Merchant with optional display identity fields", async () => {
+  const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000008",
+    oxyAppId: "app_with_identity",
+    environment: "development",
+    network: "testnet",
+    xpub: XPUB,
+    displayName: "Mercaria",
+    avatarFileId: "file_mercaria_logo",
+    description: "Marketplace",
+  });
+
+  expect(merchant.displayName).toBe("Mercaria");
+  expect(merchant.avatarFileId).toBe("file_mercaria_logo");
+  expect(merchant.description).toBe("Marketplace");
+});
+
+test("display identity fields are optional (existing merchants unaffected)", async () => {
+  const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000009",
+    oxyAppId: "app_no_identity",
+    environment: "development",
+    network: "testnet",
+    xpub: XPUB,
+  });
+
+  expect(merchant.displayName).toBeUndefined();
+  expect(merchant.avatarFileId).toBeUndefined();
+  expect(merchant.description).toBeUndefined();
+});
+
 test("rejects a Merchant whose xpub is a private xprv (non-custody firewall)", async () => {
   const seed = mnemonicToSeed(MNEMONIC);
   const root = deriveKeyFromSeed(seed, TESTNET);

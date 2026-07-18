@@ -36,6 +36,12 @@ export interface MerchantDoc {
   webhookSecret?: string;
   requiredConfirmations: number;
   livemode: boolean;
+  /** Display name shown in the payer's transaction history ("Paid at <name>"). */
+  displayName?: string;
+  /** Bare Oxy file id for the merchant's logo — canonical media chokepoint. */
+  avatarFileId?: string;
+  /** Short description shown alongside the merchant identity. */
+  description?: string;
   /** Populated by the schema `timestamps` option. */
   createdAt: Date;
   updatedAt: Date;
@@ -53,6 +59,9 @@ const merchantSchema = new Schema<MerchantDoc>(
     webhookSecret: { type: String },
     requiredConfirmations: { type: Number, default: 1 },
     livemode: { type: Boolean, default: false },
+    displayName: { type: String },
+    avatarFileId: { type: String },
+    description: { type: String },
   },
   { timestamps: true },
 );
