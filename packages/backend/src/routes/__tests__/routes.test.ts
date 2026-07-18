@@ -33,6 +33,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
     appName: "t",
     scopes: [],
     credentialId: "c",
+    environment: "development",
   };
   next();
 };
