@@ -8,6 +8,7 @@ export {
   PAYMENT_INTENT_STATUSES,
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
+export { type WebhookDelivery } from './webhookDelivery';
 export {
   type MerchantEnvironment,
   type Merchant,

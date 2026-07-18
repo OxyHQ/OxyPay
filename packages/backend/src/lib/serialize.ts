@@ -1,7 +1,8 @@
 import type { HydratedDocument } from "mongoose";
-import type { Merchant, PaymentIntent } from "@oxypay/shared-types";
+import type { Merchant, PaymentIntent, WebhookDelivery } from "@oxypay/shared-types";
 import type { MerchantDoc } from "../models/Merchant";
 import type { PaymentIntentDoc } from "../models/PaymentIntent";
+import type { WebhookDeliveryDoc } from "../models/WebhookDelivery";
 
 /** A persisted PaymentIntent document (includes the timestamp fields). */
 export type PaymentIntentDocument = HydratedDocument<PaymentIntentDoc>;
@@ -47,6 +48,31 @@ export function toMerchantDTO(doc: HydratedDocument<MerchantDoc>): Merchant {
     xpub: doc.xpub,
     webhookUrl: doc.webhookUrl,
     requiredConfirmations: doc.requiredConfirmations,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Serialize a persisted WebhookDelivery document to its public
+ * `WebhookDelivery` DTO. `WebhookDelivery` has no schema field named `id`, so
+ * its Mongoose virtual `.id` is used directly here — unlike `Merchant`, there
+ * is no collision to avoid.
+ */
+export function toWebhookDeliveryDTO(
+  doc: HydratedDocument<WebhookDeliveryDoc>,
+): WebhookDelivery {
+  return {
+    id: doc.id,
+    object: "webhook_delivery",
+    merchantId: doc.merchantId,
+    intentId: doc.intentId,
+    eventId: doc.eventId,
+    eventType: doc.eventType,
+    url: doc.url,
+    attempts: doc.attempts,
+    delivered: doc.delivered,
+    lastStatus: doc.lastStatus,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

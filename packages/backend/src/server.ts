@@ -21,6 +21,7 @@ import type {
 import { config } from "./config";
 import { connectDb } from "./db";
 import { Merchant } from "./models/Merchant";
+import { WebhookDelivery } from "./models/WebhookDelivery";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
 import {
@@ -80,8 +81,9 @@ export interface Gateway {
  * When the watcher advances an intent, fan the change out to both transports:
  * the payer's realtime socket room AND the merchant's signed webhook. Webhook
  * delivery is best-effort (never throws) so it cannot stall the watcher.
+ * Exported for direct testing (`__tests__/onIntentChange.test.ts`).
  */
-async function onIntentChange(
+export async function onIntentChange(
   io: SocketServer,
   intent: HydratedPaymentIntentDoc,
   safeFetch: SafeFetchFn | undefined,
@@ -95,11 +97,33 @@ async function onIntentChange(
   if (!merchant || !merchant.webhookUrl || !merchant.webhookSecret) return;
 
   const event = buildEvent(eventType, toPaymentIntentDTO(intent));
-  await deliver(
+  const outcome = await deliver(
     event,
     { url: merchant.webhookUrl, secret: merchant.webhookSecret },
     safeFetch ? { safeFetch } : {},
   );
+
+  // Persisting the delivery log is best-effort, same as `deliver()` itself —
+  // a transient Mongo write failure here must never abort the settlement
+  // watcher's poll loop (`SettlementWatcher.check()` awaits `onChange` inline
+  // per intent, with no per-iteration try/catch of its own — see
+  // `settlementWatcher.ts:79-88`).
+  try {
+    await WebhookDelivery.create({
+      merchantId: merchant.id,
+      intentId: intent.id,
+      eventId: event.id,
+      eventType,
+      url: merchant.webhookUrl,
+      attempts: outcome.attempts,
+      delivered: outcome.delivered,
+      lastStatus: outcome.delivered ? "delivered" : "failed",
+    });
+  } catch (error) {
+    process.emitWarning(
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
 }
 
 /**

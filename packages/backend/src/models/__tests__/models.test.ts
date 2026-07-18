@@ -4,6 +4,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { TESTNET, MAINNET, mnemonicToSeed, deriveKeyFromSeed } from "@fairco.in/core";
 import { Merchant } from "../Merchant";
 import { PaymentIntent } from "../PaymentIntent";
+import { WebhookDelivery } from "../WebhookDelivery";
 import { reserveNextAddress } from "../../services/reserveAddress";
 import { toBaseUnits, fromBaseUnits } from "../../lib/money";
 
@@ -196,4 +197,24 @@ test("the SAME oxyAppId + environment pair collides (compound unique index)", as
     xpub: XPUB,
   });
   await expect(dup).rejects.toThrow();
+});
+
+test("WebhookDelivery persists one row per delivery attempt, keyed by merchantId", async () => {
+  const delivery = await WebhookDelivery.create({
+    merchantId: "merchant_xyz",
+    intentId: "pi_0000000000000000000000e1",
+    eventId: "evt_0000000000000000000000e1",
+    eventType: "payment_intent.settled",
+    url: "https://merchant.example/hook",
+    attempts: 1,
+    delivered: true,
+    lastStatus: "delivered",
+  });
+
+  expect(delivery.merchantId).toBe("merchant_xyz");
+  expect(delivery.delivered).toBe(true);
+  expect(delivery.lastStatus).toBe("delivered");
+
+  const count = await WebhookDelivery.countDocuments({ merchantId: "merchant_xyz" });
+  expect(count).toBe(1);
 });

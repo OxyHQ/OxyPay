@@ -23,6 +23,7 @@ import type {
 } from "@oxyhq/core/server";
 import { Merchant } from "../models/Merchant";
 import { PaymentIntent } from "../models/PaymentIntent";
+import { WebhookDelivery } from "../models/WebhookDelivery";
 import { createGateway, type Gateway } from "../server";
 import { verifyWebhook } from "../services/webhookSigner";
 import type { ExplorerTx } from "../services/explorer";
@@ -247,6 +248,13 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   };
   expect(payload.type).toBe("payment_intent.settled");
   expect(payload.data.object.status).toBe("settled");
+
+  // 7b. The delivery was also persisted (F2.0 task 4).
+  const deliveryLog = await WebhookDelivery.find({ merchantId: (await Merchant.findOne({ oxyAppId: APP_ID }))?.id });
+  expect(deliveryLog.length).toBeGreaterThan(0);
+  const lastDelivery = deliveryLog.at(-1);
+  expect(lastDelivery?.delivered).toBe(true);
+  expect(lastDelivery?.intentId).toBe(created.id);
 
   // 8. Non-custody invariant: no private-key/seed field was ever persisted.
   const merchantDoc = await Merchant.findOne({ oxyAppId: APP_ID }).lean();
