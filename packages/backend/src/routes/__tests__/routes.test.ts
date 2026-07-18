@@ -169,6 +169,25 @@ describe("POST /v1/payment_intents", () => {
     });
     expect(res.status).toBe(422);
   });
+
+  test("network mismatched against the merchant's own network -> 422, no address ever derived", async () => {
+    const res = await fetch(`${baseUrl}/v1/payment_intents`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "idem-network-mismatch",
+      },
+      body: JSON.stringify({ amount: "150000000", network: "mainnet" }),
+    });
+    expect(res.status).toBe(422);
+    const body = await readJson(res);
+    expect(body.error?.type).toBe("invalid_request_error");
+
+    const count = await PaymentIntent.countDocuments({
+      idempotencyKey: "idem-network-mismatch",
+    });
+    expect(count).toBe(0);
+  });
 });
 
 describe("GET /v1/payment_intents/:id", () => {

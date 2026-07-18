@@ -141,6 +141,21 @@ export function createPaymentIntentsRouter(deps?: {
       }
       const params: CreatePaymentIntentParams = parsed.data;
 
+      // Data-integrity firewall (F2.0 task 1a): the watch-only address is
+      // derived using the MERCHANT's network (`reserveAddress.ts`), never the
+      // caller's claimed `network` — reject up front on a mismatch, or the
+      // returned intent's `network` label would lie about the network its
+      // `address` actually encodes.
+      if (params.network !== merchant.network) {
+        sendError(
+          res,
+          422,
+          "invalid_request_error",
+          `network '${params.network}' does not match the merchant's configured network '${merchant.network}'`,
+        );
+        return;
+      }
+
       // Idempotency (fast path): a prior intent for this key wins as-is.
       const existing = await PaymentIntent.findOne({
         merchantId: merchant.id,
