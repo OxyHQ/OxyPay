@@ -44,7 +44,7 @@
 - [x] Montar `OxyProvider` (identidad Oxy) — dentro de Bloom, encima del BottomSheet, incondicional _(clientId reutilizado; tsc + expo export verdes)_
 - [x] Cliente backend vía `createLinkedClient` (`gateway-client.submitTx`) + config env
 - [x] Suscripción Socket.io al estado del intent (`gateway-socket.subscribeToIntent`, token en handshake)
-- [ ] Pantalla aprobar-pago + bandeja de payment-requests + push (= Track C, wire UI al flujo PaymentIntent)
+- [x] **Pantalla aprobar-pago** (`app/pay/[intent].tsx`) + parser `oxypay://pay` + deep-link → aprobar → `sendTransaction` → `submitTx` → estado en vivo _(tsc + expo export + pay test verdes)_
 - [ ] **Runtime:** verificar cold-boot de OxyProvider + `signIn()` en navegador real (interactivo)
 - [ ] Console: actualizar redirect URIs/scopes del client id reutilizado (acción en Console/oxy-api)
 

@@ -39,6 +39,7 @@ import { OxyProvider } from "@oxyhq/services";
 import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
+import { parsePaymentRequest } from "../src/pay/payment-request";
 import { queryClient } from "../src/services/query-client";
 import { oxyServices } from "../src/services/oxy-services";
 import { OXY_CLIENT_ID, OXY_AUTH_REDIRECT_URI } from "../src/config";
@@ -107,6 +108,23 @@ function useDeepLinkHandler() {
 
   const navigateFromUrl = useCallback(
     (url: string) => {
+      // An `oxypay://pay?...` request routes to the approve-pay screen. Parse +
+      // validate here so we only ever push the approve screen for a well-formed
+      // request; the screen re-derives the same fields from its route params.
+      const payment = parsePaymentRequest(url);
+      if (payment) {
+        router.push({
+          pathname: "/pay/[intent]",
+          params: {
+            intent: payment.intentId,
+            secret: payment.clientSecret,
+            address: payment.address,
+            amount: payment.amount.toString(),
+            network: payment.network,
+          },
+        });
+        return;
+      }
       const parsed = parseFairCoinURI(url);
       if (parsed) {
         router.push({
@@ -338,6 +356,7 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="language" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="notifications-settings" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="transaction/[txid]" options={{ headerShown: false }} />
+        <Stack.Screen name="pay/[intent]" options={{ headerShown: false }} />
         <Stack.Screen name="buy" options={{ headerShown: false }} />
       </Stack>
       {/* Full-screen lock overlay: covers every authenticated route while the

@@ -7,7 +7,8 @@
     "icon": "./assets/icon.png",
     "scheme": [
       "fairwallet",
-      "faircoin"
+      "faircoin",
+      "oxypay"
     ],
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -34,6 +35,9 @@
           "data": [
             {
               "scheme": "faircoin"
+            },
+            {
+              "scheme": "oxypay"
             }
           ],
           "category": [

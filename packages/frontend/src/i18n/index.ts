@@ -171,6 +171,46 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.watchOnly.subtitle":
       "Sending is disabled for watch-only wallets. Import the full wallet with a recovery phrase to enable sending.",
 
+    // ---------- Approve pay ----------
+    "pay.title": "Approve Payment",
+    "pay.usdApprox": "≈ ${amount} USD",
+    "pay.payTo": "Pay to",
+    "pay.network": "Network",
+    "pay.network.mainnet": "Mainnet",
+    "pay.network.testnet": "Testnet",
+    "pay.approve": "Approve & Pay",
+    "pay.decline": "Decline",
+    "pay.processing": "Signing & broadcasting...",
+    "pay.status.broadcast.title": "Payment sent",
+    "pay.status.broadcast.subtitle": "Waiting to be seen on-chain...",
+    "pay.status.confirming.title": "Confirming",
+    "pay.status.confirming.subtitle": "{count} confirmation(s) so far...",
+    "pay.status.settled.title": "Payment settled",
+    "pay.status.settled.subtitle": "The merchant has received your payment.",
+    "pay.status.failed.title": "Payment failed",
+    "pay.status.failed.subtitle": "This payment could not be completed.",
+    "pay.status.expired.title": "Payment request expired",
+    "pay.status.expired.subtitle": "This request is no longer valid.",
+    "pay.status.rejected.title": "Payment rejected",
+    "pay.status.rejected.subtitle": "The merchant rejected this payment.",
+    "pay.sent.signedOut": "Payment sent - sign in to Oxy for live status.",
+    "pay.signIn": "Sign in to Oxy",
+    "pay.viewTransaction": "View transaction",
+    "pay.invalid.title": "Invalid payment request",
+    "pay.invalid.subtitle":
+      "This payment link is malformed or incomplete and cannot be paid.",
+    "pay.error.sendFailed": "Failed to send payment",
+    "pay.error.networkMismatch":
+      "This request is for {requested}, but your wallet is on {active}. Switch networks to pay.",
+    "pay.error.watchOnly":
+      "This is a watch-only wallet and cannot send payments.",
+    "pay.error.notInitialized": "Your wallet is still loading. Try again in a moment.",
+    "pay.notice.reportFailed":
+      "Payment broadcast, but the gateway didn't confirm receipt. It will still settle on-chain.",
+    "pay.notice.liveStatusUnavailable":
+      "Payment sent. Live status is unavailable right now.",
+    "pay.notice.openLinkFailed": "Couldn't open the explorer link.",
+
     // ---------- Buy ----------
     "buy.title": "Buy FAIR",
     "buy.subtitle": "Get FairCoin delivered to your wallet",
@@ -919,6 +959,48 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.watchOnly.title": "Billetera de Solo Lectura",
     "send.watchOnly.subtitle":
       "El env\u00edo est\u00e1 deshabilitado para billeteras de solo lectura. Importa la billetera completa con una frase de recuperaci\u00f3n para habilitar el env\u00edo.",
+
+    // ---------- Approve pay ----------
+    "pay.title": "Aprobar Pago",
+    "pay.usdApprox": "\u2248 ${amount} USD",
+    "pay.payTo": "Pagar a",
+    "pay.network": "Red",
+    "pay.network.mainnet": "Principal",
+    "pay.network.testnet": "Prueba",
+    "pay.approve": "Aprobar y Pagar",
+    "pay.decline": "Rechazar",
+    "pay.processing": "Firmando y transmitiendo...",
+    "pay.status.broadcast.title": "Pago enviado",
+    "pay.status.broadcast.subtitle": "Esperando a que se vea en la cadena...",
+    "pay.status.confirming.title": "Confirmando",
+    "pay.status.confirming.subtitle": "{count} confirmaci\u00f3n(es) hasta ahora...",
+    "pay.status.settled.title": "Pago liquidado",
+    "pay.status.settled.subtitle": "El comercio ha recibido tu pago.",
+    "pay.status.failed.title": "El pago fall\u00f3",
+    "pay.status.failed.subtitle": "Este pago no se pudo completar.",
+    "pay.status.expired.title": "La solicitud de pago expir\u00f3",
+    "pay.status.expired.subtitle": "Esta solicitud ya no es v\u00e1lida.",
+    "pay.status.rejected.title": "Pago rechazado",
+    "pay.status.rejected.subtitle": "El comercio rechaz\u00f3 este pago.",
+    "pay.sent.signedOut":
+      "Pago enviado - inicia sesi\u00f3n en Oxy para ver el estado en vivo.",
+    "pay.signIn": "Iniciar sesi\u00f3n en Oxy",
+    "pay.viewTransaction": "Ver transacci\u00f3n",
+    "pay.invalid.title": "Solicitud de pago no v\u00e1lida",
+    "pay.invalid.subtitle":
+      "Este enlace de pago est\u00e1 mal formado o incompleto y no se puede pagar.",
+    "pay.error.sendFailed": "No se pudo enviar el pago",
+    "pay.error.networkMismatch":
+      "Esta solicitud es para {requested}, pero tu billetera est\u00e1 en {active}. Cambia de red para pagar.",
+    "pay.error.watchOnly":
+      "Esta es una billetera de solo lectura y no puede enviar pagos.",
+    "pay.error.notInitialized":
+      "Tu billetera a\u00fan se est\u00e1 cargando. Int\u00e9ntalo de nuevo en un momento.",
+    "pay.notice.reportFailed":
+      "El pago se transmiti\u00f3, pero la pasarela no confirm\u00f3 la recepci\u00f3n. Se liquidar\u00e1 igualmente en la cadena.",
+    "pay.notice.liveStatusUnavailable":
+      "Pago enviado. El estado en vivo no est\u00e1 disponible ahora mismo.",
+    "pay.notice.openLinkFailed": "No se pudo abrir el enlace del explorador.",
 
     // ---------- Buy ----------
     "buy.title": "Comprar FAIR",
