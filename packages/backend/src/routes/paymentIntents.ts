@@ -4,17 +4,20 @@ import type {
   RequestHandler,
   Response,
 } from "express";
-import type { HydratedDocument } from "mongoose";
+import type { FilterQuery, HydratedDocument } from "mongoose";
 import { z } from "zod";
+import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
 import {
   isBaseUnitString,
+  PAYMENT_INTENT_STATUSES,
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
 } from "@oxypay/shared-types";
 import { Merchant } from "../models/Merchant";
 import type { MerchantDoc } from "../models/Merchant";
 import { PaymentIntent } from "../models/PaymentIntent";
+import type { PaymentIntentDoc } from "../models/PaymentIntent";
 import { reserveNextAddress } from "../services/reserveAddress";
 import { newId, clientSecretFor } from "../lib/ids";
 import { applyEvent } from "../services/intentState";
@@ -23,6 +26,16 @@ import { sendError, wrap, isDuplicateKeyError, requireServiceApp } from "../lib/
 
 const DEFAULT_EXPIRY_SECONDS = 15 * 60;
 const MS_PER_SECOND = 1000;
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 100;
+
+const listQuerySchema = z.object({
+  status: z
+    .enum(PAYMENT_INTENT_STATUSES as [PaymentIntentStatus, ...PaymentIntentStatus[]])
+    .optional(),
+  limit: z.coerce.number().int().positive().max(MAX_LIST_LIMIT).optional(),
+  starting_after: z.string().optional(),
+});
 
 // Zod schema for the create body. Its inferred output is asserted assignable to
 // `CreatePaymentIntentParams` (see `params` below) so the wire contract and the
@@ -187,6 +200,68 @@ export function createPaymentIntentsRouter(deps: {
         }
         throw err;
       }
+    }),
+  );
+
+  // `oxyClient.requireScope()` answers 403 SERVICE_TOKEN_REQUIRED when
+  // `req.serviceApp` is missing entirely, not 401 — gate on serviceApp
+  // presence FIRST so a fully unauthenticated caller gets 401 like every
+  // other route in this gateway, and requireScope's 403 is reserved for
+  // "authenticated but missing the required scope" (mirrors `merchants.ts`).
+  const requireAuthenticated: RequestHandler = (req, res, next) => {
+    if (!requireServiceApp(req, res)) return;
+    next();
+  };
+
+  router.get(
+    "/v1/payment_intents",
+    requireMerchant,
+    requireAuthenticated,
+    oxyClient.requireScope("payments:read"),
+    wrap(async (req, res) => {
+      const merchant = await resolveMerchant(req, res);
+      if (!merchant) return;
+
+      const parsed = listQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        sendError(
+          res,
+          422,
+          "invalid_request_error",
+          parsed.error.issues[0]?.message ?? "invalid query",
+        );
+        return;
+      }
+      const { status, starting_after } = parsed.data;
+      const limit = parsed.data.limit ?? DEFAULT_LIST_LIMIT;
+
+      const filter: FilterQuery<PaymentIntentDoc> = { merchantId: merchant.id };
+      if (status) filter.status = status;
+
+      if (starting_after) {
+        const cursor = await PaymentIntent.findOne({
+          id: starting_after,
+          merchantId: merchant.id,
+        });
+        if (!cursor) {
+          sendError(
+            res,
+            422,
+            "invalid_request_error",
+            "starting_after references an unknown payment intent",
+          );
+          return;
+        }
+        filter._id = { $lt: cursor._id };
+      }
+
+      const page = await PaymentIntent.find(filter).sort({ _id: -1 }).limit(limit + 1);
+      const hasMore = page.length > limit;
+      const data = (hasMore ? page.slice(0, limit) : page).map((intent) =>
+        toPaymentIntentDTO(intent),
+      );
+
+      res.status(200).json({ object: "list", data, has_more: hasMore });
     }),
   );
 

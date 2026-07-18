@@ -5,6 +5,7 @@ export {
   type PaymentIntent,
   type CreatePaymentIntentParams,
   isValidStatusTransition,
+  PAYMENT_INTENT_STATUSES,
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
 export {

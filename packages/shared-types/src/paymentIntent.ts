@@ -43,6 +43,12 @@ export function isValidStatusTransition(
   return ALLOWED[from].includes(to);
 }
 
+/** Every legal `PaymentIntentStatus`, derived from `ALLOWED`'s keys — the
+ * single source of truth consumed by the Gateway's list-route status filter. */
+export const PAYMENT_INTENT_STATUSES: readonly PaymentIntentStatus[] = Object.keys(
+  ALLOWED,
+) as PaymentIntentStatus[];
+
 export interface PaymentIntent {
   id: string;
   object: 'payment_intent';

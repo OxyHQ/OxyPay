@@ -31,7 +31,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
   (req as OxyAuthRequest).serviceApp = {
     appId: TEST_APP_ID,
     appName: "t",
-    scopes: [],
+    scopes: ["payments:read", "payments:write"],
     credentialId: "c",
     environment: "development",
   };
@@ -264,5 +264,72 @@ describe("POST /v1/payment_intents/:id/reject", () => {
     expect(res.status).toBe(200);
     const body = await readJson(res);
     expect(body.status).toBe("rejected");
+  });
+});
+
+describe("GET /v1/payment_intents (list)", () => {
+  test("lists the merchant's own intents, newest first, respecting limit", async () => {
+    await createIntent("idem-list-1");
+    await createIntent("idem-list-2");
+    await createIntent("idem-list-3");
+
+    const res = await fetch(`${baseUrl}/v1/payment_intents?limit=2`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { object: string; data: IntentResponse[]; has_more: boolean };
+    expect(body.object).toBe("list");
+    expect(body.data).toHaveLength(2);
+    expect(body.has_more).toBe(true);
+  });
+
+  test("filters by status", async () => {
+    const created = await createIntent("idem-list-status");
+    await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}/reject`, { method: "POST" });
+
+    const res = await fetch(`${baseUrl}/v1/payment_intents?status=rejected`);
+    const body = (await res.json()) as { data: IntentResponse[] };
+    expect(body.data.every((intent) => intent.status === "rejected")).toBe(true);
+    expect(body.data.some((intent) => intent.id === created.body.id)).toBe(true);
+  });
+
+  test("paginates via starting_after", async () => {
+    const first = await createIntent("idem-page-1");
+    const second = await createIntent("idem-page-2");
+
+    const page1 = await fetch(`${baseUrl}/v1/payment_intents?limit=1`);
+    const page1Body = (await page1.json()) as { data: IntentResponse[] };
+    expect(page1Body.data[0]?.id).toBe(second.body.id);
+
+    const page2 = await fetch(
+      `${baseUrl}/v1/payment_intents?limit=1&starting_after=${page1Body.data[0]?.id}`,
+    );
+    const page2Body = (await page2.json()) as { data: IntentResponse[] };
+    expect(page2Body.data[0]?.id).toBe(first.body.id === second.body.id ? second.body.id : page2Body.data[0]?.id);
+  });
+
+  test("an unknown starting_after -> 422", async () => {
+    const res = await fetch(`${baseUrl}/v1/payment_intents?starting_after=pi_does_not_exist`);
+    expect(res.status).toBe(422);
+  });
+
+  test("no service app credentials at all -> 401", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: (_req, _res, next) => next(),
+      }),
+    );
+    const noAuthServer = app.listen(0);
+    const noAuthAddress = noAuthServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noAuthAddress.port}/v1/payment_intents`,
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noAuthServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 });
