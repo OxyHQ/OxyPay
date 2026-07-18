@@ -41,10 +41,12 @@
 - [x] Subtree de FAIRWallet `main` en `packages/frontend` (`git subtree pull` para mejoras) + rename a `@oxypay/frontend` + `bun install` OK
 - [x] Wiring del monorepo (Expo auto-detecta el workspace; blockList backend/shared-types; root tsconfig solution-file; scripts dev/build) _(expo export web + tsc -b verdes)_
 - [x] Alinear Expo SDK 55 → 57 — hecho **en FAIRWallet upstream** (`chore/expo-sdk-57`, pusheado) y traído vía `git subtree pull`. Web/JS verde (bundle + 234 tests wallet). **Follow-up nativo:** `@maplibre/maplibre-react-native` v10→v11 (breaking, `map.tsx`) + test SPV de `react-native-tcp-socket` en dispositivo
-- [ ] Montar `OxyProvider` (identidad Oxy) — orden de providers Bloom
-- [ ] Cliente backend vía `createLinkedClient`
-- [ ] Pantalla aprobar-pago + bandeja de payment-requests + push
-- [ ] Suscripción Socket.io al estado del intent
+- [x] Montar `OxyProvider` (identidad Oxy) — dentro de Bloom, encima del BottomSheet, incondicional _(clientId reutilizado; tsc + expo export verdes)_
+- [x] Cliente backend vía `createLinkedClient` (`gateway-client.submitTx`) + config env
+- [x] Suscripción Socket.io al estado del intent (`gateway-socket.subscribeToIntent`, token en handshake)
+- [ ] Pantalla aprobar-pago + bandeja de payment-requests + push (= Track C, wire UI al flujo PaymentIntent)
+- [ ] **Runtime:** verificar cold-boot de OxyProvider + `signIn()` en navegador real (interactivo)
+- [ ] Console: actualizar redirect URIs/scopes del client id reutilizado (acción en Console/oxy-api)
 
 ### Track C — Integración end-to-end
 - [ ] Flujo completo testnet: cobro → push/QR → aprobar → firma → settle → webhook

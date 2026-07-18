@@ -35,11 +35,13 @@ const KeyboardProvider =
   Platform.OS === "web"
     ? ({ children }: { children: React.ReactNode }) => <>{children}</>
     : NativeKeyboardProvider;
-import { QueryClientProvider } from "@tanstack/react-query";
+import { OxyProvider } from "@oxyhq/services";
 import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
 import { parseFairCoinURI } from "@fairco.in/core";
 import { queryClient } from "../src/services/query-client";
+import { oxyServices } from "../src/services/oxy-services";
+import { OXY_CLIENT_ID, OXY_AUTH_REDIRECT_URI } from "../src/config";
 import { useExplorerRealtime } from "../src/hooks/useExplorerRealtime";
 import { useWalletStore } from "../src/wallet/wallet-store";
 import { useLockStore } from "../src/wallet/lock-store";
@@ -275,14 +277,20 @@ export default function RootLayout() {
             onModeChange={handleModeChange}
             fonts={false}
           >
-            <BottomSheetModalProvider>
-              <QueryClientProvider client={queryClient}>
+            <OxyProvider
+              oxyServices={oxyServices}
+              clientId={OXY_CLIENT_ID}
+              authRedirectUri={OXY_AUTH_REDIRECT_URI}
+              storageKeyPrefix="oxypay"
+              queryClient={queryClient}
+            >
+              <BottomSheetModalProvider>
                 <AppContent
                   key={language}
                   ready={fontsLoaded && themeReady && languageReady}
                 />
-              </QueryClientProvider>
-            </BottomSheetModalProvider>
+              </BottomSheetModalProvider>
+            </OxyProvider>
           </BloomThemeProvider>
         </SafeAreaProvider>
       </KeyboardProvider>
