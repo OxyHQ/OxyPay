@@ -81,6 +81,7 @@ import {
   MAIN_POCKET_ACCOUNT,
   addPocket,
   renamePocket as renamePocketList,
+  updatePocketMeta as updatePocketMetaList,
   removePocket as removePocketList,
   canDeletePocket,
 } from "./pockets";
@@ -227,8 +228,18 @@ export interface WalletState {
   // Pockets
   loadPockets: () => Promise<void>;
   switchPocket: (account: number) => Promise<void>;
-  createPocket: (name: string) => Promise<number>;
+  createPocket: (
+    name: string,
+    emoji: string,
+    color: string,
+    goal?: number,
+  ) => Promise<number>;
   renamePocket: (account: number, name: string) => Promise<void>;
+  /** Update a Pocket's emoji/color/goal. Pass `goal: null` to clear an existing goal. */
+  updatePocketMeta: (
+    account: number,
+    updates: { emoji?: string; color?: string; goal?: number | null },
+  ) => Promise<void>;
   deletePocket: (account: number) => Promise<void>;
   moveBetweenPockets: (
     toAccount: number,
@@ -1958,13 +1969,18 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     });
   },
 
-  createPocket: async (name: string): Promise<number> => {
+  createPocket: async (
+    name: string,
+    emoji: string,
+    color: string,
+    goal?: number,
+  ): Promise<number> => {
     const walletId = get().activeWalletId;
     if (!walletId) {
       throw new Error("No active wallet");
     }
     const list = await getPockets(walletId);
-    const updated = addPocket(list, name.trim(), Date.now());
+    const updated = addPocket(list, name.trim(), emoji, color, goal, Date.now());
     await savePockets(walletId, updated);
     await get().loadPockets();
     return updated[updated.length - 1].account;
@@ -1975,6 +1991,17 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     if (!walletId) return;
     const list = await getPockets(walletId);
     await savePockets(walletId, renamePocketList(list, account, name.trim()));
+    await get().loadPockets();
+  },
+
+  updatePocketMeta: async (
+    account: number,
+    updates: { emoji?: string; color?: string; goal?: number | null },
+  ): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    await savePockets(walletId, updatePocketMetaList(list, account, updates));
     await get().loadPockets();
   },
 
