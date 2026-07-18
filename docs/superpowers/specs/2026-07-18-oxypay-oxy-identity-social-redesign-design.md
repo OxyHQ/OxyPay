@@ -21,7 +21,7 @@ Three workstreams, sequenced. Each is independently testable.
 
 - **WS-P — Pockets (FAIRWallet upstream).** Parametrise the wallet by BIP44 account index; Pockets UI. Generic, reusable, no Oxy dependency. Lands in FAIRWallet → subtree-pulled into OxyPay.
 - **WS-F — Foundation: Oxy-identity wallet + Oxy-first onboarding (OxyPay + `@oxyhq/core`).** Replace the `hasWallet()` onboarding with sign-in-with-Oxy; derive the single wallet from the Oxy identity; handle keyless accounts.
-- **WS-S — Social send/receive (OxyPay + backend + `@oxyhq/core`).** `@username` payments: resolve → derive → send; social-receive address scheme; user-search UI. Raw-address send kept as secondary.
+- **WS-S — Social send/receive + rich transaction identity (OxyPay + backend + `@oxyhq/core`).** `@username` payments: resolve → derive → send; social-receive address scheme; user-search UI; raw-address send kept as secondary. PLUS the transaction history showing merchant name+logo / user avatar+name per §4.8 (the Stripe/Revolut-grade ledger — enrichment service + attribution records).
 
 **Out of scope (this design):** fiat on-ramp, invoices/subscriptions/payment-links (Gateway phase 2), Terminal/NFC, web wallet (native-only — see §9), swapping FairCoin↔fiat.
 
@@ -117,6 +117,22 @@ Revolut-style sub-balances within one wallet, as **BIP44 account indices** (`m/4
 
 OxyPay is single-wallet. The FAIRWallet multi-wallet switcher (`app/wallets.tsx`, `WalletSwitcherSheet`, `createNewWallet`/`switchWallet` UI) is hidden/removed in OxyPay's divergence (the underlying multi-wallet code stays in the subtree, dormant). "Wallets" as a user concept is replaced by "Pockets".
 
+### 4.8 Transaction identity & merchant display (WS-S) — Stripe/Revolut-grade history
+
+The transaction list must show **who** each payment was with — a merchant's name + logo ("Paid at Mercaria"), or a user's avatar + display name ("Sent to @alice" / "Received from @bob") — not raw addresses + amounts. This is core to being "our own Stripe": the on-chain ledger only carries addresses + amounts, so counterparty identity is **payment metadata**, resolved off-chain, NOT derived from the address.
+
+Three enrichment sources, each keyed to a transaction (txid) or address:
+
+1. **Merchant payments (via Gateway PaymentIntent).** When a user pays a merchant through a payment link / hosted checkout / Terminal, the payment is a `PaymentIntent` carrying merchant metadata (name, logo/avatar file id, description, line items). The backend already stores this and knows the derived receive address + the submitted txid. The history renders "Paid at <merchant>" with the merchant logo, exactly like Stripe/Revolut — merchant identity comes from the PaymentIntent record, never from the chain.
+
+2. **Outgoing social sends (pay @user).** When the user initiates "pay @alice", the app already resolved the recipient (§4.4), so it knows the Oxy `userId`. Persist the counterparty identity against the outgoing tx locally AND register it with the gateway (so it survives reinstall / shows cross-device). History renders "Sent to @alice" with her avatar.
+
+3. **Incoming from a user.** An incoming on-chain tx to your address does not by itself reveal the sender. But when a sender pays you via the social-send flow, their app told the gateway it was paying you (the gateway minted/attributed the receive address for that payment), so the gateway attributes the incoming payment to `@sender` → history shows "Received from @bob" + avatar. A **pure external** on-chain payment (someone pays your address directly, not through OxyPay's social flow) shows the raw address with no identity — the honest equivalent of an unknown bank transfer in Revolut; the user can optionally label it.
+
+**Enrichment service (backend + SDK).** A backend endpoint maps a batch of `{txid | address}` → `{kind: 'merchant'|'user'|'unknown', displayName?, avatarFileId?, username?, description?}`, sourced from PaymentIntents + social-send attribution records. The transaction list calls it (batched, cached) and renders identity via the **canonical Oxy media chokepoint** — Bloom `Avatar` fed a bare file id + `oxyServices.getFileDownloadUrl(id, variant)` resolver, display name via `name.displayName ?? handle` (never recomposed). No per-app avatar URL fields.
+
+**Custody note:** this is display-only metadata; it never affects custody. Funds are still self-custody on-chain (§2.1); enrichment failing (offline / unknown counterparty) degrades gracefully to address + amount, never blocks a payment.
+
 ## 5. Upstream additions (fix de raíz)
 
 **`@oxyhq/core` (published):**
@@ -160,7 +176,7 @@ The identity key is unavailable on web (`getPrivateKey`/`getSharedPrivateKey` �
 
 1. **WS-P Pockets** in FAIRWallet upstream → push → `git subtree pull` into OxyPay. (Independent; can start first.)
 2. **WS-F Foundation:** `@oxyhq/core` `deriveScopedSeed` (+ publish) → OxyPay wallet-init from identity → Oxy-first onboarding + keyless handling. Remove multi-wallet UI.
-3. **WS-S Social:** `@oxyhq/core` social-receive helper (+ publish) → backend user-address reservation → OxyPay social send/receive UI (user search, default+fresh addresses) → demote raw-address send.
+3. **WS-S Social:** `@oxyhq/core` social-receive helper (+ publish) → backend user-address reservation + transaction-attribution/enrichment service (§4.8) → OxyPay social send/receive UI (user search, default+fresh addresses) + rich transaction history (merchant name+logo / user avatar+name) → demote raw-address send.
 4. **Security review** (`security-reviewer`) of the full derivation + social scheme → address findings → only then a mainnet-capable build.
 
 Each phase gets its own implementation plan (`writing-plans`).
