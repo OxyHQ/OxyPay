@@ -303,7 +303,10 @@ describe("GET /v1/payment_intents (list)", () => {
       `${baseUrl}/v1/payment_intents?limit=1&starting_after=${page1Body.data[0]?.id}`,
     );
     const page2Body = (await page2.json()) as { data: IntentResponse[] };
-    expect(page2Body.data[0]?.id).toBe(first.body.id === second.body.id ? second.body.id : page2Body.data[0]?.id);
+    // Newest-first (`_id: -1`) sort + a `$lt`-on-`_id` cursor: `second` was
+    // created immediately after `first` with no interleaving creates, so the
+    // next document strictly older than `second` is `first` itself.
+    expect(page2Body.data[0]?.id).toBe(first.body.id);
   });
 
   test("an unknown starting_after -> 422", async () => {
