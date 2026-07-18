@@ -32,6 +32,12 @@ import { DatabaseHeaderStore } from "../p2p/header-store";
 import { createSocketProvider } from "../p2p/socket-provider";
 import { KeyManager } from "./key-manager";
 import { resolveMoveDestinationAddress } from "./move-address";
+import {
+  XPUB_MARKER_PREFIX,
+  resolveWalletSeed,
+  getOrDeriveBip39Seed,
+  type ResolveWalletSeedDeps,
+} from "./resolve-wallet-seed";
 import { UTXOSet, type UTXO } from "./utxo-set";
 import {
   selectInputsForSend,
@@ -276,15 +282,24 @@ export interface WalletState {
 }
 
 // ---------------------------------------------------------------------------
-// UUID generator (no external deps)
+// Wallet seed resolution — wires resolve-wallet-seed.ts's injected deps to
+// the real implementations once, for switchPocket / moveBetweenPockets /
+// initialize to share (see resolve-wallet-seed.ts for why this module can't
+// bind its own defaults: it must stay free of the react-native-poisoned
+// `../storage/secure-store` import so it loads under bun:test).
 // ---------------------------------------------------------------------------
 
-/**
- * Prefix stored in place of a mnemonic for watch-only wallets:
- * `xpub:<account-level extended public key>`. `initialize` routes any secret
- * with this prefix to the public-only KeyManager (no private keys derived).
- */
-const XPUB_MARKER_PREFIX = "xpub:";
+const walletSeedDeps: ResolveWalletSeedDeps = {
+  deriveIdentitySeed,
+  getWalletMnemonic,
+  getCachedWalletSeed,
+  cacheWalletSeed,
+  deriveSeed: KeyManager.deriveSeed,
+};
+
+// ---------------------------------------------------------------------------
+// UUID generator (no external deps)
+// ---------------------------------------------------------------------------
 
 function generateWalletId(): string {
   const bytes = new Uint8Array(16);
@@ -1103,11 +1118,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         // first run. The seed is shared by every Pocket of this wallet, so it is
         // keyed by the wallet identity, and the account selects the subtree.
         const seedCacheId = activeId ?? "default";
-        let seed = await getCachedWalletSeed(seedCacheId);
-        if (!seed) {
-          seed = KeyManager.deriveSeed(mnemonic);
-          await cacheWalletSeed(seedCacheId, seed);
-        }
+        const seed = await getOrDeriveBip39Seed(seedCacheId, mnemonic, walletSeedDeps);
         keyManager = KeyManager.fromSeed(seed, networkConfig, resolvedAccount);
       }
       utxoSet = new UTXOSet();
@@ -1998,11 +2009,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           loading: true,
         });
         await setActivePocket(walletId, account);
-        const mnemonic = await getWalletMnemonic(walletId);
-        if (!mnemonic) {
-          throw new Error("Wallet mnemonic not found");
-        }
-        await get().initialize(mnemonic, walletId, undefined, account);
+        // Identity-wallet-aware: the identity wallet's seed is re-derived from
+        // the Oxy identity (never persisted), so it can't be fetched via
+        // `getWalletMnemonic` like a BIP39 wallet's. `resolveWalletSeed`
+        // handles both, plus watch-only (which never reaches this screen —
+        // Pockets is gated off for watch-only wallets in the UI).
+        const seed = await resolveWalletSeed(walletId, walletSeedDeps);
+        await get().initialize(buildSeedSecret(seed), walletId, undefined, account);
         await get().loadPockets();
       } catch (err: unknown) {
         set({
@@ -2088,17 +2101,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       throw new Error("Wallet not initialized");
     }
 
-    // The shared seed is cached during initialize; fall back to deriving it from
-    // the mnemonic if the cache was cleared. Watch-only wallets have no seed.
-    let seed = await getCachedWalletSeed(walletId);
-    if (!seed) {
-      const mnemonic = await getWalletMnemonic(walletId);
-      if (!mnemonic || mnemonic.startsWith(XPUB_MARKER_PREFIX)) {
-        throw new Error("Wallet seed unavailable");
-      }
-      seed = KeyManager.deriveSeed(mnemonic);
-      await cacheWalletSeed(walletId, seed);
-    }
+    // Identity-wallet-aware: the identity wallet's seed is re-derived from the
+    // Oxy identity (never persisted); a BIP39 wallet's is cached during
+    // initialize, falling back to deriving it from the mnemonic if the cache
+    // was cleared. Watch-only wallets have no seed (already excluded above).
+    const seed = await resolveWalletSeed(walletId, walletSeedDeps);
 
     // Resolve + persist the destination Pocket's next receive address in ITS own
     // isolated database so that Pocket watches it once it next syncs.
