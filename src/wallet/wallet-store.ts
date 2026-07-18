@@ -68,7 +68,21 @@ import {
 } from "../storage/secure-store";
 import type { WalletInfo } from "../storage/secure-store";
 import { Database } from "../storage/database";
-import { getActivePocket, setActivePocket } from "../storage/pockets-store";
+import {
+  getPockets,
+  savePockets,
+  getActivePocket,
+  setActivePocket,
+  clearPockets,
+} from "../storage/pockets-store";
+import {
+  type PocketInfo,
+  MAIN_POCKET_ACCOUNT,
+  addPocket,
+  renamePocket as renamePocketList,
+  removePocket as removePocketList,
+  canDeletePocket,
+} from "./pockets";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,6 +137,10 @@ export interface WalletState {
   hasBackedUp: boolean;
   /** Active Pocket (BIP44 account index) within the current wallet. */
   activeAccount: number;
+  /** Pockets (BIP44 sub-accounts) of the current wallet. */
+  pockets: PocketInfo[];
+  /** Per-Pocket balance (account index → confirmed+unconfirmed sats). */
+  pocketBalances: Record<number, bigint>;
 
   // Balance
   balance: bigint;
@@ -204,6 +222,13 @@ export interface WalletState {
   importWatchOnly: (name: string, xpub: string) => Promise<void>;
   deleteWallet: (walletId: string) => Promise<void>;
   renameActiveWallet: (name: string) => Promise<void>;
+
+  // Pockets
+  loadPockets: () => Promise<void>;
+  switchPocket: (account: number) => Promise<void>;
+  createPocket: (name: string) => Promise<number>;
+  renamePocket: (account: number, name: string) => Promise<void>;
+  deletePocket: (account: number) => Promise<void>;
 
   // Network switching
   switchNetwork: (network: NetworkType) => Promise<void>;
@@ -356,6 +381,25 @@ export function getActiveAccountXpub(): string | null {
  */
 export function getActiveWalletAddresses(): string[] {
   return keyManager?.getAllAddresses() ?? [];
+}
+
+/**
+ * Sum the confirmed+unconfirmed unspent value persisted for a Pocket by reading
+ * its isolated database directly. Used to show balances for Pockets that are not
+ * the active one (their UTXO set is not loaded into memory). Opens read-only and
+ * always closes.
+ */
+async function readPocketUnspentTotal(
+  walletId: string,
+  account: number,
+): Promise<bigint> {
+  const db = await Database.open(walletId, account);
+  try {
+    const rows = await db.getUnspentUTXOs();
+    return rows.reduce((sum, row) => sum + BigInt(row.value), 0n);
+  } finally {
+    await db.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -863,6 +907,8 @@ const DEFAULT_WALLET_STATE = {
   isWatchOnly: false,
   hasBackedUp: false,
   activeAccount: 0,
+  pockets: [] as PocketInfo[],
+  pocketBalances: {} as Record<number, bigint>,
   selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
 } as const;
 
@@ -935,6 +981,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   isWatchOnly: false,
   hasBackedUp: false,
   activeAccount: 0,
+  pockets: [],
+  pocketBalances: {},
 
   balance: 0n,
   confirmedBalance: 0n,
@@ -1847,6 +1895,105 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     });
   },
 
+  loadPockets: async (): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    const activeAccount = get().activeAccount;
+    const balances: Record<number, bigint> = {};
+    for (const pocket of list) {
+      balances[pocket.account] =
+        pocket.account === activeAccount
+          ? get().balance
+          : await readPocketUnspentTotal(walletId, pocket.account);
+    }
+    set({ pockets: list, pocketBalances: balances });
+  },
+
+  switchPocket: async (account: number): Promise<void> => {
+    const state = get();
+    if (state.activeAccount === account) return;
+    const walletId = state.activeWalletId;
+    if (!walletId) return;
+
+    // Serialise the whole switch, exactly like switchWallet: tear the current
+    // Pocket down (close its DB, wipe the KeyManager, clear intervals) and
+    // re-init the module globals for the new account.
+    return queueWalletInit(async () => {
+      set({ loading: true, error: null });
+      try {
+        if (database) {
+          await database.close();
+        }
+        resetWalletInternals();
+        set({
+          ...DEFAULT_WALLET_STATE,
+          network: state.network,
+          activeWalletId: walletId,
+          activeWalletName: state.activeWalletName,
+          wallets: state.wallets,
+          pockets: state.pockets,
+          activeAccount: account,
+          loading: true,
+        });
+        await setActivePocket(walletId, account);
+        const mnemonic = await getWalletMnemonic(walletId);
+        if (!mnemonic) {
+          throw new Error("Wallet mnemonic not found");
+        }
+        await get().initialize(mnemonic, walletId, undefined, account);
+        await get().loadPockets();
+      } catch (err: unknown) {
+        set({
+          loading: false,
+          error: err instanceof Error ? err.message : "Failed to switch pocket",
+        });
+      }
+    });
+  },
+
+  createPocket: async (name: string): Promise<number> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) {
+      throw new Error("No active wallet");
+    }
+    const list = await getPockets(walletId);
+    const updated = addPocket(list, name.trim(), Date.now());
+    await savePockets(walletId, updated);
+    await get().loadPockets();
+    return updated[updated.length - 1].account;
+  },
+
+  renamePocket: async (account: number, name: string): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    await savePockets(walletId, renamePocketList(list, account, name.trim()));
+    if (account === get().activeAccount) {
+      set({ activeWalletName: name.trim() });
+    }
+    await get().loadPockets();
+  },
+
+  deletePocket: async (account: number): Promise<void> => {
+    const walletId = get().activeWalletId;
+    if (!walletId) return;
+    const list = await getPockets(walletId);
+    if (!canDeletePocket(list, account)) {
+      throw new Error("This pocket cannot be deleted");
+    }
+    const total = await readPocketUnspentTotal(walletId, account);
+    if (total > 0n) {
+      throw new Error("Move funds out of this pocket before deleting it");
+    }
+    await savePockets(walletId, removePocketList(list, account));
+    if (get().activeAccount === account) {
+      await get().switchPocket(MAIN_POCKET_ACCOUNT);
+    } else {
+      await get().loadPockets();
+    }
+  },
+
   createNewWallet: async (name: string): Promise<string> => {
     set({ loading: true, error: null });
 
@@ -1956,6 +2103,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       await removeWalletFromIndex(walletId);
       await deleteWalletMnemonic(walletId);
       await deleteCachedWalletSeed(walletId);
+      await clearPockets(walletId);
 
       // Reload wallet list
       const remainingWallets = await getWalletIndex();
