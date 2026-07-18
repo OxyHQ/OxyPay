@@ -1,8 +1,8 @@
 {
-  "name": "fairwallet",
+  "name": "@oxypay/frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Lightweight SPV wallet for FairCoin",
+  "description": "Oxy Pay — self-custodial FairCoin wallet (fork of FAIRWallet) with Oxy identity",
   "author": "FairCoin <dev@fairco.in>",
   "license": "MIT",
   "main": "expo-router/entry",

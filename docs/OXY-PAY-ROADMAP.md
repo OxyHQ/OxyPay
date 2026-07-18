@@ -37,9 +37,9 @@
 - [x] T12 · Realtime Socket.io (updates del intent, join gateado por client_secret)
 - [x] T13 · Wiring del server (`createGateway`) + **e2e completo** (create→submit_tx→watcher→settled→socket+webhook, no-custodia) _(65 tests backend / 0 fail)_
 
-### Track B — App monedero (Oxy Pay)  _(bloqueado: necesita el ref de FAIRWallet)_
-- [ ] Subtree de FAIRWallet en `packages/frontend`
-- [ ] Wiring del monorepo (metro/tsconfig monorepo-aware)
+### Track B — App monedero (Oxy Pay)  _(desbloqueado; en curso en rama `feat/oxy-pay-wallet`)_
+- [x] Subtree de FAIRWallet `main` en `packages/frontend` (`git subtree pull` para mejoras) + rename a `@oxypay/frontend` + `bun install` OK
+- [ ] Wiring del monorepo (metro/tsconfig monorepo-aware; scripts dev/build)
 - [ ] Alinear Expo SDK 55 → 57 (sub-fase previa)
 - [ ] Montar `OxyProvider` (identidad Oxy) — orden de providers Bloom
 - [ ] Cliente backend vía `createLinkedClient`
