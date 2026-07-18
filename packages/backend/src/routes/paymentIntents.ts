@@ -8,6 +8,7 @@ import type { FilterQuery, HydratedDocument } from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
+import type { OxyAuthRequest } from "@oxyhq/core/server";
 import {
   isBaseUnitString,
   PAYMENT_INTENT_STATUSES,
@@ -86,18 +87,21 @@ export async function resolveMerchant(
 /**
  * Build the payment-intent REST router.
  *
- * `requireMerchant` is injectable so tests can bypass real Oxy service tokens
- * with a stub that populates `req.serviceApp`; in production callers must pass
- * `oxyClient.serviceAuth({ jwtSecret })` explicitly (see `server.ts`) — there is
- * no bare default here, since `oxyClient.serviceAuth()` with no `jwtSecret`
- * rejects every real token. It is mounted only on the merchant-authed routes —
- * `submit_tx` is the payer path and is guarded by the intent's `client_secret`
- * instead.
+ * `requireMerchant` and `optionalServiceAuth` are injectable so tests can
+ * bypass real Oxy service tokens with stubs that populate `req.serviceApp`;
+ * in production callers must pass `oxyClient.serviceAuth({ jwtSecret })` /
+ * `oxyClient.auth({ jwtSecret, optional: true })` explicitly (see
+ * `server.ts`) — there is no bare default here, since those with no
+ * `jwtSecret` reject (or silently drop) every real token. `requireMerchant`
+ * gates the merchant-only routes; `optionalServiceAuth` gates the dual-auth
+ * `GET /:id` route. `submit_tx` is the payer path and is guarded by the
+ * intent's `client_secret` instead.
  */
 export function createPaymentIntentsRouter(deps: {
   requireMerchant: RequestHandler;
+  optionalServiceAuth: RequestHandler;
 }): Router {
-  const { requireMerchant } = deps;
+  const { requireMerchant, optionalServiceAuth } = deps;
   const router = Router();
 
   router.post(
@@ -267,17 +271,52 @@ export function createPaymentIntentsRouter(deps: {
 
   router.get(
     "/v1/payment_intents/:id",
-    requireMerchant,
+    optionalServiceAuth,
     wrap(async (req, res) => {
-      const merchant = await resolveMerchant(req, res);
-      if (!merchant) return;
+      const { serviceApp } = req as OxyAuthRequest;
 
-      const intent = await PaymentIntent.findOne({
-        id: req.params.id,
-        merchantId: merchant.id,
-      });
+      if (serviceApp?.appId) {
+        // Merchant path — unchanged behavior, scoped to the merchant's own intent.
+        const merchant = await resolveMerchant(req, res);
+        if (!merchant) return;
+        const intent = await PaymentIntent.findOne({
+          id: req.params.id,
+          merchantId: merchant.id,
+        });
+        if (!intent) {
+          sendError(res, 404, "invalid_request_error", "payment intent not found");
+          return;
+        }
+        res.status(200).json(toPaymentIntentDTO(intent));
+        return;
+      }
+
+      // Payer path — authorized by possession of the intent's `client_secret`,
+      // the same idiom `submit_tx` and the socket `subscribe` already use.
+      // Needed for a hosted checkout page's initial REST snapshot before its
+      // socket subscription confirms (F2.0 task 3).
+      const clientSecretParam = req.query.client_secret;
+      const clientSecret =
+        typeof clientSecretParam === "string"
+          ? clientSecretParam
+          : req.header("X-Oxy-Pay-Client-Secret");
+      if (!clientSecret) {
+        sendError(
+          res,
+          401,
+          "authentication_error",
+          "missing service app credentials or client_secret",
+        );
+        return;
+      }
+
+      const intent = await PaymentIntent.findOne({ id: req.params.id });
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
+        return;
+      }
+      if (!verifySecret(clientSecret, intent.clientSecret)) {
+        sendError(res, 403, "permission_error", "invalid client_secret");
         return;
       }
       res.status(200).json(toPaymentIntentDTO(intent));

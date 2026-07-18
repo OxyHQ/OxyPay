@@ -60,6 +60,8 @@ export interface GatewayDeps {
    * `oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret })`).
    */
   requireMerchant?: RequestHandler;
+  /** Optional service-auth middleware for the dual-auth payer/merchant GET route. */
+  optionalServiceAuth?: RequestHandler;
   /** Socket connection auth (default `oxyClient.authSocket()`). */
   socketAuth?: SocketAuth;
   /** On-chain reader (default the real Explorer client). */
@@ -125,8 +127,11 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   const requireMerchant: RequestHandler =
     deps.requireMerchant ??
     oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret });
+  const optionalServiceAuth: RequestHandler =
+    deps.optionalServiceAuth ??
+    oxyClient.auth({ jwtSecret: config.serviceJwtSecret, optional: true });
 
-  app.use(createPaymentIntentsRouter({ requireMerchant }));
+  app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
   app.use(createMerchantsRouter({ requireMerchant }));
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {

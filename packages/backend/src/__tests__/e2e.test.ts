@@ -47,6 +47,15 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
   next();
 };
 
+// Stub optional service-auth for the dual-auth GET route (the e2e flow never
+// calls it, but `createGateway` still needs a deterministic value independent
+// of ambient env vars).
+const stubOptionalServiceAuth = (
+  _req: unknown,
+  _res: unknown,
+  next: (err?: Error) => void,
+): void => next();
+
 // Permissive socket auth (no Oxy token in test).
 const stubSocketAuth = (_socket: unknown, next: (err?: Error) => void): void =>
   next();
@@ -98,6 +107,7 @@ beforeAll(async () => {
 
   gateway = createGateway({
     requireMerchant: stubRequireMerchant,
+    optionalServiceAuth: stubOptionalServiceAuth,
     socketAuth: stubSocketAuth,
     getTransaction: stubGetTransaction,
     safeFetch: fakeSafeFetch,

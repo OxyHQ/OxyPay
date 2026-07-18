@@ -38,6 +38,23 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
   next();
 };
 
+// Test stub for the dual-auth GET route's optional service-auth middleware:
+// populates `req.serviceApp` ONLY when an `Authorization` header is present
+// (exactly what `oxyClient.auth({ optional: true })` does for a valid
+// service token), so both the merchant and payer branches are exercisable.
+const stubOptionalServiceAuth: RequestHandler = (req, _res, next) => {
+  if (req.header("Authorization")) {
+    (req as OxyAuthRequest).serviceApp = {
+      appId: TEST_APP_ID,
+      appName: "t",
+      scopes: [],
+      credentialId: "c",
+      environment: "development",
+    };
+  }
+  next();
+};
+
 interface IntentResponse {
   id: string;
   object: string;
@@ -100,7 +117,10 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(
-    createPaymentIntentsRouter({ requireMerchant: stubRequireMerchant }),
+    createPaymentIntentsRouter({
+      requireMerchant: stubRequireMerchant,
+      optionalServiceAuth: stubOptionalServiceAuth,
+    }),
   );
 
   server = app.listen(0);
@@ -194,22 +214,56 @@ describe("POST /v1/payment_intents", () => {
 });
 
 describe("GET /v1/payment_intents/:id", () => {
-  test("returns the merchant's own intent", async () => {
+  test("returns the merchant's own intent (merchant-authed)", async () => {
     const created = await createIntent("idem-get");
-    const res = await fetch(
-      `${baseUrl}/v1/payment_intents/${created.body.id}`,
-    );
+    const res = await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}`, {
+      headers: { Authorization: "Bearer test" },
+    });
     expect(res.status).toBe(200);
     const body = await readJson(res);
     expect(body.id).toBe(created.body.id);
     expect(body.address).toBe(created.body.address);
   });
 
-  test("unknown id → 404", async () => {
-    const res = await fetch(
-      `${baseUrl}/v1/payment_intents/pi_does_not_exist`,
-    );
+  test("merchant-authed, unknown id -> 404", async () => {
+    const res = await fetch(`${baseUrl}/v1/payment_intents/pi_does_not_exist`, {
+      headers: { Authorization: "Bearer test" },
+    });
     expect(res.status).toBe(404);
+  });
+
+  test("payer-authed via ?client_secret= query param (no Authorization header)", async () => {
+    const created = await createIntent("idem-get-payer-query");
+    const res = await fetch(
+      `${baseUrl}/v1/payment_intents/${created.body.id}?client_secret=${created.body.client_secret}`,
+    );
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    expect(body.id).toBe(created.body.id);
+  });
+
+  test("payer-authed via X-Oxy-Pay-Client-Secret header (no Authorization header)", async () => {
+    const created = await createIntent("idem-get-payer-header");
+    const res = await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}`, {
+      headers: { "X-Oxy-Pay-Client-Secret": created.body.client_secret ?? "" },
+    });
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    expect(body.id).toBe(created.body.id);
+  });
+
+  test("payer path, wrong client_secret -> 403", async () => {
+    const created = await createIntent("idem-get-payer-wrong");
+    const res = await fetch(
+      `${baseUrl}/v1/payment_intents/${created.body.id}?client_secret=pi_wrong_secret`,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("no Authorization header and no client_secret -> 401", async () => {
+    const created = await createIntent("idem-get-neither");
+    const res = await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}`);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -320,6 +374,7 @@ describe("GET /v1/payment_intents (list)", () => {
     app.use(
       createPaymentIntentsRouter({
         requireMerchant: (_req, _res, next) => next(),
+        optionalServiceAuth: stubOptionalServiceAuth,
       }),
     );
     const noAuthServer = app.listen(0);

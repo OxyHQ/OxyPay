@@ -68,10 +68,11 @@ beforeAll(async () => {
 
   const config = loadConfig({ OXY_ACCESS_TOKEN_SECRET: TEST_SECRET });
   const requireMerchant = oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret });
+  const optionalServiceAuth = oxyClient.auth({ jwtSecret: config.serviceJwtSecret, optional: true });
 
   const app = express();
   app.use(express.json());
-  app.use(createPaymentIntentsRouter({ requireMerchant }));
+  app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
   server = app.listen(0);
   const address = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
