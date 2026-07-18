@@ -24,22 +24,7 @@ export default function OnboardingLayout() {
 
   return (
     <Stack screenOptions={screenOptions}>
-      <Stack.Screen
-        name="welcome"
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="create"
-        options={{ title: "" }}
-      />
-      <Stack.Screen
-        name="restore"
-        options={{ title: "" }}
-      />
-      <Stack.Screen
-        name="pin-setup"
-        options={{ title: "", headerBackVisible: false }}
-      />
+      <Stack.Screen name="pin-setup" options={{ title: "", headerBackVisible: false }} />
     </Stack>
   );
 }

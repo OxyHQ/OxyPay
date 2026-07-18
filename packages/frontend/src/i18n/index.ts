@@ -411,42 +411,13 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "contactPicker.empty": "No contacts yet. Add one to get started.",
 
     // ---------- Onboarding ----------
-    "onboarding.welcome": "Welcome to FAIRWallet",
-    "onboarding.subtitle": "Your FairCoin wallet",
-    "onboarding.tagline": "Secure. Private. Yours.",
-    "onboarding.create": "Create New Wallet",
-    "onboarding.restore": "Restore Wallet",
-    "onboarding.createCta": "Create Wallet",
-    "onboarding.restoreCta": "Restore Wallet",
     "onboarding.logoAccessibility": "FAIRWallet logo",
-
-    // Create wallet flow
-    "onboarding.create.heading": "Create your wallet",
-    "onboarding.create.description":
-      "We'll generate a 24-word recovery phrase that only you control.",
-    "onboarding.create.generateCta": "Generate Recovery Phrase",
-    "onboarding.create.error.generate": "Failed to generate wallet",
-    "onboarding.create.phrase.title": "Your Recovery Phrase",
-    "onboarding.create.phrase.description":
-      "Write these words down in order and store them somewhere safe.",
-    "onboarding.create.phrase.warning":
-      "Never share your recovery phrase. Anyone with these words can access your funds.",
-    "onboarding.create.phrase.cta": "I've written it down",
-    "onboarding.create.verify.title": "Verify Your Phrase",
-    "onboarding.create.verify.prompt": "What is word #{position}?",
-    "onboarding.create.verify.error": "Wrong word. Please try again.",
-    "onboarding.create.settingUp": "Setting up wallet...",
-
-    // Restore wallet flow
-    "onboarding.restore.title": "Restore Your Wallet",
-    "onboarding.restore.description":
-      "Enter your 12 or 24-word recovery phrase to restore access to your wallet.",
-    "onboarding.restore.phrasePlaceholder": "word1 word2 word3 ...",
-    "onboarding.restore.wordCount.one": "{count} word",
-    "onboarding.restore.wordCount.other": "{count} words",
-    "onboarding.restore.pasteCta": "Paste",
-    "onboarding.restore.error.clipboard": "Failed to read clipboard",
-    "onboarding.restore.error.failed": "Failed to restore wallet",
+    "onboarding.signInTitle": "Welcome to Oxy Pay",
+    "onboarding.signInSubtitle": "Sign in with your Oxy account — your money is just there.",
+    "onboarding.createIdentityTitle": "Set up your Oxy ID",
+    "onboarding.createIdentitySubtitle": "Your wallet is secured by your Oxy identity. Create it to continue.",
+    "onboarding.webUnsupportedTitle": "Open Oxy Pay on your phone",
+    "onboarding.webUnsupportedSubtitle": "The wallet is available on the mobile app only.",
 
     // PIN setup
     "onboarding.pin_setup": "Set a PIN",
@@ -1209,42 +1180,13 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "contactPicker.empty": "Sin contactos a\u00fan. Agrega uno para empezar.",
 
     // ---------- Onboarding ----------
-    "onboarding.welcome": "Bienvenido a FAIRWallet",
-    "onboarding.subtitle": "Tu billetera FairCoin",
-    "onboarding.tagline": "Segura. Privada. Tuya.",
-    "onboarding.create": "Crear Nueva Billetera",
-    "onboarding.restore": "Restaurar Billetera",
-    "onboarding.createCta": "Crear Billetera",
-    "onboarding.restoreCta": "Restaurar Billetera",
     "onboarding.logoAccessibility": "Logo de FAIRWallet",
-
-    // Create wallet flow
-    "onboarding.create.heading": "Crea tu billetera",
-    "onboarding.create.description":
-      "Generaremos una frase de recuperaci\u00f3n de 24 palabras que solo t\u00fa controlas.",
-    "onboarding.create.generateCta": "Generar Frase de Recuperaci\u00f3n",
-    "onboarding.create.error.generate": "Fall\u00f3 la generaci\u00f3n de la billetera",
-    "onboarding.create.phrase.title": "Tu Frase de Recuperaci\u00f3n",
-    "onboarding.create.phrase.description":
-      "Escribe estas palabras en orden y gu\u00e1rdalas en un lugar seguro.",
-    "onboarding.create.phrase.warning":
-      "Nunca compartas tu frase de recuperaci\u00f3n. Cualquier persona con estas palabras puede acceder a tus fondos.",
-    "onboarding.create.phrase.cta": "Las he anotado",
-    "onboarding.create.verify.title": "Verifica tu Frase",
-    "onboarding.create.verify.prompt": "\u00bfCu\u00e1l es la palabra #{position}?",
-    "onboarding.create.verify.error": "Palabra incorrecta. Int\u00e9ntalo de nuevo.",
-    "onboarding.create.settingUp": "Configurando billetera...",
-
-    // Restore wallet flow
-    "onboarding.restore.title": "Restaurar tu Billetera",
-    "onboarding.restore.description":
-      "Ingresa tu frase de recuperaci\u00f3n de 12 o 24 palabras para restaurar el acceso a tu billetera.",
-    "onboarding.restore.phrasePlaceholder": "palabra1 palabra2 palabra3 ...",
-    "onboarding.restore.wordCount.one": "{count} palabra",
-    "onboarding.restore.wordCount.other": "{count} palabras",
-    "onboarding.restore.pasteCta": "Pegar",
-    "onboarding.restore.error.clipboard": "No se pudo leer el portapapeles",
-    "onboarding.restore.error.failed": "Fall\u00f3 la restauraci\u00f3n de la billetera",
+    "onboarding.signInTitle": "Bienvenido a Oxy Pay",
+    "onboarding.signInSubtitle": "Inicia sesi\u00f3n con tu cuenta Oxy \u2014 tu dinero ya est\u00e1 ah\u00ed.",
+    "onboarding.createIdentityTitle": "Configura tu Oxy ID",
+    "onboarding.createIdentitySubtitle": "Tu monedero est\u00e1 protegido por tu identidad Oxy. Cr\u00e9ala para continuar.",
+    "onboarding.webUnsupportedTitle": "Abre Oxy Pay en tu tel\u00e9fono",
+    "onboarding.webUnsupportedSubtitle": "El monedero solo est\u00e1 disponible en la app m\u00f3vil.",
 
     // PIN setup
     "onboarding.pin_setup": "Establecer un PIN",

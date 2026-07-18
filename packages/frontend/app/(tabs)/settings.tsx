@@ -576,10 +576,12 @@ export default function SettingsScreen() {
 
   const handleConfirmWipe = useCallback(async () => {
     await wipeWallet();
-    // A wiped device has no PIN; clear any lock state so onboarding isn't
-    // shown behind the lock overlay.
+    // A wiped device has no PIN; clear any lock state so the entry screen
+    // isn't shown behind the lock overlay. The user is still signed in to
+    // Oxy, so "/" re-derives the identity wallet and routes to PIN setup
+    // instead of a deleted seed-phrase onboarding screen.
     markNoPinUnlocked();
-    router.replace("/onboarding/welcome");
+    router.replace("/");
   }, [wipeWallet, markNoPinUnlocked, router]);
 
   return (
