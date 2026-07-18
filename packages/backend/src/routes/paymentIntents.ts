@@ -7,7 +7,6 @@ import type {
 } from "express";
 import type { HydratedDocument } from "mongoose";
 import { z } from "zod";
-import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
 import {
@@ -99,16 +98,17 @@ async function resolveMerchant(
  * Build the payment-intent REST router.
  *
  * `requireMerchant` is injectable so tests can bypass real Oxy service tokens
- * with a stub that populates `req.serviceApp`; in production it defaults to
- * `oxyClient.serviceAuth()` (confidential app-key auth). It is mounted only on
- * the merchant-authed routes — `submit_tx` is the payer path and is guarded by
- * the intent's `client_secret` instead.
+ * with a stub that populates `req.serviceApp`; in production callers must pass
+ * `oxyClient.serviceAuth({ jwtSecret })` explicitly (see `server.ts`) — there is
+ * no bare default here, since `oxyClient.serviceAuth()` with no `jwtSecret`
+ * rejects every real token. It is mounted only on the merchant-authed routes —
+ * `submit_tx` is the payer path and is guarded by the intent's `client_secret`
+ * instead.
  */
-export function createPaymentIntentsRouter(deps?: {
-  requireMerchant?: RequestHandler;
+export function createPaymentIntentsRouter(deps: {
+  requireMerchant: RequestHandler;
 }): Router {
-  const requireMerchant: RequestHandler =
-    deps?.requireMerchant ?? oxyClient.serviceAuth();
+  const { requireMerchant } = deps;
   const router = Router();
 
   router.post(

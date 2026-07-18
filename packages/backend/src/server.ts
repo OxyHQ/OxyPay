@@ -54,7 +54,10 @@ const WEBHOOK_EVENT_FOR: Partial<
 };
 
 export interface GatewayDeps {
-  /** Merchant service-auth middleware (default `oxyClient.serviceAuth()`). */
+  /**
+   * Merchant service-auth middleware (default
+   * `oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret })`).
+   */
   requireMerchant?: RequestHandler;
   /** Socket connection auth (default `oxyClient.authSocket()`). */
   socketAuth?: SocketAuth;
@@ -118,9 +121,11 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
     res.setHeader("Oxy-Pay-Version", OXY_PAY_VERSION);
     next();
   }) as RequestHandler);
-  app.use(
-    createPaymentIntentsRouter({ requireMerchant: deps.requireMerchant }),
-  );
+  const requireMerchant: RequestHandler =
+    deps.requireMerchant ??
+    oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret });
+
+  app.use(createPaymentIntentsRouter({ requireMerchant }));
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const message = err instanceof Error ? err.message : "internal error";
