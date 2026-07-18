@@ -2042,6 +2042,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         nextIndex,
       );
       await destDb.insertAddress(dest.address, dest.path, dest.index, false);
+      // Mark it used immediately: this address is about to receive the move, so
+      // treating it as unused until the destination Pocket next syncs would let
+      // a second move (before that sync) derive and reuse the SAME address —
+      // this advances getNextUnusedIndex so back-to-back moves never collide.
+      await destDb.markAddressUsed(dest.address);
       destAddress = dest.address;
     } finally {
       await destDb.close();
