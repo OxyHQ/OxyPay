@@ -24,6 +24,7 @@ import { Merchant } from "./models/Merchant";
 import { WebhookDelivery } from "./models/WebhookDelivery";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
+import { createWebhookDeliveriesRouter } from "./routes/webhookDeliveries";
 import {
   SettlementWatcher,
   type HydratedPaymentIntentDoc,
@@ -157,6 +158,9 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
 
   app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
   app.use(createMerchantsRouter({ requireMerchant }));
+  app.use(
+    createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
+  );
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const message = err instanceof Error ? err.message : "internal error";
