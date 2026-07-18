@@ -1,0 +1,476 @@
+/**
+ * Secure storage abstraction for sensitive wallet data.
+ *
+ * Uses a platform-agnostic key-value adapter:
+ * - iOS/Android: expo-secure-store (Keychain / EncryptedSharedPreferences)
+ * - Web/Electron: localStorage (isolated per origin)
+ *
+ * Supports multi-wallet storage: each wallet is identified by a UUID.
+ * Legacy single-wallet data is migrated on first read.
+ */
+
+import { bytesToHex, hexToBytes } from "@fairco.in/core";
+import { getItemAsync, setItemAsync, deleteItemAsync } from "./kv-store";
+import { buildPinRecord, verifyPinRecord } from "./pin-kdf";
+
+// ---------------------------------------------------------------------------
+// Storage keys
+// ---------------------------------------------------------------------------
+
+const MNEMONIC_KEY = "fairwallet_mnemonic";
+const WALLET_PIN_KEY = "fairwallet_pin";
+const WALLET_CREATED_KEY = "fairwallet_created";
+
+// ---------------------------------------------------------------------------
+// Multi-wallet storage keys
+// ---------------------------------------------------------------------------
+
+const WALLETS_INDEX_KEY = "fairwallet_wallets_index";
+const ACTIVE_WALLET_KEY = "fairwallet_active_wallet";
+
+// ---------------------------------------------------------------------------
+// Multi-wallet types
+// ---------------------------------------------------------------------------
+
+export interface WalletInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  /**
+   * Chain height the wallet was created at (N-14). Used as the lower bound
+   * of historical rescans so a freshly-created wallet does not scan from
+   * genesis when the chain is large. `undefined` for legacy wallets (no
+   * birthday recorded) and for restored wallets where the user did not
+   * supply a creation date — those still scan from height 0 to be safe.
+   */
+  birthdayHeight?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-wallet index management
+// ---------------------------------------------------------------------------
+
+/** Get the list of all wallets */
+export async function getWalletIndex(): Promise<WalletInfo[]> {
+  const raw = await getItemAsync(WALLETS_INDEX_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as WalletInfo[];
+  } catch {
+    // Corrupted wallet index JSON — treat as empty to allow re-creation.
+    return [];
+  }
+}
+
+/** Save the wallet index */
+async function saveWalletIndex(wallets: WalletInfo[]): Promise<void> {
+  await setItemAsync(WALLETS_INDEX_KEY, JSON.stringify(wallets));
+}
+
+/** Add a wallet to the index */
+export async function addWalletToIndex(id: string, name: string): Promise<void> {
+  const wallets = await getWalletIndex();
+  wallets.push({ id, name, createdAt: Date.now() });
+  await saveWalletIndex(wallets);
+}
+
+/** Remove a wallet from the index */
+export async function removeWalletFromIndex(id: string): Promise<void> {
+  const wallets = await getWalletIndex();
+  const filtered = wallets.filter((w) => w.id !== id);
+  await saveWalletIndex(filtered);
+}
+
+/** Rename a wallet in the index */
+export async function renameWallet(id: string, name: string): Promise<void> {
+  const wallets = await getWalletIndex();
+  const wallet = wallets.find((w) => w.id === id);
+  if (wallet) {
+    wallet.name = name;
+    await saveWalletIndex(wallets);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Backup tracking — has the user viewed/secured a wallet's recovery phrase?
+// Stored per-wallet so the "back up your wallet" reminder clears independently
+// for each wallet. A missing key means "not backed up yet".
+// ---------------------------------------------------------------------------
+
+const BACKED_UP_PREFIX = "fairwallet_backedup_";
+
+/** Whether the wallet's recovery phrase has been revealed / backed up. */
+export async function isWalletBackedUp(id: string): Promise<boolean> {
+  return (await getItemAsync(`${BACKED_UP_PREFIX}${id}`)) === "1";
+}
+
+/** Mark the wallet as backed up (its recovery phrase was shown to the user). */
+export async function markWalletBackedUp(id: string): Promise<void> {
+  await setItemAsync(`${BACKED_UP_PREFIX}${id}`, "1");
+}
+
+/**
+ * Record the wallet's birthday height (N-14). Idempotent: only writes the
+ * first non-zero height observed, so a re-init does not push the birthday
+ * forward (which would prune already-recorded transactions from rescan
+ * range). Pass `chainHeight = 0` on a fresh chain → nothing is written and
+ * the rescan continues to start from genesis.
+ */
+export async function setWalletBirthdayHeight(
+  id: string,
+  chainHeight: number,
+): Promise<void> {
+  if (!Number.isFinite(chainHeight) || chainHeight <= 0) return;
+  const wallets = await getWalletIndex();
+  const wallet = wallets.find((w) => w.id === id);
+  if (!wallet) return;
+  // First-write-wins to avoid creeping the birthday forward on re-init.
+  if (wallet.birthdayHeight !== undefined && wallet.birthdayHeight > 0) return;
+  wallet.birthdayHeight = chainHeight;
+  await saveWalletIndex(wallets);
+}
+
+/**
+ * Get the birthday height of a wallet, or 0 if not recorded.
+ */
+export async function getWalletBirthdayHeight(id: string): Promise<number> {
+  const wallets = await getWalletIndex();
+  const wallet = wallets.find((w) => w.id === id);
+  return wallet?.birthdayHeight ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Active wallet management
+// ---------------------------------------------------------------------------
+
+/** Get the active wallet ID */
+export async function getActiveWalletId(): Promise<string | null> {
+  return getItemAsync(ACTIVE_WALLET_KEY);
+}
+
+/** Set the active wallet ID */
+export async function setActiveWalletId(id: string): Promise<void> {
+  await setItemAsync(ACTIVE_WALLET_KEY, id);
+}
+
+// ---------------------------------------------------------------------------
+// Per-wallet mnemonic storage
+// ---------------------------------------------------------------------------
+
+/** Save mnemonic for a specific wallet */
+export async function saveWalletMnemonic(walletId: string, mnemonic: string): Promise<void> {
+  await setItemAsync(`fairwallet_mnemonic_${walletId}`, mnemonic);
+}
+
+/** Get mnemonic for a specific wallet */
+export async function getWalletMnemonic(walletId: string): Promise<string | null> {
+  return getItemAsync(`fairwallet_mnemonic_${walletId}`);
+}
+
+/** Delete mnemonic for a specific wallet */
+export async function deleteWalletMnemonic(walletId: string): Promise<void> {
+  await deleteItemAsync(`fairwallet_mnemonic_${walletId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-wallet cached BIP39 seed
+// ---------------------------------------------------------------------------
+
+/**
+ * The BIP39 seed is deterministic from the mnemonic but derived via PBKDF2
+ * (2048 rounds), which costs several seconds on Hermes. Caching it lets unlock
+ * skip that step on every launch after the first. The seed lives in the SAME
+ * hardware-backed store as the mnemonic it comes from, so persisting it adds no
+ * exposure beyond what's already stored — and it is deleted whenever the
+ * wallet's mnemonic is deleted.
+ */
+function walletSeedKey(walletId: string): string {
+  return `fairwallet_seed_${walletId}`;
+}
+
+/** Get the cached BIP39 seed for a wallet, or null if not cached/corrupt. */
+export async function getCachedWalletSeed(
+  walletId: string,
+): Promise<Uint8Array | null> {
+  const hex = await getItemAsync(walletSeedKey(walletId));
+  if (!hex) return null;
+  try {
+    return hexToBytes(hex);
+  } catch {
+    // Corrupt cache — treat as absent so the caller re-derives from the mnemonic.
+    return null;
+  }
+}
+
+/** Persist the BIP39 seed for a wallet. */
+export async function cacheWalletSeed(
+  walletId: string,
+  seed: Uint8Array,
+): Promise<void> {
+  await setItemAsync(walletSeedKey(walletId), bytesToHex(seed));
+}
+
+/** Delete the cached BIP39 seed for a wallet (call whenever its mnemonic is removed). */
+export async function deleteCachedWalletSeed(walletId: string): Promise<void> {
+  await deleteItemAsync(walletSeedKey(walletId));
+}
+
+// ---------------------------------------------------------------------------
+// Legacy migration
+// ---------------------------------------------------------------------------
+
+/**
+ * Check for a legacy mnemonic (pre-multi-wallet) and migrate it to
+ * the new per-wallet format. Returns the active wallet ID after migration,
+ * or null if no legacy data exists.
+ */
+async function migrateLegacyMnemonic(): Promise<string | null> {
+  const legacyMnemonic = await getItemAsync(MNEMONIC_KEY);
+  if (!legacyMnemonic) return null;
+
+  // Check if already migrated (index exists with entries)
+  const existingIndex = await getWalletIndex();
+  if (existingIndex.length > 0) {
+    // Already migrated - clean up legacy key
+    await deleteItemAsync(MNEMONIC_KEY);
+    return null;
+  }
+
+  // Migrate: create a wallet entry for the legacy mnemonic
+  const walletId = generateMigrationWalletId();
+  const createdTimestamp = await getItemAsync(WALLET_CREATED_KEY);
+  const createdAt = createdTimestamp ? Number(createdTimestamp) : Date.now();
+
+  await saveWalletMnemonic(walletId, legacyMnemonic);
+  await addWalletToIndex(walletId, "Wallet 1");
+
+  // Update the createdAt to match the original wallet
+  const wallets = await getWalletIndex();
+  const migrated = wallets.find((w) => w.id === walletId);
+  if (migrated) {
+    migrated.createdAt = createdAt;
+    await saveWalletIndex(wallets);
+  }
+
+  await setActiveWalletId(walletId);
+
+  // Remove legacy key
+  await deleteItemAsync(MNEMONIC_KEY);
+
+  return walletId;
+}
+
+/**
+ * Generate a wallet ID for migration. Uses a deterministic approach
+ * based on timestamp to avoid external dependencies.
+ */
+function generateMigrationWalletId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Mnemonic storage (backward-compatible wrappers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save mnemonic for the active wallet. If no active wallet exists,
+ * this is a legacy call that should not happen in multi-wallet mode.
+ */
+export async function saveMnemonic(mnemonic: string): Promise<void> {
+  const activeId = await getActiveWalletId();
+  if (activeId) {
+    await saveWalletMnemonic(activeId, mnemonic);
+  } else {
+    // Fallback for legacy callers (should not happen in multi-wallet mode)
+    await setItemAsync(MNEMONIC_KEY, mnemonic);
+  }
+  await setItemAsync(WALLET_CREATED_KEY, String(Date.now()));
+}
+
+/**
+ * Get mnemonic for the active wallet. Handles legacy migration.
+ */
+export async function getMnemonic(): Promise<string | null> {
+  // Try migration first
+  const migratedId = await migrateLegacyMnemonic();
+  if (migratedId) {
+    return getWalletMnemonic(migratedId);
+  }
+
+  const activeId = await getActiveWalletId();
+  if (activeId) {
+    return getWalletMnemonic(activeId);
+  }
+
+  // No active wallet and no legacy data
+  return null;
+}
+
+export async function deleteMnemonic(): Promise<void> {
+  const activeId = await getActiveWalletId();
+  if (activeId) {
+    await deleteWalletMnemonic(activeId);
+  }
+  await deleteItemAsync(MNEMONIC_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// PIN management (review finding M2)
+//
+// PIN hashing uses scrypt with a per-record random salt (see ./pin-kdf), which
+// makes a leaked store far harder to brute-force than the old unsalted SHA-256.
+// Records are versioned so a legacy PIN is transparently upgraded to scrypt on
+// the next successful unlock.
+// ---------------------------------------------------------------------------
+
+export async function savePin(pin: string): Promise<void> {
+  await setItemAsync(WALLET_PIN_KEY, await buildPinRecord(pin));
+}
+
+export async function verifyPin(pin: string): Promise<boolean> {
+  const stored = await getItemAsync(WALLET_PIN_KEY);
+  if (stored === null) {
+    return false;
+  }
+
+  const { valid, upgradedRecord } = await verifyPinRecord(pin, stored);
+
+  // On a correct legacy PIN, persist the scrypt upgrade so the weak hash never
+  // survives the next unlock. Best-effort: a failed re-save must not block the
+  // unlock and is retried on the next successful verification.
+  if (valid && upgradedRecord) {
+    try {
+      await setItemAsync(WALLET_PIN_KEY, upgradedRecord);
+    } catch {
+      // Ignore — migration retried next time.
+    }
+  }
+
+  return valid;
+}
+
+// ---------------------------------------------------------------------------
+// PIN existence check
+// ---------------------------------------------------------------------------
+
+export async function hasPin(): Promise<boolean> {
+  const stored = await getItemAsync(WALLET_PIN_KEY);
+  return stored !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Biometrics preference
+// ---------------------------------------------------------------------------
+
+const BIOMETRICS_ENABLED_KEY = "fairwallet_biometrics";
+
+export async function setBiometricsEnabled(enabled: boolean): Promise<void> {
+  await setItemAsync(BIOMETRICS_ENABLED_KEY, enabled ? "1" : "0");
+}
+
+export async function isBiometricsEnabled(): Promise<boolean> {
+  const value = await getItemAsync(BIOMETRICS_ENABLED_KEY);
+  return value === "1";
+}
+
+// ---------------------------------------------------------------------------
+// Wallet existence check
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if any wallet exists. Handles both multi-wallet index
+ * and legacy single-wallet data.
+ */
+export async function hasWallet(): Promise<boolean> {
+  // Check multi-wallet index
+  const wallets = await getWalletIndex();
+  if (wallets.length > 0) return true;
+
+  // Check legacy mnemonic
+  const legacyMnemonic = await getItemAsync(MNEMONIC_KEY);
+  if (legacyMnemonic !== null && legacyMnemonic.length > 0) return true;
+
+  // Check legacy created flag
+  const created = await getItemAsync(WALLET_CREATED_KEY);
+  return created !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-lock timeout
+// ---------------------------------------------------------------------------
+
+const AUTO_LOCK_KEY = "fairwallet_auto_lock";
+
+export async function setAutoLockTimeout(minutes: number): Promise<void> {
+  await setItemAsync(AUTO_LOCK_KEY, String(minutes));
+}
+
+export async function getAutoLockTimeout(): Promise<number> {
+  const value = await getItemAsync(AUTO_LOCK_KEY);
+  return value ? Number(value) : 5; // default 5 minutes
+}
+
+// ---------------------------------------------------------------------------
+// Display currency
+// ---------------------------------------------------------------------------
+
+const CURRENCY_KEY = "fairwallet_currency";
+
+export async function setCurrency(currency: string): Promise<void> {
+  await setItemAsync(CURRENCY_KEY, currency);
+}
+
+export async function getCurrency(): Promise<string> {
+  const value = await getItemAsync(CURRENCY_KEY);
+  return value ?? "USD";
+}
+
+// ---------------------------------------------------------------------------
+// Watch-only wallet storage (xpub)
+// ---------------------------------------------------------------------------
+
+export async function saveWalletXpub(walletId: string, xpub: string): Promise<void> {
+  await setItemAsync(`fairwallet_xpub_${walletId}`, xpub);
+}
+
+export async function getWalletXpub(walletId: string): Promise<string | null> {
+  return getItemAsync(`fairwallet_xpub_${walletId}`);
+}
+
+export async function isWatchOnly(walletId: string): Promise<boolean> {
+  const xpub = await getWalletXpub(walletId);
+  return xpub !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Clear all secure data
+// ---------------------------------------------------------------------------
+
+export async function clearAll(): Promise<void> {
+  // Clear legacy keys
+  await deleteItemAsync(MNEMONIC_KEY);
+  await deleteItemAsync(WALLET_PIN_KEY);
+  await deleteItemAsync(WALLET_CREATED_KEY);
+  await deleteItemAsync(BIOMETRICS_ENABLED_KEY);
+  await deleteItemAsync(AUTO_LOCK_KEY);
+  await deleteItemAsync(CURRENCY_KEY);
+
+  // Clear multi-wallet keys
+  const wallets = await getWalletIndex();
+  for (const wallet of wallets) {
+    await deleteWalletMnemonic(wallet.id);
+    await deleteCachedWalletSeed(wallet.id);
+    await deleteItemAsync(`fairwallet_xpub_${wallet.id}`);
+  }
+  // Defensive: a seed can be cached under the "default" key on the transient
+  // path where no active wallet id is resolvable yet — clear it too so a wipe
+  // leaves no seed material behind.
+  await deleteCachedWalletSeed("default");
+  await deleteItemAsync(WALLETS_INDEX_KEY);
+  await deleteItemAsync(ACTIVE_WALLET_KEY);
+}

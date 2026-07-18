@@ -1,0 +1,105 @@
+name: Build Desktop Apps
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to attach builds to (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            targets: "--linux deb AppImage"
+          - os: windows-latest
+            platform: win
+            targets: "--win nsis portable"
+          - os: macos-latest
+            platform: mac
+            targets: "--mac dmg"
+
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Export web build
+        run: bunx expo export --platform web
+
+      - name: Install Electron and electron-builder
+        run: bun add -d electron@^33.0.0 electron-builder@^25.0.0
+
+      - name: Build desktop app
+        shell: bash
+        run: |
+          # electron-builder reads "main" from package.json
+          # Override it to point to Electron entry instead of expo-router
+          node -e "
+            const pkg = require('./package.json');
+            pkg.main = 'electron/main.js';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+          bunx electron-builder ${{ matrix.targets }} --config electron-builder.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect build outputs
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.release_tag || 'dev' }}}"
+          mkdir -p desktop-output
+
+          for ext in dmg exe AppImage deb zip; do
+            find electron-dist -maxdepth 1 -name "*.${ext}" -exec cp {} desktop-output/ \; 2>/dev/null || true
+          done
+
+          echo "=== Desktop builds ==="
+          ls -lh desktop-output/ 2>/dev/null || echo "No files"
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FAIRWallet-${{ matrix.platform }}
+          path: desktop-output/*
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Attach to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop-output/*
+
+      - name: Attach to Release (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: desktop-output/*

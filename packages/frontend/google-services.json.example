@@ -1,0 +1,30 @@
+{
+  "_comment": "TEMPLATE — copy to google-services.json (gitignored) and replace every REPLACE_WITH_* with the real values from your Firebase project (Android app in.fairco.wallet). See docs/notifications-infra.md.",
+  "project_info": {
+    "project_number": "REPLACE_WITH_PROJECT_NUMBER",
+    "project_id": "REPLACE_WITH_PROJECT_ID",
+    "storage_bucket": "REPLACE_WITH_PROJECT_ID.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "REPLACE_WITH_MOBILESDK_APP_ID",
+        "android_client_info": {
+          "package_name": "in.fairco.wallet"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_WITH_ANDROID_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
