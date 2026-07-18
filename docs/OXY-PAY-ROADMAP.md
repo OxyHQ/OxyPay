@@ -39,7 +39,7 @@
 
 ### Track B — App monedero (Oxy Pay)  _(desbloqueado; en curso en rama `feat/oxy-pay-wallet`)_
 - [x] Subtree de FAIRWallet `main` en `packages/frontend` (`git subtree pull` para mejoras) + rename a `@oxypay/frontend` + `bun install` OK
-- [ ] Wiring del monorepo (metro/tsconfig monorepo-aware; scripts dev/build)
+- [x] Wiring del monorepo (Expo auto-detecta el workspace; blockList backend/shared-types; root tsconfig solution-file; scripts dev/build) _(expo export web + tsc -b verdes)_
 - [ ] Alinear Expo SDK 55 → 57 (sub-fase previa)
 - [ ] Montar `OxyProvider` (identidad Oxy) — orden de providers Bloom
 - [ ] Cliente backend vía `createLinkedClient`

@@ -16,6 +16,11 @@
     "declarationMap": true,
     "sourceMap": true
   },
+  // Pure solution file: it orchestrates the per-package project references and
+  // compiles nothing itself. `files: []` suppresses the default `**/*` include
+  // so the root never double-includes package sources (which made `tsc -b`
+  // expect in-place .d.ts outputs the noEmit frontend never emits → TS6305).
+  "files": [],
   "references": [
     { "path": "./packages/shared-types" },
     { "path": "./packages/backend" },

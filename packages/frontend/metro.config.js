@@ -2,7 +2,16 @@ const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
 
-const config = getDefaultConfig(__dirname);
+const projectRoot = __dirname;
+const monorepoRoot = path.resolve(projectRoot, "../..");
+
+// Expo's getDefaultConfig auto-detects this bun workspace and already makes
+// Metro monorepo-aware under the hoisted linker: it sets `watchFolders` (root
+// node_modules + every package), `resolver.nodeModulesPaths`
+// ([app node_modules, hoisted root node_modules]) and enables
+// `unstable_enablePackageExports` (required by @oxyhq/bloom subpath exports).
+// We keep those defaults untouched and only layer on this app's own needs.
+const config = getDefaultConfig(projectRoot);
 
 // ---------------------------------------------------------------------------
 // Crypto polyfill: inject before all other modules so globalThis.crypto
@@ -16,7 +25,7 @@ config.serializer = {
   ...config.serializer,
   getModulesRunBeforeMainModule() {
     const defaults = originalGetModules();
-    return [...defaults, path.resolve(__dirname, "src/crypto-polyfill.ts")];
+    return [...defaults, path.resolve(projectRoot, "src/crypto-polyfill.ts")];
   },
 };
 
@@ -25,14 +34,35 @@ config.serializer = {
 // ---------------------------------------------------------------------------
 
 const TCP_SHIM = path.resolve(
-  __dirname,
+  projectRoot,
   "src/shims/react-native-tcp-socket.ts",
 );
+
+// Block the sibling workspace packages Metro must never pull into the app
+// bundle: the backend (server-only code) and the shared-types raw TS source
+// (consumed via its built dist). Layered ON TOP of Metro's default blockList,
+// never replacing it.
+const blockPath = (dir) => {
+  const resolved = path.resolve(dir);
+  return new RegExp(`${resolved.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/.*`);
+};
+
+const defaultBlockList = config.resolver?.blockList;
+const baseBlockList = Array.isArray(defaultBlockList)
+  ? defaultBlockList
+  : defaultBlockList
+    ? [defaultBlockList]
+    : [];
 
 const originalResolveRequest = config.resolver?.resolveRequest;
 
 config.resolver = {
   ...config.resolver,
+  blockList: [
+    ...baseBlockList,
+    blockPath(path.join(monorepoRoot, "packages/backend")),
+    blockPath(path.join(monorepoRoot, "packages/shared-types/src")),
+  ],
   assetExts: [...(config.resolver?.assetExts ?? []), "wasm"],
   resolveRequest(context, moduleName, platform) {
     // On web, replace react-native-tcp-socket with an empty shim
