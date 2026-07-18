@@ -7,6 +7,6 @@ module.exports = function (api) {
       // "nativewind"` and no `nativewind/babel` preset (both are NativeWind 4).
       ["babel-preset-expo", { unstable_transformImportMeta: true }],
     ],
-    plugins: ["react-native-reanimated/plugin"],
+    plugins: ["react-native-worklets/plugin"],
   };
 };

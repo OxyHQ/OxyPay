@@ -10,12 +10,6 @@
       "faircoin"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/adaptive-icon-foreground.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1b1e09"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "in.fairco.wallet",
@@ -98,7 +92,15 @@
           "enableBackgroundRemoteNotifications": true
         }
       ],
-      "expo-image"
+      "expo-image",
+      "expo-audio",
+      "expo-background-task",
+      "expo-font",
+      "expo-localization",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-web-browser",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
