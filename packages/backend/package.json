@@ -16,7 +16,7 @@
   "dependencies": {
     "@oxypay/shared-types": "*",
     "@oxyhq/core": "^12.8.0",
-    "@fairco.in/core": "^0.1.1",
+    "@fairco.in/core": "^0.3.0",
     "@scure/bip32": "^1.7.0",
     "express": "^4.21.2",
     "mongoose": "^8.8.0",
@@ -24,6 +24,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@oxyhq/contracts": "^0.17.0",
     "@types/bun": "latest",
     "@types/express": "^4.17.21",
     "@types/node": "^20.0.0",
