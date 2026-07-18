@@ -1,5 +1,6 @@
 import type { HydratedDocument } from "mongoose";
-import type { PaymentIntent } from "@oxypay/shared-types";
+import type { Merchant, PaymentIntent } from "@oxypay/shared-types";
+import type { MerchantDoc } from "../models/Merchant";
 import type { PaymentIntentDoc } from "../models/PaymentIntent";
 
 /** A persisted PaymentIntent document (includes the timestamp fields). */
@@ -26,6 +27,26 @@ export function toPaymentIntentDTO(doc: PaymentIntentDocument): PaymentIntent {
     clientSecret: doc.clientSecret,
     metadata: Object.fromEntries(doc.metadata),
     expiresAt: doc.expiresAt.toISOString(),
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Serialize a persisted Merchant document to its public `Merchant` DTO.
+ * `webhookSecret` and `nextDerivationIndex` are deliberately omitted (see
+ * `@oxypay/shared-types`'s `Merchant` doc comment).
+ */
+export function toMerchantDTO(doc: HydratedDocument<MerchantDoc>): Merchant {
+  return {
+    id: doc.publicId,
+    object: "merchant",
+    oxyAppId: doc.oxyAppId,
+    environment: doc.environment,
+    network: doc.network,
+    xpub: doc.xpub,
+    webhookUrl: doc.webhookUrl,
+    requiredConfirmations: doc.requiredConfirmations,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };

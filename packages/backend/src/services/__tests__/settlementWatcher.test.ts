@@ -41,6 +41,7 @@ afterEach(async () => {
 
 test("advances a paid intent broadcast → confirming → settled as confirmations climb", async () => {
   const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000001",
     oxyAppId: "app_settle",
     environment: "development",
     network: "testnet",
@@ -103,6 +104,7 @@ test("advances a paid intent broadcast → confirming → settled as confirmatio
 
 test("marks an under-value payment as failed", async () => {
   const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000002",
     oxyAppId: "app_under",
     environment: "development",
     network: "testnet",

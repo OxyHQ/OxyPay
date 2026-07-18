@@ -43,6 +43,7 @@ afterAll(async () => {
 
 test("saves a Merchant with a watch-only testnet xpub", async () => {
   const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000001",
     oxyAppId: "app_watch_only_ok",
     environment: "development",
     network: "testnet",
@@ -65,6 +66,7 @@ test("rejects a Merchant whose xpub is a private xprv (non-custody firewall)", a
   const xprv = accountNode.hdKey.privateExtendedKey;
 
   const attempt = Merchant.create({
+    publicId: "merch_test0000000000000002",
     oxyAppId: "app_private_xprv_rejected",
     environment: "development",
     network: "testnet",
@@ -83,6 +85,7 @@ test("the Merchant schema exposes no private-key / mnemonic / seed field", () =>
 
 test("reserveNextAddress claims monotonically increasing indexes with distinct addresses", async () => {
   const merchant = await Merchant.create({
+    publicId: "merch_test0000000000000003",
     oxyAppId: "app_reserve_addresses",
     environment: "development",
     network: "testnet",
@@ -158,12 +161,14 @@ test("fromBaseUnits rejects a negative amount", () => {
 
 test("two Merchant docs with the same oxyAppId but different environment coexist", async () => {
   await Merchant.create({
+    publicId: "merch_test0000000000000004",
     oxyAppId: "app_env_split",
     environment: "development",
     network: "testnet",
     xpub: XPUB,
   });
   const prod = await Merchant.create({
+    publicId: "merch_test0000000000000005",
     oxyAppId: "app_env_split",
     environment: "production",
     network: "mainnet",
@@ -177,12 +182,14 @@ test("two Merchant docs with the same oxyAppId but different environment coexist
 
 test("the SAME oxyAppId + environment pair collides (compound unique index)", async () => {
   await Merchant.create({
+    publicId: "merch_test0000000000000006",
     oxyAppId: "app_env_dup",
     environment: "development",
     network: "testnet",
     xpub: XPUB,
   });
   const dup = Merchant.create({
+    publicId: "merch_test0000000000000007",
     oxyAppId: "app_env_dup",
     environment: "development",
     network: "testnet",

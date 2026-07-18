@@ -22,6 +22,7 @@ import { config } from "./config";
 import { connectDb } from "./db";
 import { Merchant } from "./models/Merchant";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
+import { createMerchantsRouter } from "./routes/merchants";
 import {
   SettlementWatcher,
   type HydratedPaymentIntentDoc,
@@ -126,6 +127,7 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
     oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret });
 
   app.use(createPaymentIntentsRouter({ requireMerchant }));
+  app.use(createMerchantsRouter({ requireMerchant }));
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const message = err instanceof Error ? err.message : "internal error";

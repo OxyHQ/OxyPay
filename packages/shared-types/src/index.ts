@@ -7,3 +7,8 @@ export {
   isValidStatusTransition,
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
+export {
+  type MerchantEnvironment,
+  type Merchant,
+  MERCHANT_ENVIRONMENTS,
+} from './merchant';

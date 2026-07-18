@@ -88,6 +88,7 @@ beforeAll(async () => {
   await PaymentIntent.init();
 
   await Merchant.create({
+    publicId: "merch_test0000000000000001",
     oxyAppId: TEST_APP_ID,
     environment: "development",
     network: "testnet",

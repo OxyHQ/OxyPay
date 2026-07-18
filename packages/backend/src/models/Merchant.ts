@@ -13,6 +13,14 @@ import { deriveIntentAddress } from "../services/derivation";
  * pre-validate hook refuses any private extended key handed in as `xpub`.
  */
 export interface MerchantDoc {
+  /**
+   * Public Stripe-parity identifier (`merch_...`, minted via `newId("merch")`
+   * at registration). Deliberately NOT named `id` — see the design note at
+   * the top of Task 8 in the F2.0 plan: Mongoose's auto `id` virtual is
+   * already relied on ecosystem-wide in this file as the Mongo-ObjectId
+   * shortcut for `PaymentIntent.merchantId` FK writes.
+   */
+  publicId: string;
   oxyAppId: string;
   /**
    * Test/live isolation (F2.0): mirrors the `ApplicationCredential.environment`
@@ -28,10 +36,14 @@ export interface MerchantDoc {
   webhookSecret?: string;
   requiredConfirmations: number;
   livemode: boolean;
+  /** Populated by the schema `timestamps` option. */
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const merchantSchema = new Schema<MerchantDoc>(
   {
+    publicId: { type: String, required: true, unique: true },
     oxyAppId: { type: String, required: true },
     environment: { type: String, enum: OXY_SERVICE_ENVIRONMENTS, required: true },
     network: { type: String, enum: ["mainnet", "testnet"], required: true },
