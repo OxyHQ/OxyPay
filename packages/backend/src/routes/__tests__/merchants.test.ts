@@ -248,3 +248,90 @@ describe("POST /v1/merchants", () => {
     }
   });
 });
+
+describe("GET /v1/merchants/me", () => {
+  test("returns the caller's own merchant", async () => {
+    const { app } = createApp(DEV_APP_ID, "development");
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      const create = await fetch(`${url}/v1/merchants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ network: "testnet", xpub: XPUB }),
+      });
+      const created = await readJson(create);
+
+      const res = await fetch(`${url}/v1/merchants/me`);
+      expect(res.status).toBe(200);
+      const body = await readJson(res);
+      expect(body.id).toBe(created.id);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("no merchant registered for this app+environment yet -> 403", async () => {
+    const { app } = createApp(DEV_APP_ID, "development");
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      const res = await fetch(`${url}/v1/merchants/me`);
+      expect(res.status).toBe(403);
+    } finally {
+      s.close();
+    }
+  });
+});
+
+describe("PATCH /v1/merchants/me", () => {
+  test("updates webhookUrl and requiredConfirmations", async () => {
+    const { app } = createApp(DEV_APP_ID, "development");
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      await fetch(`${url}/v1/merchants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ network: "testnet", xpub: XPUB }),
+      });
+
+      const res = await fetch(`${url}/v1/merchants/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl: "https://merchant.example/new-hook",
+          requiredConfirmations: 3,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = await readJson(res);
+      expect(body.webhookUrl).toBe("https://merchant.example/new-hook");
+      expect(body.requiredConfirmations).toBe(3);
+      // xpub/network/environment are immutable via this route.
+      expect(body.network).toBe("testnet");
+    } finally {
+      s.close();
+    }
+  });
+
+  test("xpub is not a field this route accepts — an attempted xpub change is silently ignored", async () => {
+    const { app } = createApp(DEV_APP_ID, "development");
+    const { server: s, baseUrl: url } = await listen(app);
+    try {
+      await fetch(`${url}/v1/merchants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ network: "testnet", xpub: XPUB }),
+      });
+
+      const res = await fetch(`${url}/v1/merchants/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requiredConfirmations: 2, xpub: "attempted-change" }),
+      });
+      expect(res.status).toBe(200);
+      const body = await readJson(res);
+      expect(body.xpub).toBe(XPUB);
+    } finally {
+      s.close();
+    }
+  });
+});
