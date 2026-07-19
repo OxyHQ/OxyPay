@@ -2,6 +2,7 @@ import type { NetworkType } from '@fairco.in/core';
 import type {
   PaymentIntent,
   SocialNextAddressResponse,
+  SocialReceiveCursorResponse,
   EnrichmentResult,
 } from '@oxypay/shared-types';
 import { oxyServices } from '@/services/oxy-services';
@@ -99,4 +100,28 @@ export async function enrichAddresses(
   addresses: string[],
 ): Promise<Record<string, EnrichmentResult>> {
   return gateway.client.post<Record<string, EnrichmentResult>>('/v1/enrich', { addresses });
+}
+
+/**
+ * Resync this device's social-receive watch window against the backend's
+ * reservation cursor (finding: cursor-sync HIGH). `reserveNextSocialAddress`
+ * advances the recipient's cursor on every call regardless of whether the
+ * reserved address is ever paid, but a receiving device only widens its
+ * local watch window when a payment lands on an index it already watches —
+ * so a burst of reservations with no payment in between can silently outrun
+ * the device. This endpoint is read-only (reserves nothing), so a device
+ * can poll it freely to widen its window to `0..reservedThrough+gap`.
+ *
+ * The Gateway returns `{ reservedThrough }` directly (no `{ data }` envelope
+ * — verified against `packages/backend/src/routes/social.ts`'s
+ * `GET /v1/social/me/cursor`), so the linked client's parsed body IS the
+ * cursor. Returning `.data` here would unwrap a second time and yield
+ * `undefined`.
+ */
+export async function getSocialReceiveCursor(
+  network: NetworkType,
+): Promise<SocialReceiveCursorResponse> {
+  return gateway.client.get<SocialReceiveCursorResponse>('/v1/social/me/cursor', {
+    params: { network },
+  });
 }

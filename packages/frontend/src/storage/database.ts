@@ -882,6 +882,18 @@ export class Database {
     return row?.max_used ?? -1;
   }
 
+  /**
+   * Drop every persisted social-receive address. `databaseFileName` has no
+   * network component, so this DB file is shared across mainnet/testnet for
+   * a given wallet+Pocket — a window derived on one network is a stale,
+   * wrong-network address set on the other. Called on `switchNetwork` so the
+   * next `setUpSocialReceive` re-derives a fresh window for the new network
+   * (finding: network-scope the social-receive window, MEDIUM).
+   */
+  async clearSocialReceiveAddresses(): Promise<void> {
+    await this.db.runAsync("DELETE FROM social_receive_addresses");
+  }
+
   // -----------------------------------------------------------------------
   // Peers
   // -----------------------------------------------------------------------

@@ -5,18 +5,26 @@ const postMock = mock(async (_path: string, _body: unknown): Promise<unknown> =>
   throw new Error("postMock not configured for this test");
 });
 
+const getMock = mock(async (_path: string, _config?: unknown): Promise<unknown> => {
+  throw new Error("getMock not configured for this test");
+});
+
 mock.module("./oxy-services", () => ({
   oxyServices: {
-    createLinkedClient: () => ({ client: { post: postMock } }),
+    createLinkedClient: () => ({ client: { post: postMock, get: getMock } }),
   },
 }));
 
-const { reserveNextSocialAddress, enrichAddresses, KeylessRecipientError } = await import(
-  "./gateway-client"
-);
+const {
+  reserveNextSocialAddress,
+  enrichAddresses,
+  getSocialReceiveCursor,
+  KeylessRecipientError,
+} = await import("./gateway-client");
 
 beforeEach(() => {
   postMock.mockReset();
+  getMock.mockReset();
 });
 
 describe("reserveNextSocialAddress", () => {
@@ -80,5 +88,29 @@ describe("enrichAddresses", () => {
 
     expect(postMock).toHaveBeenCalledWith("/v1/enrich", { addresses: ["TAddr1", "TAddr2"] });
     expect(result).toEqual(enrichmentMap);
+  });
+});
+
+describe("getSocialReceiveCursor", () => {
+  test("returns the cursor directly (no {data} double-unwrap) and sends network as a query param", async () => {
+    // The real Gateway route sends `{ reservedThrough }` with no `data`
+    // envelope, so the mock returns the NAKED shape (the post-unwrap shape)
+    // — otherwise this test can't catch a re-introduced `.data` unwrap.
+    getMock.mockImplementationOnce(async () => ({ reservedThrough: 7 }));
+
+    const result = await getSocialReceiveCursor("testnet");
+
+    expect(getMock).toHaveBeenCalledWith("/v1/social/me/cursor", {
+      params: { network: "testnet" },
+    });
+    expect(result).toEqual({ reservedThrough: 7 });
+  });
+
+  test("returns reservedThrough: 0 for a caller with no reservation cursor yet", async () => {
+    getMock.mockImplementationOnce(async () => ({ reservedThrough: 0 }));
+
+    const result = await getSocialReceiveCursor("mainnet");
+
+    expect(result).toEqual({ reservedThrough: 0 });
   });
 });

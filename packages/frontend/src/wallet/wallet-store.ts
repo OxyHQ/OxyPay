@@ -89,6 +89,7 @@ import {
   getSocialReceiveSpendingKey,
   computeWindowExtension,
 } from "./social-receive";
+import { getSocialReceiveCursor } from "../services/gateway-client";
 import {
   getPockets,
   savePockets,
@@ -482,15 +483,17 @@ function buildCombinedBloomFilterHashes(km: KeyManager): Uint8Array[] {
 /**
  * Bring up the social-receive branch (spec §4.3) for the identity wallet:
  * derive (or load the persisted) watch window, populate the in-memory index
- * map, and publish the stable default address (`addr(0)`) to the store.
+ * map, publish the stable default address (`addr(0)`) to the store, and
+ * resync the window against the backend's reservation cursor.
  *
  * Called from INSIDE `initialize()` itself (gated on `activeId ===
- * OXY_IDENTITY_WALLET_ID`, mirroring the `hasBackedUp` gate right above its
- * call site) — not just once from `initializeFromIdentity` — so every caller
- * that re-runs `initialize()` after `resetWalletInternals()` cleared this
- * module's state (a PIN unlock, a Pocket switch, a wallet switch) reliably
- * re-establishes social-receive watching. It runs BEFORE `initialize()`
- * builds its Bloom filter (which folds in `socialReceiveAddressIndex` via
+ * OXY_IDENTITY_WALLET_ID` AND the active Pocket being the main one,
+ * mirroring the `hasBackedUp` gate right above its call site) — not just
+ * once from `initializeFromIdentity` — so every caller that re-runs
+ * `initialize()` after `resetWalletInternals()` cleared this module's state
+ * (a PIN unlock, a Pocket switch, a wallet switch) reliably re-establishes
+ * social-receive watching. It runs BEFORE `initialize()` builds its Bloom
+ * filter (which folds in `socialReceiveAddressIndex` via
  * {@link buildCombinedBloomFilterHashes}), so the very first filter a peer
  * ever sees already covers the social branch — no separate post-hoc
  * `setBloomFilter` call needed here.
@@ -498,6 +501,7 @@ function buildCombinedBloomFilterHashes(km: KeyManager): Uint8Array[] {
 async function setUpSocialReceive(
   db: Database,
   network: NetworkConfig,
+  networkType: NetworkType,
   set: WalletSet,
 ): Promise<void> {
   const identityPrivateKey = await getIdentityPrivateKeyBytes();
@@ -524,6 +528,58 @@ async function setUpSocialReceive(
   socialReceiveAddressIndex = new Map(persisted.map((row) => [row.address, row.index_num]));
   const defaultRow = persisted.find((row) => row.index_num === 0);
   set({ socialReceiveDefaultAddress: defaultRow?.address ?? null });
+
+  // Cursor-sync (finding: HIGH). `reserveNextSocialAddress` on the backend
+  // advances this user's cursor on EVERY sender's `next_address` call,
+  // whether or not the reserved address is ever paid — but this device only
+  // widens its own watch window when a payment lands on an index it already
+  // watches. A burst of reservations with no payment in between (a payer
+  // browsing/re-picking a recipient, or griefing) can therefore outrun the
+  // window derived above and leave a later real payment on an unwatched
+  // index — silent non-receipt. Resync against the backend's reservation
+  // cursor so the device watches every index it has EVER handed out, not
+  // just the ones a payment has already landed on.
+  const highestUsed = await db.getHighestUsedSocialReceiveIndex();
+  let reservedThrough = 0;
+  try {
+    ({ reservedThrough } = await getSocialReceiveCursor(networkType));
+  } catch (error) {
+    // Offline / Gateway error: degrade to the local-only window derived
+    // above rather than blocking wallet bring-up on a network round-trip.
+    // The next successful call to setUpSocialReceive (next unlock/init)
+    // retries the resync.
+    console.warn(
+      "[social-receive] cursor resync failed, using local-only watch window:",
+      error,
+    );
+  }
+  // `reservedThrough === 0` is the endpoint's explicit "no cursor exists
+  // yet" sentinel (index 0 is the stable default address and is never
+  // reserved through the next_address flow — see
+  // SocialReceiveCursorResponse), so it must NOT be treated as index 0
+  // having been reserved — that would spuriously widen every fresh
+  // recipient's window by one address on every call. Feed it into
+  // `computeWindowExtension` (which already uses -1 as its "nothing yet"
+  // sentinel) as the equivalent "nothing reserved" value.
+  const highestReserved = reservedThrough > 0 ? reservedThrough : -1;
+  const highestWatched = Math.max(-1, ...socialReceiveAddressIndex.values());
+  const cursorExtension = computeWindowExtension(
+    highestWatched,
+    Math.max(highestUsed, highestReserved),
+    SOCIAL_RECEIVE_GAP_LIMIT,
+  );
+  if (cursorExtension) {
+    const fresh = deriveSocialReceiveWatchWindow(
+      identityPrivateKey,
+      cursorExtension.start,
+      cursorExtension.count,
+      network,
+    );
+    await db.insertSocialReceiveAddresses(fresh);
+    for (const { index, address } of fresh) {
+      socialReceiveAddressIndex.set(address, index);
+    }
+  }
 }
 
 /**
@@ -1341,16 +1397,21 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             : true;
 
       // Bring up the social-receive branch (spec §4.3) for the identity
-      // wallet on EVERY initialize() call, not just the first boot — a PIN
-      // unlock, a Pocket switch, or a wallet switch all tear this module's
-      // state down via `resetWalletInternals` and re-run `initialize()`
-      // directly, bypassing `initializeFromIdentity`. Runs before the Bloom
-      // filter is built below so the first filter a peer sees already covers
-      // the social branch. Non-identity wallets skip it; `resetWalletInternals`
-      // already cleared `socialReceiveIdentityPrivateKey` /
-      // `socialReceiveAddressIndex` to their empty defaults for them.
-      if (activeId === OXY_IDENTITY_WALLET_ID) {
-        await setUpSocialReceive(database, networkConfig, set);
+      // wallet's MAIN Pocket only (account 0) on EVERY initialize() call, not
+      // just the first boot — a PIN unlock, a Pocket switch, or a wallet
+      // switch all tear this module's state down via `resetWalletInternals`
+      // and re-run `initialize()` directly, bypassing `initializeFromIdentity`.
+      // Runs before the Bloom filter is built below so the first filter a peer
+      // sees already covers the social branch. Gating on `resolvedAccount ===
+      // 0` (finding: MEDIUM/LOW) keeps the social-receive window a single set
+      // of addresses established once, on the main Pocket, instead of
+      // re-deriving and persisting the SAME window redundantly into every
+      // other Pocket's own (otherwise-unrelated) DB file. Non-identity
+      // wallets and non-main Pockets skip it; `resetWalletInternals` already
+      // cleared `socialReceiveIdentityPrivateKey` / `socialReceiveAddressIndex`
+      // to their empty defaults for them.
+      if (activeId === OXY_IDENTITY_WALLET_ID && resolvedAccount === 0) {
+        await setUpSocialReceive(database, networkConfig, state.network, set);
       }
 
       // Reconstruct the persisted transaction history into the display list.
@@ -2599,13 +2660,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       set({ loading: true, error: null });
 
       try {
-        // Stop SPV client
-        resetWalletInternals();
-
-        // Close current database
+        // Network-scope the social-receive window (finding: MEDIUM).
+        // `databaseFileName` has no network component, so this DB file is
+        // shared across mainnet/testnet for the active wallet+Pocket — a
+        // window derived for the OLD network is a stale, wrong-network
+        // address set for the new one (FairCoin mainnet/testnet addresses
+        // encode different version bytes for the same underlying key). Clear
+        // it here, BEFORE `resetWalletInternals()` nulls the module-level
+        // `database` reference, so `setUpSocialReceive` re-derives a fresh
+        // window for `newNetwork` from inside the `initialize()` call further
+        // down. Also moves the DB close to precede `resetWalletInternals()`
+        // (matching switchWallet/switchPocket) — closing it AFTER, as this
+        // used to, checked `database` once `resetWalletInternals()` had
+        // already nulled it, so the close silently never ran.
         if (database) {
+          await database.clearSocialReceiveAddresses();
           await database.close();
         }
+
+        // Stop SPV client + wipe in-memory wallet state, including the
+        // in-memory social-receive index/key (`resetWalletInternals` also
+        // resets `socialReceiveDefaultAddress` via the `DEFAULT_WALLET_STATE`
+        // spread just below).
+        resetWalletInternals();
 
         // Reset to uninitialized state with new network
         set({
