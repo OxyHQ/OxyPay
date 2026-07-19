@@ -467,18 +467,24 @@ function buildCombinedBloomFilterHashes(km: KeyManager): Uint8Array[] {
 }
 
 /**
- * Bring up the social-receive branch (spec §4.3) after the private spending
- * tree is already initialized: derive (or load the persisted) watch window,
- * populate the in-memory index map, publish the stable default address
- * (`addr(0)`) to the store, and fold the social addresses into the SPV Bloom
- * filter. Additive to `initialize()`'s own Bloom-filter setup — calling
- * `setBloomFilter` again here is safe (it replaces the filter wholesale, so
- * the FULL combined address set is passed every time, not a delta).
+ * Bring up the social-receive branch (spec §4.3) for the identity wallet:
+ * derive (or load the persisted) watch window, populate the in-memory index
+ * map, and publish the stable default address (`addr(0)`) to the store.
+ *
+ * Called from INSIDE `initialize()` itself (gated on `activeId ===
+ * OXY_IDENTITY_WALLET_ID`, mirroring the `hasBackedUp` gate right above its
+ * call site) — not just once from `initializeFromIdentity` — so every caller
+ * that re-runs `initialize()` after `resetWalletInternals()` cleared this
+ * module's state (a PIN unlock, a Pocket switch, a wallet switch) reliably
+ * re-establishes social-receive watching. It runs BEFORE `initialize()`
+ * builds its Bloom filter (which folds in `socialReceiveAddressIndex` via
+ * {@link buildCombinedBloomFilterHashes}), so the very first filter a peer
+ * ever sees already covers the social branch — no separate post-hoc
+ * `setBloomFilter` call needed here.
  */
 async function setUpSocialReceive(
   db: Database,
   network: NetworkConfig,
-  currentSpvClient: SPVClient | null,
   set: WalletSet,
 ): Promise<void> {
   const identityPrivateKey = await getIdentityPrivateKeyBytes();
@@ -505,10 +511,6 @@ async function setUpSocialReceive(
   socialReceiveAddressIndex = new Map(persisted.map((row) => [row.address, row.index_num]));
   const defaultRow = persisted.find((row) => row.index_num === 0);
   set({ socialReceiveDefaultAddress: defaultRow?.address ?? null });
-
-  if (currentSpvClient && keyManager) {
-    currentSpvClient.setBloomFilter(buildCombinedBloomFilterHashes(keyManager));
-  }
 }
 
 /**
@@ -1325,6 +1327,19 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             ? await isWalletBackedUp(activeId)
             : true;
 
+      // Bring up the social-receive branch (spec §4.3) for the identity
+      // wallet on EVERY initialize() call, not just the first boot — a PIN
+      // unlock, a Pocket switch, or a wallet switch all tear this module's
+      // state down via `resetWalletInternals` and re-run `initialize()`
+      // directly, bypassing `initializeFromIdentity`. Runs before the Bloom
+      // filter is built below so the first filter a peer sees already covers
+      // the social branch. Non-identity wallets skip it; `resetWalletInternals`
+      // already cleared `socialReceiveIdentityPrivateKey` /
+      // `socialReceiveAddressIndex` to their empty defaults for them.
+      if (activeId === OXY_IDENTITY_WALLET_ID) {
+        await setUpSocialReceive(database, networkConfig, set);
+      }
+
       // Reconstruct the persisted transaction history into the display list.
       // The `transactions` table stores raw_hex + block metadata but not the
       // derived amount/address/type, so re-derive them the SAME way the SPV
@@ -1462,14 +1477,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           },
         });
 
-        // Load Bloom filter with all wallet addresses
+        // Load Bloom filter with all wallet addresses. `setUpSocialReceive`
+        // above (identity wallets only) has already populated
+        // `socialReceiveAddressIndex` by this point, so the combined helper
+        // folds the social branch into the FIRST filter a peer ever sees —
+        // no separate post-hoc refresh needed.
         if (keyManager) {
-          const allAddresses = keyManager.getAllAddresses();
-          const addressHashes = allAddresses.map((addr) => {
-            const decoded = decodeAddress(addr);
-            return decoded.hash;
-          });
-          spvClient.setBloomFilter(addressHashes);
+          spvClient.setBloomFilter(buildCombinedBloomFilterHashes(keyManager));
         }
 
         setNetworkStatus(set, "wallet.network.connecting");
@@ -1541,10 +1555,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     if (!seed) {
       return "no-identity";
     }
+    // `initialize()` itself brings up social receive (gated on
+    // `activeId === OXY_IDENTITY_WALLET_ID`, which is always true here) —
+    // no separate step needed.
     await get().initialize(buildSeedSecret(seed), OXY_IDENTITY_WALLET_ID, onReady);
-    if (database && networkConfig) {
-      await setUpSocialReceive(database, networkConfig, spvClient, set);
-    }
     return "initialized";
   },
 
