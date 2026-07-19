@@ -7,7 +7,7 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "noEmit": false,
-    "incremental": true,
+    "incremental": false,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/types/.tsbuildinfo"
   },
   "include": ["src"],

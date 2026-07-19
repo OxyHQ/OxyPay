@@ -6,7 +6,7 @@
     "outDir": "dist/cjs",
     "declaration": false,
     "noEmit": false,
-    "incremental": true,
+    "incremental": false,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/cjs/.tsbuildinfo"
   },
   "include": ["src"],
