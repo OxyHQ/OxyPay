@@ -25,6 +25,8 @@ import { WebhookDelivery } from "./models/WebhookDelivery";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
 import { createWebhookDeliveriesRouter } from "./routes/webhookDeliveries";
+import { createPaymentLinksRouter } from "./routes/paymentLinks";
+import { createCheckoutSessionsRouter } from "./routes/checkoutSessions";
 import { createSocialRouter } from "./routes/social";
 import { createEnrichRouter } from "./routes/enrich";
 import {
@@ -47,6 +49,16 @@ import { toPaymentIntentDTO } from "./lib/serialize";
 /** Date-based API version, echoed on every response (Stripe-parity). */
 const OXY_PAY_VERSION = "2026-07-18";
 
+/**
+ * Budget for the UNAUTHENTICATED payer routes (payment-link/checkout-session
+ * public display + public intent mint) — deliberately tighter than the
+ * global limiter's `anonymousMax` default (600/15min): the mint route
+ * derives a fresh watch-only address per call, so an unthrottled anonymous
+ * caller could churn `Merchant.nextDerivationIndex` (address-space DoS).
+ */
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const PUBLIC_RATE_LIMIT_ANONYMOUS_MAX = 30;
+
 /** Which statuses emit a webhook, and the Stripe-parity event type for each. */
 const WEBHOOK_EVENT_FOR: Partial<
   Record<PaymentIntentStatus, WebhookEventType>
@@ -66,6 +78,13 @@ export interface GatewayDeps {
   requireMerchant?: RequestHandler;
   /** Optional service-auth middleware for the dual-auth payer/merchant GET route. */
   optionalServiceAuth?: RequestHandler;
+  /**
+   * Rate limiter for the UNAUTHENTICATED payment-link/checkout-session payer
+   * routes (default a dedicated `createOxyRateLimit` instance — see
+   * `PUBLIC_RATE_LIMIT_*` above — separate from the global limiter mounted
+   * below so its tighter anonymous budget applies ONLY to those four routes).
+   */
+  publicRateLimit?: RequestHandler;
   /** End-user Oxy auth for the social + enrich routes (default `createOxyAuthMiddleware(oxyClient)`). */
   requireOxyUser?: RequestHandler;
   /** Socket connection auth (default `oxyClient.authSocket()`). */
@@ -159,6 +178,12 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   const optionalServiceAuth: RequestHandler =
     deps.optionalServiceAuth ??
     oxyClient.auth({ jwtSecret: config.serviceJwtSecret, optional: true });
+  const publicRateLimit: RequestHandler =
+    deps.publicRateLimit ??
+    createOxyRateLimit(oxyClient, {
+      anonymousMax: PUBLIC_RATE_LIMIT_ANONYMOUS_MAX,
+      windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
+    });
 
   app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
   app.use(createSocialRouter({ requireOxyUser: deps.requireOxyUser }));
@@ -167,6 +192,8 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   app.use(
     createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
   );
+  app.use(createPaymentLinksRouter({ requireMerchant, publicRateLimit }));
+  app.use(createCheckoutSessionsRouter({ requireMerchant, publicRateLimit }));
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const message = err instanceof Error ? err.message : "internal error";

@@ -14,6 +14,8 @@ const DEFAULT_PORT = 3001;
 const DEFAULT_NETWORK: NetworkType = "mainnet";
 // Conventional local dev target; overridden by MONGODB_URI in every real env.
 const DEFAULT_MONGODB_URI = "mongodb://localhost:27017/oxypay";
+// The hosted checkout page's host (F2.2/F2.3) — see `2026-07-19-fase2-checkout-links.md`.
+const DEFAULT_CHECKOUT_BASE_URL = "https://checkout.oxy.so";
 
 export interface AppConfig {
   /** Base URL of the FairCoin block explorer (no trailing slash). */
@@ -42,6 +44,11 @@ export interface AppConfig {
    * silently accepting an unverified token.
    */
   serviceJwtSecret: string | undefined;
+  /**
+   * Base URL of the hosted checkout page (no trailing slash) — used to build
+   * `PaymentLink.url` (`/l/<id>`) and `CheckoutSession.url` (`/c/<id>`).
+   */
+  checkoutBaseUrl: string;
 }
 
 function readOrigins(raw: string | undefined): string[] {
@@ -95,6 +102,7 @@ export function loadConfig(
     port: readPort(env.PORT),
     allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),
+    checkoutBaseUrl: readNonEmpty(env.OXY_PAY_CHECKOUT_BASE_URL, DEFAULT_CHECKOUT_BASE_URL),
   };
 }
 

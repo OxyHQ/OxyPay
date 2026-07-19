@@ -1,7 +1,19 @@
 import type { HydratedDocument } from "mongoose";
-import type { Merchant, PaymentIntent, WebhookDelivery } from "@oxypay/shared-types";
+import type {
+  CheckoutSession,
+  CheckoutSessionPublic,
+  Merchant,
+  MerchantDisplay,
+  PaymentIntent,
+  PaymentLink,
+  PublicPaymentLink,
+  WebhookDelivery,
+} from "@oxypay/shared-types";
+import { config } from "../config";
 import type { MerchantDoc } from "../models/Merchant";
 import type { PaymentIntentDoc } from "../models/PaymentIntent";
+import type { PaymentLinkDoc } from "../models/PaymentLink";
+import type { CheckoutSessionDoc } from "../models/CheckoutSession";
 import type { WebhookDeliveryDoc } from "../models/WebhookDelivery";
 
 /** A persisted PaymentIntent document (includes the timestamp fields). */
@@ -75,5 +87,96 @@ export function toWebhookDeliveryDTO(
     lastStatus: doc.lastStatus,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Serialize a persisted PaymentLink document to its merchant-facing DTO
+ * (the SDK/dashboard CRUD shape). `url` is built from `config.checkoutBaseUrl`
+ * so it always points at the hosted checkout page for the CURRENT deploy.
+ */
+export function toPaymentLinkDTO(doc: HydratedDocument<PaymentLinkDoc>): PaymentLink {
+  return {
+    id: doc.publicId,
+    object: "payment_link",
+    amount: doc.amount,
+    network: doc.network,
+    active: doc.active,
+    metadata: Object.fromEntries(doc.metadata),
+    successUrl: doc.successUrl,
+    url: `${config.checkoutBaseUrl}/l/${doc.publicId}`,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Serialize a persisted PaymentLink document to what an UNAUTHENTICATED
+ * checkout-page visitor may see: no `metadata`, no `successUrl`, no internal
+ * ids beyond the public one. `merchant` is resolved separately by
+ * `services/merchantDisplay.ts` and passed in — this function never touches
+ * the network to build it.
+ */
+export function toPublicPaymentLinkDTO(
+  doc: HydratedDocument<PaymentLinkDoc>,
+  merchant: MerchantDisplay,
+): PublicPaymentLink {
+  return {
+    id: doc.publicId,
+    object: "payment_link",
+    amount: doc.amount,
+    network: doc.network,
+    active: doc.active,
+    merchant,
+  };
+}
+
+/**
+ * Serialize a persisted CheckoutSession document to its merchant/SDK-facing
+ * DTO. The wrapped intent is passed in rather than re-fetched here, and
+ * supplies both `paymentIntentId` and `clientSecret` — the session doc itself
+ * deliberately never stores a copy of the secret (see `CheckoutSessionDoc`'s
+ * doc comment).
+ */
+export function toCheckoutSessionDTO(
+  doc: HydratedDocument<CheckoutSessionDoc>,
+  intent: PaymentIntentDocument,
+): CheckoutSession {
+  return {
+    id: doc.publicId,
+    object: "checkout_session",
+    paymentIntentId: intent.id,
+    clientSecret: intent.clientSecret,
+    amount: doc.amount,
+    network: doc.network,
+    metadata: Object.fromEntries(doc.metadata),
+    successUrl: doc.successUrl,
+    cancelUrl: doc.cancelUrl,
+    url: `${config.checkoutBaseUrl}/c/${doc.publicId}`,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Serialize a persisted CheckoutSession document to what the checkout page
+ * loads at `/c/:id`, authorized by possession of the wrapped intent's
+ * `client_secret` (see `routes/checkoutSessions.ts`'s public GET). Reuses
+ * `toPaymentIntentDTO`'s output unchanged for `paymentIntent` — it already
+ * carries `clientSecret`, which the page needs to open the socket and to
+ * `submit_tx`.
+ */
+export function toCheckoutSessionPublicDTO(
+  doc: HydratedDocument<CheckoutSessionDoc>,
+  merchant: MerchantDisplay,
+  intent: PaymentIntentDocument,
+): CheckoutSessionPublic {
+  return {
+    id: doc.publicId,
+    object: "checkout_session",
+    successUrl: doc.successUrl,
+    cancelUrl: doc.cancelUrl,
+    merchant,
+    paymentIntent: toPaymentIntentDTO(intent),
   };
 }
