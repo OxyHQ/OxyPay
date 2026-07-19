@@ -42,12 +42,15 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
 // populates `req.serviceApp` ONLY when an `Authorization` header is present
 // (exactly what `oxyClient.auth({ optional: true })` does for a valid
 // service token), so both the merchant and payer branches are exercisable.
+// Carries `payments:read` so the merchant branch's manual scope check
+// (`GET /v1/payment_intents/:id`) passes by default; the dedicated
+// missing-scope test below builds its own stub without it.
 const stubOptionalServiceAuth: RequestHandler = (req, _res, next) => {
   if (req.header("Authorization")) {
     (req as OxyAuthRequest).serviceApp = {
       appId: TEST_APP_ID,
       appName: "t",
-      scopes: [],
+      scopes: ["payments:read"],
       credentialId: "c",
       environment: "development",
     };
@@ -337,6 +340,48 @@ describe("GET /v1/payment_intents/:id", () => {
     const res = await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}`);
     expect(res.status).toBe(401);
   });
+
+  test("merchant-authed WITHOUT payments:read -> 403 (F2.0 gateway-review finding)", async () => {
+    const created = await createIntent("idem-get-noscope");
+    const noReadScopeOptionalServiceAuth: RequestHandler = (req, _res, next) => {
+      if (req.header("Authorization")) {
+        (req as OxyAuthRequest).serviceApp = {
+          appId: TEST_APP_ID,
+          appName: "t",
+          scopes: ["payments:write"],
+          credentialId: "c",
+          environment: "development",
+        };
+      }
+      next();
+    };
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: stubRequireMerchant,
+        optionalServiceAuth: noReadScopeOptionalServiceAuth,
+      }),
+    );
+    const noScopeServer = app.listen(0);
+    const noScopeAddress = noScopeServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noScopeAddress.port}/v1/payment_intents/${created.body.id}`,
+        { headers: { Authorization: "Bearer test" } },
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noScopeServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
+  // The payer branch (no Authorization header, authorized by `client_secret`
+  // alone) has no service token to scope-check — "payer-authed via
+  // ?client_secret=" above already proves it stays 200 regardless of the
+  // merchant branch's new `payments:read` gate.
 });
 
 describe("POST /v1/payment_intents/:id/submit_tx (payer path)", () => {

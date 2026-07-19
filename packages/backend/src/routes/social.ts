@@ -1,16 +1,48 @@
 import { Router } from "express";
-import type { RequestHandler } from "express";
+import type { Request, RequestHandler } from "express";
 import { z } from "zod";
+import { rateLimit } from "express-rate-limit";
 import { oxyClient, isNotFoundError } from "@oxyhq/core";
 import { createOxyAuthMiddleware, getRequiredOxyUserId } from "@oxyhq/core/server";
-import type { SocialNextAddressResponse } from "@oxypay/shared-types";
-import { reserveNextSocialAddress } from "../services/socialReceive";
+import type {
+  SocialNextAddressResponse,
+  SocialReceiveCursorResponse,
+} from "@oxypay/shared-types";
+import { reserveNextSocialAddress, getReservedThrough } from "../services/socialReceive";
 import { SocialSendAttribution } from "../models/SocialSendAttribution";
 import { sendError, wrap } from "../lib/http";
 
 const nextAddressBodySchema = z.object({
   network: z.enum(["mainnet", "testnet"]),
 });
+
+const cursorQuerySchema = z.object({
+  network: z.enum(["mainnet", "testnet"]),
+});
+
+/**
+ * Anti-grief limit for `POST /:username/next_address`, keyed on the
+ * (sender, recipient) pair — distinct from the coarse global per-caller
+ * limiter already mounted in `server.ts` (`createOxyRateLimit`), which 20
+ * calls trivially clears. `reserveNextSocialAddress` advances the
+ * recipient's cursor whether or not the reserved address is ever paid, so an
+ * unbounded sender could silently desync one victim's device watch window
+ * (finding: cursor-sync HIGH — see `SocialReceiveCursorResponse`). 6 per 10
+ * minutes covers legitimate repeat-pay / re-pick-recipient flows in the
+ * SendSheet while bounding how many fresh indices one sender can force onto
+ * one recipient before that recipient's device can resync via
+ * `GET /v1/social/me/cursor`.
+ *
+ * Exported so tests assert against the authoritative values rather than a
+ * magic number that could silently drift out of sync with the limiter.
+ */
+export const NEXT_ADDRESS_PAIR_WINDOW_MS = 10 * 60 * 1000;
+export const NEXT_ADDRESS_PAIR_MAX = 6;
+
+/** Carries the resolved (sender, recipient) rate-limit key from the handler to `nextAddressPairLimiter`'s `keyGenerator`, set just before invoking it (recipient isn't known until after the username lookup). */
+interface PairRateLimitedRequest extends Request {
+  socialNextAddressPairKey?: string;
+}
 
 /**
  * Build the social-send REST router (spec §4.4 step 3, §4.5, §4.8 bullets
@@ -25,6 +57,27 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
   const requireOxyUser: RequestHandler =
     deps?.requireOxyUser ?? createOxyAuthMiddleware(oxyClient);
   const router = Router();
+
+  // Built once per router (so tests building a fresh router via
+  // `createSocialRouter()` get an isolated counter, never leaking state
+  // across test files), invoked manually inside the handler below once the
+  // recipient is known — it can't be ordinary route middleware because the
+  // (sender, recipient) key isn't resolvable until after the username lookup.
+  const nextAddressPairLimiter = rateLimit({
+    windowMs: NEXT_ADDRESS_PAIR_WINDOW_MS,
+    limit: NEXT_ADDRESS_PAIR_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (req as PairRateLimitedRequest).socialNextAddressPairKey ?? "unknown",
+    handler: (_req, res) => {
+      sendError(
+        res,
+        429,
+        "rate_limit_error",
+        "too many address reservations for this recipient — try again shortly",
+      );
+    },
+  });
 
   router.post(
     "/v1/social/:username/next_address",
@@ -75,6 +128,18 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
         return;
       }
 
+      // Anti-grief: bound how many fresh indices THIS sender can force onto
+      // THIS recipient before reserving one (see `nextAddressPairLimiter`
+      // above). `withinPairLimit` is only ever set inside the `next()`
+      // callback, so it stays false (and the limiter has already written the
+      // 429 response) when the pair is over budget.
+      (req as PairRateLimitedRequest).socialNextAddressPairKey = `${senderUserId}:${recipient.id}`;
+      let withinPairLimit = false;
+      await nextAddressPairLimiter(req, res, () => {
+        withinPairLimit = true;
+      });
+      if (!withinPairLimit) return;
+
       // Reservation (Task 5) + attribution write (Task 6) happen together in
       // this handler so an enrichment lookup can never observe a reserved
       // address with no attribution row.
@@ -101,6 +166,31 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
         address: reservation.address,
         index: reservation.index,
       };
+      res.status(200).json(body);
+    }),
+  );
+
+  router.get(
+    "/v1/social/me/cursor",
+    requireOxyUser,
+    wrap(async (req, res) => {
+      const oxyUserId = getRequiredOxyUserId(req);
+
+      const parsed = cursorQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        sendError(
+          res,
+          422,
+          "invalid_request_error",
+          parsed.error.issues[0]?.message ?? "invalid query",
+        );
+        return;
+      }
+
+      // Read-only: reserves nothing, so a device can poll it freely to
+      // resync its watch window (spec cursor-sync fix).
+      const reservedThrough = await getReservedThrough(oxyUserId, parsed.data.network);
+      const body: SocialReceiveCursorResponse = { reservedThrough };
       res.status(200).json(body);
     }),
   );

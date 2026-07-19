@@ -57,3 +57,8 @@ test("POST /v1/social/:username/next_address with no Authorization header is rej
   });
   expect(res.status).toBe(401);
 });
+
+test("GET /v1/social/me/cursor with no Authorization header is rejected (401) under the real requireOxyUser default", async () => {
+  const res = await fetch(`${baseUrl}/v1/social/me/cursor?network=testnet`);
+  expect(res.status).toBe(401);
+});

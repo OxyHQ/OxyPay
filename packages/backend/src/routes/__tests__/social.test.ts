@@ -83,11 +83,17 @@ mock.module("@oxyhq/core", () => ({
   oxyClient: mockedOxyClient,
 }));
 
-const { createSocialRouter } = await import("../social");
+const { createSocialRouter, NEXT_ADDRESS_PAIR_MAX } = await import("../social");
 
 const TEST_SENDER_ID = "user_test_sender";
+// Honors an `X-Test-User-Id` override so individual tests can authenticate as
+// a caller OTHER than the default sender — needed both for `GET
+// /v1/social/me/cursor` (authenticated as the RECIPIENT, not the sender) and
+// for the per-(sender,recipient) rate-limit tests (a fresh sender id per
+// test keeps them independent of the shared in-memory limiter state, which
+// — unlike the Mongo collections — `beforeEach` below does not reset).
 const stubRequireOxyUser: RequestHandler = (req, _res, next) => {
-  (req as OxyAuthRequest).userId = TEST_SENDER_ID;
+  (req as OxyAuthRequest).userId = req.header("X-Test-User-Id") ?? TEST_SENDER_ID;
   next();
 };
 
@@ -101,16 +107,36 @@ interface NextAddressResponse {
   error?: { type: string; message: string };
 }
 
+interface CursorResponse {
+  reservedThrough?: number;
+  error?: { type: string; message: string };
+}
+
 async function postNextAddress(
   username: string,
   body: Record<string, unknown>,
+  senderId?: string,
 ): Promise<{ status: number; body: NextAddressResponse }> {
   const res = await fetch(`${baseUrl}/v1/social/${username}/next_address`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(senderId ? { "X-Test-User-Id": senderId } : {}),
+    },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: (await res.json()) as NextAddressResponse };
+}
+
+async function getCursor(
+  network: string | undefined,
+  userId: string,
+): Promise<{ status: number; body: CursorResponse }> {
+  const query = network ? `?network=${network}` : "";
+  const res = await fetch(`${baseUrl}/v1/social/me/cursor${query}`, {
+    headers: { "X-Test-User-Id": userId },
+  });
+  return { status: res.status, body: (await res.json()) as CursorResponse };
 }
 
 beforeAll(async () => {
@@ -183,5 +209,68 @@ describe("POST /v1/social/:username/next_address", () => {
     const { status, body } = await postNextAddress("flaky", { network: "testnet" });
     expect(status).toBe(502);
     expect(body.error?.type).toBe("api_error");
+  });
+});
+
+describe("POST /v1/social/:username/next_address — per-(sender,recipient) anti-grief rate limit", () => {
+  test(`the ${NEXT_ADDRESS_PAIR_MAX + 1}th reservation against the same recipient from the same sender is rate-limited`, async () => {
+    const sender = "user_grief_sender_a";
+    for (let i = 0; i < NEXT_ADDRESS_PAIR_MAX; i++) {
+      const { status } = await postNextAddress("alice", { network: "testnet" }, sender);
+      expect(status).toBe(200);
+    }
+
+    const { status, body } = await postNextAddress("alice", { network: "testnet" }, sender);
+    expect(status).toBe(429);
+    expect(body.error?.type).toBe("rate_limit_error");
+  });
+
+  test("the limit is keyed per (sender, recipient) pair — a different sender against the same recipient is unaffected", async () => {
+    const griefer = "user_grief_sender_b";
+    for (let i = 0; i < NEXT_ADDRESS_PAIR_MAX; i++) {
+      await postNextAddress("alice", { network: "testnet" }, griefer);
+    }
+    const grieferLimited = await postNextAddress("alice", { network: "testnet" }, griefer);
+    expect(grieferLimited.status).toBe(429);
+
+    const otherSender = await postNextAddress(
+      "alice",
+      { network: "testnet" },
+      "user_grief_sender_c",
+    );
+    expect(otherSender.status).toBe(200);
+  });
+});
+
+describe("GET /v1/social/me/cursor", () => {
+  test("returns reservedThrough: 0 for a caller with no cursor yet", async () => {
+    const { status, body } = await getCursor("testnet", "user_cursor_fresh");
+    expect(status).toBe(200);
+    expect(body.reservedThrough).toBe(0);
+  });
+
+  test("returns the highest index ever reserved for the authenticated caller (recipient), not the sender", async () => {
+    const sender = "user_cursor_value_sender";
+    await postNextAddress("alice", { network: "testnet" }, sender);
+    await postNextAddress("alice", { network: "testnet" }, sender);
+
+    const { status, body } = await getCursor("testnet", "user_alice");
+    expect(status).toBe(200);
+    expect(body.reservedThrough).toBe(2);
+  });
+
+  test("is scoped per network — a testnet reservation does not surface under mainnet", async () => {
+    const sender = "user_cursor_network_sender";
+    await postNextAddress("alice", { network: "testnet" }, sender);
+
+    const { status, body } = await getCursor("mainnet", "user_alice");
+    expect(status).toBe(200);
+    expect(body.reservedThrough).toBe(0);
+  });
+
+  test("422s on a missing network query param", async () => {
+    const { status, body } = await getCursor(undefined, "user_alice");
+    expect(status).toBe(422);
+    expect(body.error?.type).toBe("invalid_request_error");
   });
 });

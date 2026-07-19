@@ -101,3 +101,26 @@ export async function reserveNextSocialAddress(
   const address = deriveSocialReceiveAddress(identityPublicKey, index, getNetwork(network));
   return { index, address };
 }
+
+/**
+ * Read-only counterpart to {@link reserveNextSocialAddress}: the highest
+ * social-receive index EVER reserved for `oxyUserId` on `network`, without
+ * reserving another one. Backs `GET /v1/social/me/cursor` (cursor-sync fix
+ * for the silent-desync finding — see `SocialReceiveCursorResponse`).
+ *
+ * `SocialReceiveCursor.nextDerivationIndex` always holds the NEXT index this
+ * user's cursor will hand out (post-increment value, per
+ * `reserveNextSocialAddress`'s `$inc`/`new:false` claim above), so the
+ * highest index already reserved is one less than that. `0` when no cursor
+ * exists yet (the user has never had an address reserved on this network).
+ */
+export async function getReservedThrough(
+  oxyUserId: string,
+  network: NetworkType,
+): Promise<number> {
+  const cursor = await SocialReceiveCursor.findOne({ oxyUserId, network });
+  if (!cursor) {
+    return SOCIAL_RECEIVE_FIRST_FRESH_INDEX - 1;
+  }
+  return cursor.nextDerivationIndex - 1;
+}

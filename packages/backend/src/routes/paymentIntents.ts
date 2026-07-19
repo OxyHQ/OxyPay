@@ -274,7 +274,19 @@ export function createPaymentIntentsRouter(deps: {
       const { serviceApp } = req as OxyAuthRequest;
 
       if (serviceApp?.appId) {
-        // Merchant path — unchanged behavior, scoped to the merchant's own intent.
+        // Merchant path — same `payments:read` requirement as the list route
+        // (F2.0 gateway-review finding: this branch previously enforced no
+        // scope at all). Can't use `oxyClient.requireScope()` as ordinary
+        // route middleware here — that would also gate the payer/client_secret
+        // branch below, which has no service token to check — so the SAME
+        // scope-checking primitive is invoked manually, scoped to just this
+        // branch.
+        let scopeGranted = false;
+        oxyClient.requireScope("payments:read")(req, res, () => {
+          scopeGranted = true;
+        });
+        if (!scopeGranted) return;
+
         const merchant = await resolveMerchant(req, res);
         if (!merchant) return;
         const intent = await PaymentIntent.findOne({

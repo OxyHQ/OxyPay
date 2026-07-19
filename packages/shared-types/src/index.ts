@@ -16,6 +16,7 @@ export {
 } from './merchant';
 export {
   type SocialNextAddressResponse,
+  type SocialReceiveCursorResponse,
   type EnrichmentKind,
   type EnrichmentResult,
   type EnrichRequest,

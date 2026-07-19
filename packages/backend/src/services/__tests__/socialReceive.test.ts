@@ -53,8 +53,12 @@ mock.module("@oxyhq/core", () => ({
   oxyClient: mockedOxyClient,
 }));
 
-const { resolveIdentityPublicKey, reserveNextSocialAddress, SOCIAL_RECEIVE_FIRST_FRESH_INDEX } =
-  await import("../socialReceive");
+const {
+  resolveIdentityPublicKey,
+  reserveNextSocialAddress,
+  getReservedThrough,
+  SOCIAL_RECEIVE_FIRST_FRESH_INDEX,
+} = await import("../socialReceive");
 
 let mongod: MongoMemoryServer;
 
@@ -118,4 +122,26 @@ test("concurrent first-time reservations for the same user never collide on an i
   const indexes = [a?.index, b?.index, c?.index];
   expect(new Set(indexes).size).toBe(3);
   expect(indexes.every((i) => typeof i === "number" && i >= 1)).toBe(true);
+});
+
+test("getReservedThrough returns 0 for a user with no cursor yet", async () => {
+  expect(await getReservedThrough("user_no_cursor", "testnet")).toBe(0);
+});
+
+test("getReservedThrough tracks the highest index reserveNextSocialAddress has EVER handed out, without reserving another one", async () => {
+  await reserveNextSocialAddress("user_b", "testnet");
+  await reserveNextSocialAddress("user_b", "testnet");
+
+  expect(await getReservedThrough("user_b", "testnet")).toBe(2);
+  // Read-only — calling it again does not advance the cursor.
+  expect(await getReservedThrough("user_b", "testnet")).toBe(2);
+
+  await reserveNextSocialAddress("user_b", "testnet");
+  expect(await getReservedThrough("user_b", "testnet")).toBe(3);
+});
+
+test("getReservedThrough is scoped per network", async () => {
+  await reserveNextSocialAddress("user_c", "testnet");
+  expect(await getReservedThrough("user_c", "testnet")).toBe(1);
+  expect(await getReservedThrough("user_c", "mainnet")).toBe(0);
 });
