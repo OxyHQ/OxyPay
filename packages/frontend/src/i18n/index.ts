@@ -290,6 +290,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
 
     // ---------- Receive ----------
     "receive.title": "Receive FAIR",
+    "receive.payMeAt": "Pay me at",
     "receive.copy": "Copy Address",
     "receive.share": "Share",
     "receive.new_address": "New Address",
@@ -1062,6 +1063,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
 
     // ---------- Receive ----------
     "receive.title": "Recibir FAIR",
+    "receive.payMeAt": "P\u00e1game en",
     "receive.copy": "Copiar Direcci\u00f3n",
     "receive.share": "Compartir",
     "receive.new_address": "Nueva Direcci\u00f3n",

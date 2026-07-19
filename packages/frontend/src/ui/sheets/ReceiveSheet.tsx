@@ -20,6 +20,7 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import QRCode from "react-native-qrcode-svg";
 import { Dialog, useDialogControl } from "@oxyhq/bloom/dialog";
 import { useTheme } from "@oxyhq/bloom/theme";
+import { useOxy } from "@oxyhq/services";
 import { useWalletStore } from "../../wallet/wallet-store";
 import { Button, ListItem } from "../components";
 import { t } from "../../i18n";
@@ -50,11 +51,13 @@ export function ReceiveSheet({
   const receiveAddress = useWalletStore((s) => s.currentReceiveAddress);
   const addresses = useWalletStore((s) => s.addresses);
   const getNewAddress = useWalletStore((s) => s.getNewAddress);
+  const socialReceiveDefaultAddress = useWalletStore((s) => s.socialReceiveDefaultAddress);
+  const { user } = useOxy();
   const theme = useTheme();
 
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [showAllAddresses, setShowAllAddresses] = useState(false);
-  const displayAddress = selectedAddress ?? receiveAddress;
+  const displayAddress = selectedAddress ?? socialReceiveDefaultAddress ?? receiveAddress;
 
   const [message, setMessage] = useState<{
     title: string;
@@ -172,6 +175,13 @@ export function ReceiveSheet({
             <Text className="text-muted-foreground text-sm mt-1 text-center">
               {t("receive.subtitle")}
             </Text>
+          </View>
+        ) : null}
+
+        {user?.username ? (
+          <View className="items-center">
+            <Text className="text-muted-foreground text-sm">{t("receive.payMeAt")}</Text>
+            <Text className="text-foreground text-lg font-bold mt-0.5">@{user.username}</Text>
           </View>
         ) : null}
 
