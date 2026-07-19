@@ -50,14 +50,18 @@ import { toPaymentIntentDTO } from "./lib/serialize";
 const OXY_PAY_VERSION = "2026-07-18";
 
 /**
- * Budget for the UNAUTHENTICATED payer routes (payment-link/checkout-session
- * public display + public intent mint) — deliberately tighter than the
- * global limiter's `anonymousMax` default (600/15min): the mint route
- * derives a fresh watch-only address per call, so an unthrottled anonymous
- * caller could churn `Merchant.nextDerivationIndex` (address-space DoS).
+ * Flat per-window cap for the IDENTITY-AGNOSTIC public payer routes
+ * (payment-link/checkout-session public display + public intent mint) —
+ * deliberately tighter than the global limiter's `anonymousMax` default
+ * (600/15min): the mint route derives a fresh watch-only address per call, so
+ * an unthrottled caller could churn `Merchant.nextDerivationIndex`
+ * (address-space DoS). Applied to BOTH `anonymousMax` and `authenticatedMax`
+ * below — these routes grant no elevated capability to a signed-in Oxy
+ * identity or a service token belonging to some OTHER app, so neither may
+ * get a higher budget than a fully anonymous caller.
  */
 const PUBLIC_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const PUBLIC_RATE_LIMIT_ANONYMOUS_MAX = 30;
+const PUBLIC_RATE_LIMIT_MAX = 30;
 
 /** Which statuses emit a webhook, and the Stripe-parity event type for each. */
 const WEBHOOK_EVENT_FOR: Partial<
@@ -181,7 +185,15 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   const publicRateLimit: RequestHandler =
     deps.publicRateLimit ??
     createOxyRateLimit(oxyClient, {
-      anonymousMax: PUBLIC_RATE_LIMIT_ANONYMOUS_MAX,
+      anonymousMax: PUBLIC_RATE_LIMIT_MAX,
+      // `createOxyRateLimit` resolves `oxy.auth({ optional: true })` BEFORE
+      // limiting regardless of route auth, so ANY caller with a valid Oxy
+      // session or service token — not just a merchant of THIS gateway —
+      // would otherwise get the 5000/window authenticated default on these
+      // identity-agnostic public routes. Pin it to the same cap so having
+      // an unrelated Oxy account can't buy 167x the intended budget for the
+      // exact abuse (`nextDerivationIndex` churn) this limiter exists to bound.
+      authenticatedMax: PUBLIC_RATE_LIMIT_MAX,
       windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
     });
 
