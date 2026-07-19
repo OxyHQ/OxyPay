@@ -2,7 +2,7 @@
 // A link's price is immutable once shared (only `active`/`metadata`/`successUrl`
 // are mutable); each payer visit mints (or, at the page layer, reuses an open)
 // a fresh `PaymentIntent` bound to the link's merchant/amount/network.
-import type { NetworkType } from '@fairco.in/core';
+import type { NetworkType } from './network';
 import type { MerchantDisplay } from './merchantDisplay';
 
 /** The merchant-facing DTO — returned by the merchant-authed CRUD routes. */

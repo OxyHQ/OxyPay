@@ -2,7 +2,7 @@
 // `webhookSecret` and `nextDerivationIndex` are deliberately NEVER included:
 // the former is an HMAC signing secret, the latter an internal derivation
 // counter with no meaning to a merchant integration.
-import type { NetworkType } from '@fairco.in/core';
+import type { NetworkType } from './network';
 
 export const MERCHANT_ENVIRONMENTS = ['development', 'staging', 'production'] as const;
 export type MerchantEnvironment = (typeof MERCHANT_ENVIRONMENTS)[number];

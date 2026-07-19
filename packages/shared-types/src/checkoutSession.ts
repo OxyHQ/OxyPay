@@ -1,7 +1,7 @@
 // CheckoutSession contract — wraps exactly ONE `PaymentIntent`, created at
 // session-create time, with `success_url`/`cancel_url` for a hosted checkout
 // redirect flow (Stripe Checkout Session parity).
-import type { NetworkType } from '@fairco.in/core';
+import type { NetworkType } from './network';
 import type { MerchantDisplay } from './merchantDisplay';
 import type { PaymentIntent } from './paymentIntent';
 

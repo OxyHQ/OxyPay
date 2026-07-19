@@ -1,7 +1,7 @@
 // The PaymentIntent contract — the single source of truth shared by the Oxy Pay
 // Gateway backend, SDK, and frontend. Mirrors Stripe's PaymentIntent shape over
 // the non-custodial FairCoin lifecycle.
-import type { NetworkType } from '@fairco.in/core';
+import type { NetworkType } from './network';
 
 export type PaymentIntentStatus =
   | 'created'

@@ -2,9 +2,12 @@
 // base units. Amounts move through the system as bigint conceptually; the
 // PaymentIntent DTO stores them as a base-unit integer string so no float ever
 // touches a monetary value.
-import { UNITS_PER_COIN } from '@fairco.in/core';
 
-export { UNITS_PER_COIN };
+// Frozen FairCoin consensus constant (smallest units per FAIR). Mirrors
+// @fairco.in/core's branding.ts; inlined here (rather than imported) to keep
+// @oxypay/shared-types zero-runtime-dep for a clean CJS+ESM publish — must
+// stay a bigint, never converted to number.
+export const UNITS_PER_COIN = 100_000_000n;
 
 /**
  * True only for a canonical non-negative integer string in base units:
