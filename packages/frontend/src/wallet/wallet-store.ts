@@ -1445,7 +1445,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       // wallets and non-main Pockets skip it; `resetWalletInternals` already
       // cleared `socialReceiveIdentityPrivateKey` / `socialReceiveAddressIndex`
       // to their empty defaults for them.
-      if (activeId === OXY_IDENTITY_WALLET_ID && resolvedAccount === 0) {
+      if (activeId === OXY_IDENTITY_WALLET_ID && resolvedAccount === MAIN_POCKET_ACCOUNT) {
         await setUpSocialReceive(database, networkConfig, state.network, set);
       }
 
