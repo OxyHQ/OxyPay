@@ -1,0 +1,25 @@
+/**
+ * Bloom Avatar wrapper for an Oxy user — the canonical media chokepoint (a
+ * bare file id resolved through the app-root `ImageResolverProvider`, Task
+ * 17) plus the sanctioned `displayName ?? handle` fallback for the
+ * placeholder initial. Used everywhere a user's avatar renders in Oxy Pay:
+ * the recipient picker, the receive screen, and the transaction history.
+ */
+import type React from "react";
+import { Avatar } from "@oxyhq/bloom/avatar";
+
+export function UserAvatar({
+  avatarFileId,
+  displayName,
+  username,
+  size = 40,
+}: {
+  avatarFileId?: string;
+  displayName?: string;
+  username: string;
+  size?: number;
+}): React.JSX.Element {
+  return (
+    <Avatar source={avatarFileId} variant="thumb" size={size} name={displayName ?? username} />
+  );
+}

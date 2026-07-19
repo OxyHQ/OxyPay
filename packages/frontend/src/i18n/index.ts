@@ -404,6 +404,12 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "contactPicker.emptySearch": "No contacts match your search",
     "contactPicker.empty": "No contacts yet. Add one to get started.",
 
+    // ---------- Social Recipient Picker ----------
+    "socialRecipientPicker.title": "Pay a person",
+    "socialRecipientPicker.searchPlaceholder": "Search by username or name",
+    "socialRecipientPicker.prompt": "Search for someone to pay",
+    "socialRecipientPicker.empty": "No one found",
+
     // ---------- Onboarding ----------
     "onboarding.logoAccessibility": "FAIRWallet logo",
     "onboarding.signInTitle": "Welcome to Oxy Pay",
@@ -1171,6 +1177,12 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "contactPicker.searchPlaceholder": "Buscar contactos...",
     "contactPicker.emptySearch": "Ning\u00fan contacto coincide con tu b\u00fasqueda",
     "contactPicker.empty": "Sin contactos a\u00fan. Agrega uno para empezar.",
+
+    // ---------- Social Recipient Picker ----------
+    "socialRecipientPicker.title": "Pagar a una persona",
+    "socialRecipientPicker.searchPlaceholder": "Buscar por usuario o nombre",
+    "socialRecipientPicker.prompt": "Busca a alguien para pagarle",
+    "socialRecipientPicker.empty": "Nadie encontrado",
 
     // ---------- Onboarding ----------
     "onboarding.logoAccessibility": "Logo de FAIRWallet",
