@@ -1,4 +1,10 @@
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { NetworkType } from '@fairco.in/core';
+import type {
+  PaymentIntent,
+  SocialNextAddressResponse,
+  EnrichResponse,
+  EnrichmentResult,
+} from '@oxypay/shared-types';
 import { oxyServices } from '@/services/oxy-services';
 import { GATEWAY_API_URL } from '@/config';
 
@@ -32,4 +38,61 @@ export async function submitTx(
     `/v1/payment_intents/${intentId}/submit_tx`,
     { client_secret: clientSecret, txid },
   );
+}
+
+/**
+ * Thrown by {@link reserveNextSocialAddress} when the recipient has no Oxy
+ * identity key to derive a receive address from (spec §4.5's "invite them"
+ * path). Distinguished from every other failure by the backend's dedicated
+ * `409` status (see `routes/social.ts`), so this wrapping never
+ * misclassifies an unrelated server/network error as "keyless".
+ */
+export class KeylessRecipientError extends Error {
+  constructor(username: string) {
+    super(`@${username} has not set up an Oxy identity yet`);
+    this.name = 'KeylessRecipientError';
+  }
+}
+
+function hasStatus(error: unknown): error is { status: number } {
+  return typeof error === 'object' && error !== null && 'status' in error &&
+    typeof (error as { status: unknown }).status === 'number';
+}
+
+/**
+ * Reserve the next fresh social-receive address for `@username` (spec §4.4
+ * step 3). Possession of the caller's own Oxy bearer token (carried
+ * automatically by the linked client) authorizes the call; the reservation
+ * is also recorded server-side as the sender's attribution for this payment
+ * (spec §4.8 bullet 2), so a later `enrichAddresses` call renders "Sent to
+ * @username" from this app's OWN history without any further action here.
+ */
+export async function reserveNextSocialAddress(
+  username: string,
+  network: NetworkType,
+): Promise<SocialNextAddressResponse> {
+  try {
+    return await gateway.client.post<SocialNextAddressResponse>(
+      `/v1/social/${encodeURIComponent(username)}/next_address`,
+      { network },
+    );
+  } catch (error: unknown) {
+    if (hasStatus(error) && error.status === 409) {
+      throw new KeylessRecipientError(username);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Resolve display identity for a batch of the caller's own addresses (spec
+ * §4.8) — "Paid at <merchant>" / "Sent to @x" / "Received from @x" / an
+ * honest `unknown` for a pure external payment. Display-only: a failure here
+ * must never be treated as a payment failure by callers.
+ */
+export async function enrichAddresses(
+  addresses: string[],
+): Promise<Record<string, EnrichmentResult>> {
+  const response = await gateway.client.post<EnrichResponse>('/v1/enrich', { addresses });
+  return response.data;
 }
