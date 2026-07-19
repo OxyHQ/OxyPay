@@ -31,3 +31,9 @@ export const GATEWAY_API_URL =
 // Gateway realtime (Socket.IO) — live payment-intent status updates.
 export const GATEWAY_SOCKET_URL =
   process.env.EXPO_PUBLIC_GATEWAY_SOCKET_URL ?? 'wss://api.pay.oxy.so';
+
+// Oxy Pay's own display name for user-facing UI (biometric unlock prompt,
+// accessibility labels). Must NOT come from `@fairco.in/core`'s `APP_NAME` —
+// that constant belongs to the external FairCoin protocol package and equals
+// "FAIRWallet", a different app's brand. Keep in sync with `app.json`'s `name`.
+export const APP_DISPLAY_NAME = 'Oxy Pay';

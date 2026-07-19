@@ -26,7 +26,7 @@ import { PinDots } from "./PinDots";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { hapticSuccess, hapticError } from "../../utils/haptics";
 import { playUnlocked } from "../../services/sounds";
-import { APP_NAME } from "@fairco.in/core";
+import { APP_DISPLAY_NAME } from "../../config";
 import { t } from "../../i18n";
 
 const PIN_LENGTH = 6;
@@ -103,7 +103,7 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
       setBiometricsAvailable(true);
 
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: t("lock.unlockPrompt", { app: APP_NAME }),
+        promptMessage: t("lock.unlockPrompt", { app: APP_DISPLAY_NAME }),
         disableDeviceFallback: false,
       });
 
@@ -165,7 +165,7 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
 
         try {
           const result = await LocalAuthentication.authenticateAsync({
-            promptMessage: t("lock.unlockPrompt", { app: APP_NAME }),
+            promptMessage: t("lock.unlockPrompt", { app: APP_DISPLAY_NAME }),
             disableDeviceFallback: false,
           });
 

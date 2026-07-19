@@ -12,7 +12,7 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Button } from "../src/ui/components/Button";
 import { FONT_PHUDU_BLACK } from "../src/utils/fonts";
-import { APP_NAME } from "@fairco.in/core";
+import { APP_DISPLAY_NAME } from "../src/config";
 import { t } from "../src/i18n";
 
 export default function NotFoundScreen() {
@@ -88,7 +88,7 @@ export default function NotFoundScreen() {
           resizeMode="contain"
           accessibilityIgnoresInvertColors
           accessibilityRole="image"
-          accessibilityLabel={`${APP_NAME} logo`}
+          accessibilityLabel={`${APP_DISPLAY_NAME} logo`}
         />
       </View>
     </SafeAreaView>
