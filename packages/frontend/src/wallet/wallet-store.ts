@@ -232,6 +232,19 @@ export interface WalletState {
    * for a keyless account (routes onboarding to create an Oxy ID).
    */
   initializeFromIdentity: (onReady?: () => void) => Promise<IdentityInitResult>;
+  /**
+   * Reload the ACTIVE wallet (by `activeWalletId`, falling back to the
+   * persisted active id) from its stored secret, wallet-type-aware exactly
+   * like `switchWallet` — identity, BIP39, or watch-only. The reload
+   * counterpart to `initialize` for a caller that already knows WHICH wallet
+   * should come back up rather than switching to a different one: a PIN
+   * unlock after `lockWallet` tore the module state down (M1), primarily.
+   * Any resolution failure (identity unavailable, mnemonic/xpub missing) is
+   * caught and surfaces through the normal `error` state, same as
+   * `initialize`'s own catch — callers only need to check `initialized`
+   * afterwards, not wrap this in their own try/catch.
+   */
+  reloadActiveWallet: (onReady?: () => void) => Promise<void>;
   createWallet: () => Promise<string>;
   restoreWallet: (mnemonic: string) => Promise<void>;
   refreshBalance: () => void;
@@ -1560,6 +1573,39 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     // no separate step needed.
     await get().initialize(buildSeedSecret(seed), OXY_IDENTITY_WALLET_ID, onReady);
     return "initialized";
+  },
+
+  reloadActiveWallet: async (onReady?: () => void): Promise<void> => {
+    try {
+      const activeId = get().activeWalletId ?? (await getActiveWalletId());
+      if (!activeId) {
+        onReady?.();
+        return;
+      }
+      // Watch-only wallets carry an `xpub:` marker, not a spending seed, so
+      // they route through `getWalletMnemonic` directly (same as
+      // `switchNetwork`'s watch-only branch) rather than `resolveWalletSeed`,
+      // which throws for them by design.
+      if (await checkIsWatchOnly(activeId)) {
+        const marker = await getWalletMnemonic(activeId);
+        if (!marker) {
+          throw new Error("Wallet xpub not found");
+        }
+        await get().initialize(marker, activeId, onReady);
+        return;
+      }
+      // Identity-wallet-aware, mirroring switchPocket/switchNetwork: the
+      // identity wallet's seed is re-derived from the Oxy identity (never
+      // persisted) and can't be fetched via `getWalletMnemonic` like a BIP39
+      // wallet's, so route through `resolveWalletSeed` instead of assuming a
+      // stored mnemonic exists.
+      const seed = await resolveWalletSeed(activeId, walletSeedDeps);
+      await get().initialize(buildSeedSecret(seed), activeId, onReady);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to reload wallet";
+      set({ loading: false, error: message });
+    }
   },
 
   createWallet: async (): Promise<string> => {

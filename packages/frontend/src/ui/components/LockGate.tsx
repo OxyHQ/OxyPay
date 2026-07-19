@@ -13,44 +13,31 @@ import { useCallback } from "react";
 import { View } from "react-native";
 import { useLockStore } from "../../wallet/lock-store";
 import { useWalletStore } from "../../wallet/wallet-store";
-import { getMnemonic, getActiveWalletId } from "../../storage/secure-store";
 import { LockScreenContent } from "./LockScreenContent";
 
 export function LockGate() {
   const locked = useLockStore((s) => s.locked);
   const resolved = useLockStore((s) => s.resolved);
   const unlock = useLockStore((s) => s.unlock);
-  const initialize = useWalletStore((s) => s.initialize);
+  const reloadActiveWallet = useWalletStore((s) => s.reloadActiveWallet);
 
   const handleUnlock = useCallback(() => {
     // Bring the wallet up only AFTER a successful unlock. If boot deferred
-    // initialization (PIN present) or auto-lock tore the wallet down (M1), load
-    // the secret and initialize now; if the wallet is still initialized (no-PIN
-    // path), this is a cheap no-op.
+    // initialization (PIN present) or auto-lock tore the wallet down (M1),
+    // reload the active wallet now — wallet-type-aware (identity / BIP39 /
+    // watch-only, see `reloadActiveWallet`) — and initialize it; if the
+    // wallet is still initialized (no-PIN path), this is a cheap no-op.
     const run = async () => {
       if (useWalletStore.getState().initialized) {
         unlock();
         return;
       }
-      const mnemonic = await getMnemonic();
-      if (!mnemonic) {
-        unlock();
-        return;
-      }
-      // Re-open the SAME wallet's database. `getMnemonic` resolves the active
-      // wallet's secret, so the database must be scoped to that same wallet id
-      // — otherwise a re-init after locking a switched (non-default) wallet
-      // would open the default `fairwallet.db` instead.
-      const activeId =
-        useWalletStore.getState().activeWalletId ??
-        (await getActiveWalletId()) ??
-        undefined;
       // Lift the lock the instant persisted state is hydrated (onReady), so the
       // wallet is usable immediately after PIN entry; the SPV/P2P sync then
       // continues in the background. If init fails during hydration onReady
       // never fires, so unlock below still lifts the overlay (the wallet error
       // state surfaces the failure) rather than trapping the user behind it.
-      await initialize(mnemonic, activeId, unlock);
+      await reloadActiveWallet(unlock);
       if (!useWalletStore.getState().initialized) {
         unlock();
       }
@@ -60,7 +47,7 @@ export function LockGate() {
     void run().catch(() => {
       unlock();
     });
-  }, [initialize, unlock]);
+  }, [reloadActiveWallet, unlock]);
 
   // Render nothing until boot has decided whether a PIN exists (avoids a flash
   // of the lock screen on wallets with no PIN) and once unlocked.
