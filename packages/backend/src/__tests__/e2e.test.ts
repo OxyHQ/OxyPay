@@ -26,6 +26,7 @@ import { Merchant } from "../models/Merchant";
 import { PaymentIntent } from "../models/PaymentIntent";
 import { WebhookDelivery } from "../models/WebhookDelivery";
 import { createGateway, type Gateway } from "../server";
+import { intentRoom } from "../realtime/socket";
 import type { ExplorerTx } from "../services/explorer";
 
 const XPUB =
@@ -57,9 +58,15 @@ const stubOptionalServiceAuth = (
   next: (err?: Error) => void,
 ): void => next();
 
-// Permissive socket auth (no Oxy token in test).
-const stubSocketAuth = (_socket: unknown, next: (err?: Error) => void): void =>
+// Stub identity verifier for a socket connection that DOES present a
+// handshake token (real prod default is `oxyClient.authSocket()`). Trivially
+// accepts and attaches a fake identity. `initSocket` always wraps this in
+// `optionalSocketAuth`, so a connection with NO token never reaches this
+// stub at all — it stays anonymous.
+const stubSocketAuth = (socket: unknown, next: (err?: Error) => void): void => {
+  (socket as { data?: Record<string, unknown> }).data = { userId: "e2e_test_user" };
   next();
+};
 
 // Controllable on-chain reader.
 let txResponse: ExplorerTx | null = null;
@@ -164,7 +171,9 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   expect(created.status).toBe("created");
   expect(created.address).toBe(FIRST_ADDRESS);
 
-  // 2. Payer's wallet opens a realtime channel for this intent.
+  // 2. Payer's wallet opens a realtime channel for this intent — with NO Oxy
+  // identity (anonymous checkout/embed payer, the whole point of the
+  // capability model: connection auth is optional, `subscribe` isn't).
   const client = ioClient(baseUrl, { transports: ["websocket"], forceNew: true });
   await withTimeout(
     new Promise<void>((resolve, reject) => {
@@ -187,6 +196,34 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   );
   expect(subAck.ok).toBe(true);
 
+  // 2b. The authenticated flow (a socket that DOES carry an Oxy identity)
+  // must keep working exactly as before the connection auth went optional.
+  const authedClient = ioClient(baseUrl, {
+    transports: ["websocket"],
+    forceNew: true,
+    auth: { token: "e2e-identity-token" },
+  });
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      authedClient.on("connect", () => resolve());
+      authedClient.on("connect_error", (err: Error) => reject(err));
+    }),
+    5000,
+    "authed socket connect",
+  );
+  const authedSubAck = await withTimeout(
+    new Promise<{ ok: boolean }>((resolve) => {
+      authedClient.emit(
+        "subscribe",
+        { intentId: created.id, clientSecret: created.client_secret },
+        resolve,
+      );
+    }),
+    5000,
+    "authed subscribe ack",
+  );
+  expect(authedSubAck.ok).toBe(true);
+
   const settled = withTimeout(
     new Promise<{ status: string; id: string }>((resolve) => {
       client.on("intent.updated", (payload: { status: string; id: string }) => {
@@ -195,6 +232,15 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
     }),
     5000,
     "settled socket event",
+  );
+  const authedSettled = withTimeout(
+    new Promise<{ status: string; id: string }>((resolve) => {
+      authedClient.on("intent.updated", (payload: { status: string; id: string }) => {
+        if (payload.status === "settled") resolve(payload);
+      });
+    }),
+    5000,
+    "authed settled socket event",
   );
 
   // 3. Payer reports the broadcast txid (self-custody: they signed it).
@@ -219,10 +265,15 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   };
   await gateway.watcher.check();
 
-  // 5. The payer's socket received the settled update.
+  // 5. The payer's socket received the settled update — anonymous AND
+  // identity-authed connections both subscribed via the same client_secret
+  // capability, so both get it.
   const event = await settled;
   expect(event.id).toBe(created.id);
   expect(event.status).toBe("settled");
+  const authedEvent = await authedSettled;
+  expect(authedEvent.id).toBe(created.id);
+  expect(authedEvent.status).toBe("settled");
 
   // 6. The intent is settled in the DB.
   const doc = await PaymentIntent.findOne({ id: created.id });
@@ -269,4 +320,73 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   expect(custodyField).toBeUndefined();
 
   client.close();
+  authedClient.close();
+});
+
+test("subscribe is capability-scoped by client_secret — a wrong secret joins nothing, and an authed identity does not substitute for the capability (no leak)", async () => {
+  const merchant = await Merchant.findOne({ oxyAppId: APP_ID });
+  if (!merchant) throw new Error("e2e merchant fixture missing");
+  const intent = await PaymentIntent.create({
+    id: "pi_0000000000000000000000e1",
+    status: "created",
+    amount: AMOUNT,
+    network: "testnet",
+    address: FIRST_ADDRESS,
+    merchantId: merchant.id,
+    clientSecret: "pi_0000000000000000000000e1_secret_real",
+    idempotencyKey: "idem_no_leak",
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+
+  const anon = ioClient(baseUrl, { transports: ["websocket"], forceNew: true });
+  const authed = ioClient(baseUrl, {
+    transports: ["websocket"],
+    forceNew: true,
+    auth: { token: "e2e-identity-token" },
+  });
+  await Promise.all([
+    withTimeout(
+      new Promise<void>((resolve, reject) => {
+        anon.on("connect", () => resolve());
+        anon.on("connect_error", (err: Error) => reject(err));
+      }),
+      5000,
+      "anon connect",
+    ),
+    withTimeout(
+      new Promise<void>((resolve, reject) => {
+        authed.on("connect", () => resolve());
+        authed.on("connect_error", (err: Error) => reject(err));
+      }),
+      5000,
+      "authed connect",
+    ),
+  ]);
+
+  const anonAck = await withTimeout(
+    new Promise<{ ok: boolean }>((resolve) => {
+      anon.emit("subscribe", { intentId: intent.id, clientSecret: "wrong-secret" }, resolve);
+    }),
+    5000,
+    "anon wrong-secret subscribe ack",
+  );
+  expect(anonAck.ok).toBe(false);
+
+  const authedAck = await withTimeout(
+    new Promise<{ ok: boolean }>((resolve) => {
+      authed.emit("subscribe", { intentId: intent.id, clientSecret: "wrong-secret" }, resolve);
+    }),
+    5000,
+    "authed wrong-secret subscribe ack",
+  );
+  expect(authedAck.ok).toBe(false);
+
+  // Neither socket actually joined the intent's room — a failed capability
+  // check never falls back to identity, so `emitIntentUpdate` would reach
+  // no one. Checked server-side (deterministic; no fixed-delay listener).
+  const room = gateway.io.sockets.adapter.rooms.get(intentRoom(intent.id));
+  expect(room).toBeUndefined();
+
+  anon.close();
+  authed.close();
 });

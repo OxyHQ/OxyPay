@@ -92,7 +92,12 @@ export interface GatewayDeps {
   publicRateLimit?: RequestHandler;
   /** End-user Oxy auth for the social + enrich + dashboard routes (default `createOxyAuthMiddleware(oxyClient)`). */
   requireOxyUser?: RequestHandler;
-  /** Socket connection auth (default `oxyClient.authSocket()`). */
+  /**
+   * Identity verifier used ONLY for a socket connection that presents a
+   * handshake token (default `oxyClient.authSocket()`); a connection with no
+   * token is always let through anonymously — see
+   * `realtime/socket.ts`'s `optionalSocketAuth`.
+   */
   socketAuth?: SocketAuth;
   /** On-chain reader (default the real Explorer client). */
   getTransaction?: typeof getTransaction;
