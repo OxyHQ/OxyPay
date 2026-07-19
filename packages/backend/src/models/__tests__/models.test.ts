@@ -176,6 +176,16 @@ test("PaymentIntent persists the DTO shape with a compound idempotency index", a
   await expect(replay).rejects.toThrow();
 });
 
+test("PaymentIntent declares supporting indexes on merchantId and address", async () => {
+  const indexes = await PaymentIntent.collection.indexes();
+  const leadingKeys = indexes.map((index) => Object.keys(index.key)[0]);
+
+  // GET /v1/payment_intents filters + cursor-paginates by merchantId.
+  expect(leadingKeys).toContain("merchantId");
+  // services/enrichment.ts looks up PaymentIntent.find({ address: {$in} }).
+  expect(leadingKeys).toContain("address");
+});
+
 test("toBaseUnits / fromBaseUnits round-trip canonical integer strings", () => {
   expect(toBaseUnits("150000000")).toBe(150_000_000n);
   expect(fromBaseUnits(150_000_000n)).toBe("150000000");
