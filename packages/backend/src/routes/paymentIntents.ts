@@ -19,20 +19,11 @@ import { Merchant } from "../models/Merchant";
 import type { MerchantDoc } from "../models/Merchant";
 import { PaymentIntent } from "../models/PaymentIntent";
 import type { PaymentIntentDoc } from "../models/PaymentIntent";
-import { reserveNextAddress } from "../services/reserveAddress";
-import { newId, clientSecretFor } from "../lib/ids";
+import { createIntent, NetworkMismatchError } from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
 import { toPaymentIntentDTO } from "../lib/serialize";
-import {
-  sendError,
-  wrap,
-  isDuplicateKeyError,
-  requireServiceApp,
-  requireAuthenticated,
-} from "../lib/http";
+import { sendError, wrap, requireServiceApp, requireAuthenticated } from "../lib/http";
 
-const DEFAULT_EXPIRY_SECONDS = 15 * 60;
-const MS_PER_SECOND = 1000;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 
@@ -142,73 +133,27 @@ export function createPaymentIntentsRouter(deps: {
       }
       const params: CreatePaymentIntentParams = parsed.data;
 
-      // Data-integrity firewall (F2.0 task 1a): the watch-only address is
-      // derived using the MERCHANT's network (`reserveAddress.ts`), never the
-      // caller's claimed `network` — reject up front on a mismatch, or the
-      // returned intent's `network` label would lie about the network its
-      // `address` actually encodes.
-      if (params.network !== merchant.network) {
-        sendError(
-          res,
-          422,
-          "invalid_request_error",
-          `network '${params.network}' does not match the merchant's configured network '${merchant.network}'`,
-        );
-        return;
-      }
-
-      // Idempotency (fast path): a prior intent for this key wins as-is.
-      const existing = await PaymentIntent.findOne({
-        merchantId: merchant.id,
-        idempotencyKey,
-      });
-      if (existing) {
-        res
-          .status(200)
-          .json({ ...toPaymentIntentDTO(existing), client_secret: existing.clientSecret });
-        return;
-      }
-
-      const { address } = await reserveNextAddress(merchant.id);
-      const id = newId("pi");
-      const clientSecret = clientSecretFor(id);
-      const expiresInSeconds = params.expiresInSeconds ?? DEFAULT_EXPIRY_SECONDS;
-      const expiresAt = new Date(Date.now() + expiresInSeconds * MS_PER_SECOND);
-
       try {
-        // Explicit field whitelist — never spread `req.body` (mass-assignment
-        // would be an IDOR).
-        const intent = await PaymentIntent.create({
-          id,
-          status: "created",
+        const { intent, reused } = await createIntent({
+          merchant,
           amount: params.amount,
           network: params.network,
-          address,
-          merchantId: merchant.id,
-          txid: null,
-          confirmations: 0,
-          clientSecret,
+          metadata: params.metadata,
+          expiresInSeconds: params.expiresInSeconds,
           idempotencyKey,
-          metadata: params.metadata
-            ? new Map(Object.entries(params.metadata))
-            : new Map<string, string>(),
-          expiresAt,
         });
-        res.status(201).json({ ...toPaymentIntentDTO(intent), client_secret: clientSecret });
+        res
+          .status(reused ? 200 : 201)
+          .json({ ...toPaymentIntentDTO(intent), client_secret: intent.clientSecret });
       } catch (err) {
-        // Idempotency (race path): a concurrent create with the same key lost
-        // the unique-index bet — return the winner rather than erroring.
-        if (isDuplicateKeyError(err)) {
-          const winner = await PaymentIntent.findOne({
-            merchantId: merchant.id,
-            idempotencyKey,
-          });
-          if (winner) {
-            res
-              .status(200)
-              .json({ ...toPaymentIntentDTO(winner), client_secret: winner.clientSecret });
-            return;
-          }
+        // Data-integrity firewall (F2.0 task 1a): the watch-only address is
+        // derived using the MERCHANT's network (`reserveAddress.ts`), never
+        // the caller's claimed `network` — `createIntent` rejects a mismatch
+        // up front, or the returned intent's `network` label would lie about
+        // the network its `address` actually encodes.
+        if (err instanceof NetworkMismatchError) {
+          sendError(res, 422, "invalid_request_error", err.message);
+          return;
         }
         throw err;
       }

@@ -1,0 +1,35 @@
+import { test, expect } from 'bun:test';
+import type { PaymentLink, PublicPaymentLink, CreatePaymentLinkParams } from '../paymentLink';
+
+test('PaymentLink is assignable from a representative literal', () => {
+  const link: PaymentLink = {
+    id: 'link_abc',
+    object: 'payment_link',
+    amount: '150000000',
+    network: 'testnet',
+    active: true,
+    metadata: { orderId: 'o1' },
+    successUrl: 'https://merchant.example/thank-you',
+    url: 'https://checkout.oxy.so/l/link_abc',
+    createdAt: '2026-07-19T00:00:00.000Z',
+    updatedAt: '2026-07-19T00:00:00.000Z',
+  };
+  expect(link.object).toBe('payment_link');
+});
+
+test('PublicPaymentLink carries only display-safe fields', () => {
+  const publicLink: PublicPaymentLink = {
+    id: 'link_abc',
+    object: 'payment_link',
+    amount: '150000000',
+    network: 'testnet',
+    active: true,
+    merchant: { name: 'Acme', avatarUrl: null, description: null },
+  };
+  expect(publicLink.merchant.name).toBe('Acme');
+});
+
+test('CreatePaymentLinkParams accepts the minimal required shape', () => {
+  const params: CreatePaymentLinkParams = { amount: '150000000', network: 'testnet' };
+  expect(params.metadata).toBeUndefined();
+});
