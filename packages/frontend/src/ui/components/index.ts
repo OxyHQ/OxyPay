@@ -21,5 +21,7 @@ export { PinPad } from "./PinPad";
 export { QRScanner } from "./QRScanner";
 export { ScreenHeader } from "./ScreenHeader";
 export { Section } from "./Section";
+export { SocialRecipientPicker } from "./SocialRecipientPicker";
 export { SyncStatus } from "./SyncStatus";
 export { TransactionItem } from "./TransactionItem";
+export { UserAvatar } from "./UserAvatar";

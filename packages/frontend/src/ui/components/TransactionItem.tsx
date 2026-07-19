@@ -8,10 +8,10 @@ import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
-import { Avatar } from "@oxyhq/bloom/avatar";
 import type { EnrichmentResult } from "@oxypay/shared-types";
 import { AmountText } from "./AmountText";
 import { ConfirmationRing } from "./ConfirmationRing";
+import { UserAvatar } from "./UserAvatar";
 import { t } from "../../i18n";
 
 /**
@@ -177,11 +177,11 @@ export function TransactionItem({
           size={44}
         >
           {identity ? (
-            <Avatar
-              source={identity.avatarFileId}
-              variant="thumb"
+            <UserAvatar
+              avatarFileId={identity.avatarFileId}
+              displayName={identity.displayName}
+              username={identity.username}
               size={settled ? 44 : 36}
-              name={identity.displayName ?? identity.username ?? ""}
             />
           ) : (
             <View
