@@ -166,6 +166,44 @@ test("per-IP throttle: connections up to IP_CONNECT_MAX succeed, the next one fr
   expect(overCap.error.message).toMatch(/too many connections/);
 });
 
+test("per-IP throttle: a forged X-Forwarded-For prefix claiming to be another IP never consumes that IP's budget", async () => {
+  const victimIp = "203.0.113.40";
+  const attackerObservedIp = "203.0.113.41";
+
+  // A real single-hop ALB in front of this gateway never trusts or strips a
+  // client-supplied X-Forwarded-For prefix — it APPENDS the address it
+  // itself observed for its direct peer to the right. So an attacker who
+  // sends `X-Forwarded-For: <victimIp>` in an attempt to frame the victim's
+  // bucket produces exactly this raw header on the wire: the forged claim on
+  // the left, the attacker's own real (ALB-observed) address on the right —
+  // which is exactly what `attemptConnect` puts on the wire when passed this
+  // literal string as the header value.
+  const forgedHeader = `${victimIp}, ${attackerObservedIp}`;
+
+  // Every one of these must land in the ATTACKER's own (rightmost) bucket,
+  // never the victim's — proving the forged left prefix is inert.
+  for (let i = 0; i < IP_CONNECT_MAX; i += 1) {
+    const result = await attemptConnect(forgedHeader);
+    if (!result.connected) {
+      throw new Error(
+        `forged-prefix connection ${i + 1}/${IP_CONNECT_MAX} unexpectedly rejected: ${result.error.message}`,
+      );
+    }
+    result.socket.disconnect();
+  }
+  const attackerOverCap = await attemptConnect(forgedHeader);
+  expect(attackerOverCap.connected).toBe(false); // the ATTACKER's real-IP bucket is now spent
+
+  // The real victim — a single-hop, honest header (just their own IP, as the
+  // ALB would actually report it) — is completely unaffected: their budget
+  // was never touched by the attacker's forged claim.
+  const victim = await attemptConnect(victimIp);
+  if (!victim.connected) {
+    throw new Error(`victim's real connection unexpectedly rejected: ${victim.error.message}`);
+  }
+  victim.socket.disconnect();
+});
+
 test("per-socket subscribe throttle: exceeding the cap rejects further subscribes but keeps the socket connected and earlier room joins intact", async () => {
   const result = await attemptConnect("203.0.113.13");
   if (!result.connected) {

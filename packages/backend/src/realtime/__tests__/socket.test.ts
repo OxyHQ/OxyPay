@@ -126,25 +126,39 @@ test("resolveClientIp: a single-entry X-Forwarded-For header is used as-is", () 
   ).toBe("203.0.113.5");
 });
 
-test("resolveClientIp: a multi-hop X-Forwarded-For header uses the LEFTMOST (real client) entry, matching Express's trust-proxy-1 `req.ip`", () => {
+test("resolveClientIp: a multi-hop X-Forwarded-For header uses the RIGHTMOST entry — the one the ALB itself appended — matching Express's trust-proxy-1 `req.ip`", () => {
   expect(
     resolveClientIp(
       fakeSocketWithHeaders({ "x-forwarded-for": "203.0.113.5, 10.0.0.2" }),
     ),
-  ).toBe("203.0.113.5");
+  ).toBe("10.0.0.2");
 });
 
-test("resolveClientIp: an array-valued header (duplicate header case) uses the first entry", () => {
+test("resolveClientIp: a client-forged LEFT prefix claiming to be another address is ignored — never trusted over the ALB-appended rightmost entry", () => {
   expect(
     resolveClientIp(
-      fakeSocketWithHeaders({ "x-forwarded-for": ["203.0.113.5", "203.0.113.6"] }),
+      fakeSocketWithHeaders({ "x-forwarded-for": "1.2.3.4, 203.0.113.5" }),
     ),
   ).toBe("203.0.113.5");
 });
 
-test("resolveClientIp: an empty leading entry falls back to the raw transport address", () => {
+test("resolveClientIp: an array-valued header (duplicate header case) uses the rightmost entry, same as a single joined header", () => {
   expect(
-    resolveClientIp(fakeSocketWithHeaders({ "x-forwarded-for": ", 203.0.113.5" })),
+    resolveClientIp(
+      fakeSocketWithHeaders({ "x-forwarded-for": ["203.0.113.5", "203.0.113.6"] }),
+    ),
+  ).toBe("203.0.113.6");
+});
+
+test("resolveClientIp: an empty trailing entry falls back to the raw transport address", () => {
+  expect(
+    resolveClientIp(fakeSocketWithHeaders({ "x-forwarded-for": "203.0.113.5, " })),
+  ).toBe("10.0.0.1");
+});
+
+test("resolveClientIp: a rightmost entry that isn't a valid IP falls back to the raw transport address", () => {
+  expect(
+    resolveClientIp(fakeSocketWithHeaders({ "x-forwarded-for": "not-an-ip" })),
   ).toBe("10.0.0.1");
 });
 

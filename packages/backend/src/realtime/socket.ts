@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { Server, Socket } from "socket.io";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
@@ -154,16 +155,32 @@ export const SUBSCRIBE_MAX_PER_WINDOW = 20;
 
 const FORWARDED_FOR_HEADER = "x-forwarded-for";
 
+function looksLikeIp(candidate: string): boolean {
+  return isIP(candidate) !== 0;
+}
+
 /**
  * Resolve the real client IP from a socket handshake. Engine.io has no
  * trust-proxy concept of its own: `socket.handshake.address` is always the
  * raw TCP peer (`req.connection.remoteAddress`), which behind the ALB is the
  * ALB's address, never the payer's browser — unlike Express, where `req.ip`
  * resolves through `X-Forwarded-For` once `trust proxy` is set (`server.ts`).
- * This throttle therefore reads the header itself, taking its LEFTMOST entry
- * — the client is the one hop the ALB adds — matching what `req.ip` resolves
- * to on the Express side for the same request path. Falls back to the raw
- * transport address when no header is present (local dev, direct connections).
+ *
+ * The ALB is the ONE trusted hop (`trust proxy: 1` there): it never strips
+ * or replaces an incoming `X-Forwarded-For` — it APPENDS the address it
+ * observed for its own direct peer to the RIGHT of whatever the connecting
+ * client already sent. A caller can freely prepend any forged value to the
+ * LEFT (`X-Forwarded-For: <anything>` costs nothing to send), so that prefix
+ * must NEVER be trusted. The RIGHTMOST entry is the one value in the header
+ * no untrusted party ever wrote — it is exactly what `req.ip` resolves to on
+ * the Express side for the same request path: `proxy-addr` (the module
+ * behind `req.ip`) with `trust proxy: 1` trusts exactly the socket hop and
+ * returns `addrs[1]` in its `[socket, rightmost-XFF, …, leftmost-XFF]`
+ * ordering — the rightmost XFF entry, never the leftmost. Also validates the
+ * extracted value actually looks like an IP address (`node:net`'s `isIP`),
+ * so a malformed/garbage header can't mint unbounded distinct throttle keys.
+ * Falls back to the raw transport address when there's no usable header at
+ * all (local dev, direct connections, no proxy in front).
  */
 export function resolveClientIp(socket: unknown): string {
   const handshake = (
@@ -175,9 +192,13 @@ export function resolveClientIp(socket: unknown): string {
     }
   ).handshake;
   const forwardedFor = handshake?.headers?.[FORWARDED_FOR_HEADER];
-  const header = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
-  const first = header?.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : (handshake?.address ?? "unknown");
+  const header = Array.isArray(forwardedFor) ? forwardedFor.join(",") : forwardedFor;
+  const parts = header?.split(",") ?? [];
+  const rightmost = parts[parts.length - 1]?.trim();
+  if (rightmost !== undefined && looksLikeIp(rightmost)) {
+    return rightmost;
+  }
+  return handshake?.address ?? "unknown";
 }
 
 /**
