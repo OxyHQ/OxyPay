@@ -1,0 +1,82 @@
+{
+  "name": "@oxyhq/pay",
+  "version": "0.1.0",
+  "description": "Oxy Pay SDK — a Stripe-ergonomics TypeScript client over the Oxy Pay Gateway REST + realtime contract. Server entry (`@oxyhq/pay`) mints Oxy service tokens from an ApplicationCredential and exposes paymentIntents/paymentLinks/checkout.sessions/webhooks; browser entry (`@oxyhq/pay/checkout`) is the anonymous payer-side client core.",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "source": "src/index.ts",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "react-native": "./dist/esm/index.js",
+      "import": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/esm/index.js"
+    },
+    "./checkout": {
+      "react-native": "./dist/esm/checkout.js",
+      "import": {
+        "types": "./dist/types/checkout.d.ts",
+        "default": "./dist/esm/checkout.js"
+      },
+      "require": {
+        "types": "./dist/types/checkout.d.ts",
+        "default": "./dist/cjs/checkout.js"
+      },
+      "default": "./dist/esm/checkout.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "oxypay",
+    "oxy",
+    "payments",
+    "sdk",
+    "faircoin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OxyHQ/OxyPay.git",
+    "directory": "packages/sdk"
+  },
+  "author": "Oxy Pay",
+  "license": "MIT",
+  "homepage": "https://oxy.so",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "bun run build:cjs && bun run build:esm && bun run build:types",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json && node scripts/fix-esm-imports.mjs",
+    "build:types": "tsc -p tsconfig.types.json",
+    "clean": "rm -rf dist",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run clean && bun run build"
+  },
+  "dependencies": {
+    "@oxypay/shared-types": "*",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "@types/node": "^20.0.0",
+    "@types/bun": "latest"
+  }
+}
