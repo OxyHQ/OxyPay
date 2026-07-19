@@ -105,7 +105,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.transactionCount.one": "{count} transaction",
     "wallet.transactionCount.other": "{count} transactions",
     "wallet.syncAccessibility": "Sync status: {label}",
-    "wallet.defaultName": "FAIRWallet",
+    "wallet.defaultName": "Oxy Pay",
     "wallet.sync.offline": "Offline",
     "wallet.sync.syncing": "Syncing {progress}%",
     "wallet.sync.synced": "Synced",
@@ -335,7 +335,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.importBackup": "Import Backup",
     "settings.coinControl": "Coin Control",
     "settings.masternode": "Masternode",
-    "settings.aboutApp": "About FAIRWallet",
+    "settings.aboutApp": "About Oxy Pay",
     "settings.version": "v{version}",
     "settings.dangerZone": "Danger Zone",
     "settings.pin.verify": "Verify PIN",
@@ -352,7 +352,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Your device does not have biometric authentication set up. Please enable it in your device settings first.",
     "settings.biometrics.verifyPrompt": "Verify biometrics to enable",
     "settings.biometrics.updateError": "Failed to update biometrics setting.",
-    "settings.backup.exportDialogTitle": "Save FAIRWallet backup",
+    "settings.backup.exportDialogTitle": "Save Oxy Pay backup",
     "settings.backup.saved.title": "Backup saved",
     "settings.backup.saved.description":
       "Saved to {path}. Sharing is not available on this platform.",
@@ -417,7 +417,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "socialRecipientPicker.empty": "No one found",
 
     // ---------- Onboarding ----------
-    "onboarding.logoAccessibility": "FAIRWallet logo",
+    "onboarding.logoAccessibility": "Oxy Pay logo",
     "onboarding.signInTitle": "Welcome to Oxy Pay",
     "onboarding.signInSubtitle": "Sign in with your Oxy account — your money is just there.",
     "onboarding.createIdentityTitle": "Set up your Oxy ID",
@@ -768,7 +768,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Enable location access in your device settings to see places near you.",
     "map.webOnly.title": "Map only available on mobile",
     "map.webOnly.subtitle":
-      "Open FAIRWallet on your phone to find places near you that accept FairCoin.",
+      "Open Oxy Pay on your phone to find places near you that accept FairCoin.",
     "map.unavailable.title": "Map unavailable",
     "map.unavailable.subtitle": "Map is unavailable on this device.",
     "map.category.cafe": "Cafe",
@@ -881,7 +881,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.transactionCount.one": "{count} transacci\u00f3n",
     "wallet.transactionCount.other": "{count} transacciones",
     "wallet.syncAccessibility": "Estado de sincronizaci\u00f3n: {label}",
-    "wallet.defaultName": "FAIRWallet",
+    "wallet.defaultName": "Oxy Pay",
     "wallet.sync.offline": "Sin conexi\u00f3n",
     "wallet.sync.syncing": "Sincronizando {progress}%",
     "wallet.sync.synced": "Sincronizado",
@@ -1113,7 +1113,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.importBackup": "Importar Respaldo",
     "settings.coinControl": "Control de Monedas",
     "settings.masternode": "Masternode",
-    "settings.aboutApp": "Acerca de FAIRWallet",
+    "settings.aboutApp": "Acerca de Oxy Pay",
     "settings.version": "v{version}",
     "settings.dangerZone": "Zona de Peligro",
     "settings.pin.verify": "Verificar PIN",
@@ -1134,7 +1134,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.biometrics.verifyPrompt": "Verifica biometr\u00eda para activar",
     "settings.biometrics.updateError":
       "Fall\u00f3 la actualizaci\u00f3n del ajuste biom\u00e9trico.",
-    "settings.backup.exportDialogTitle": "Guardar respaldo de FAIRWallet",
+    "settings.backup.exportDialogTitle": "Guardar respaldo de Oxy Pay",
     "settings.backup.saved.title": "Respaldo guardado",
     "settings.backup.saved.description":
       "Guardado en {path}. Compartir no est\u00e1 disponible en esta plataforma.",
@@ -1202,7 +1202,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "socialRecipientPicker.empty": "Nadie encontrado",
 
     // ---------- Onboarding ----------
-    "onboarding.logoAccessibility": "Logo de FAIRWallet",
+    "onboarding.logoAccessibility": "Logo de Oxy Pay",
     "onboarding.signInTitle": "Bienvenido a Oxy Pay",
     "onboarding.signInSubtitle": "Inicia sesi\u00f3n con tu cuenta Oxy \u2014 tu dinero ya est\u00e1 ah\u00ed.",
     "onboarding.createIdentityTitle": "Configura tu Oxy ID",
@@ -1570,7 +1570,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Activa el acceso a la ubicación en los ajustes de tu dispositivo para ver lugares cercanos.",
     "map.webOnly.title": "El mapa solo está disponible en móvil",
     "map.webOnly.subtitle":
-      "Abre FAIRWallet en tu teléfono para encontrar lugares cerca de ti que acepten FairCoin.",
+      "Abre Oxy Pay en tu teléfono para encontrar lugares cerca de ti que acepten FairCoin.",
     "map.unavailable.title": "Mapa no disponible",
     "map.unavailable.subtitle": "El mapa no está disponible en este dispositivo.",
     "map.category.cafe": "Cafetería",

@@ -481,7 +481,7 @@ export default function SettingsScreen() {
         .toISOString()
         .slice(0, 19)
         .replace(/[:T]/g, "-");
-      const filename = `fairwallet-backup-${timestamp}.json`;
+      const filename = `oxypay-backup-${timestamp}.json`;
 
       const file = new File(Paths.cache, filename);
       if (file.exists) file.delete();
