@@ -38,6 +38,7 @@ const KeyboardProvider =
 import { OxyProvider } from "@oxyhq/services";
 import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
+import { ImageResolverProvider } from "@oxyhq/bloom/image-resolver";
 import { parseFairCoinURI } from "@fairco.in/core";
 import { parsePaymentRequest } from "../src/pay/payment-request";
 import { queryClient } from "../src/services/query-client";
@@ -302,12 +303,16 @@ export default function RootLayout() {
               storageKeyPrefix="oxypay"
               queryClient={queryClient}
             >
-              <BottomSheetModalProvider>
-                <AppContent
-                  key={language}
-                  ready={fontsLoaded && themeReady && languageReady}
-                />
-              </BottomSheetModalProvider>
+              <ImageResolverProvider
+                value={(id, variant) => oxyServices.getFileDownloadUrl(id, variant)}
+              >
+                <BottomSheetModalProvider>
+                  <AppContent
+                    key={language}
+                    ready={fontsLoaded && themeReady && languageReady}
+                  />
+                </BottomSheetModalProvider>
+              </ImageResolverProvider>
             </OxyProvider>
           </BloomThemeProvider>
         </SafeAreaProvider>
