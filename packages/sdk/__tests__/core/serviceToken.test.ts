@@ -12,7 +12,7 @@ describe('createServiceTokenProvider', () => {
   test('mints a token via POST {oxyApiUrl}/auth/service-token with {apiKey, apiSecret}', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({
       status: 200,
-      json: { token: 'svc_abc', expiresIn: 3600, appName: 'Test App' },
+      json: { data: { token: 'svc_abc', expiresIn: 3600, appName: 'Test App' } },
     }));
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
@@ -35,7 +35,7 @@ describe('createServiceTokenProvider', () => {
   test('caches the token — a second getToken() before expiry does not re-mint', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({
       status: 200,
-      json: { token: 'svc_abc', expiresIn: 3600 },
+      json: { data: { token: 'svc_abc', expiresIn: 3600 } },
     }));
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
@@ -51,7 +51,7 @@ describe('createServiceTokenProvider', () => {
   test('concurrent getToken() calls dedupe into a single in-flight mint', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({
       status: 200,
-      json: { token: 'svc_abc', expiresIn: 3600 },
+      json: { data: { token: 'svc_abc', expiresIn: 3600 } },
     }));
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
@@ -69,7 +69,7 @@ describe('createServiceTokenProvider', () => {
     let mintCount = 0;
     const { fetch: fetchImpl } = createMockFetch(() => {
       mintCount += 1;
-      return { status: 200, json: { token: `svc_${mintCount}`, expiresIn: 3600 } };
+      return { status: 200, json: { data: { token: `svc_${mintCount}`, expiresIn: 3600 } } };
     });
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
@@ -92,7 +92,7 @@ describe('createServiceTokenProvider', () => {
     let mintCount = 0;
     const { fetch: fetchImpl } = createMockFetch(() => {
       mintCount += 1;
-      return { status: 200, json: { token: `svc_${mintCount}`, expiresIn: 3600 } };
+      return { status: 200, json: { data: { token: `svc_${mintCount}`, expiresIn: 3600 } } };
     });
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
@@ -120,8 +120,24 @@ describe('createServiceTokenProvider', () => {
     await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayAuthenticationError);
   });
 
-  test('throws OxyPayApiError when the mint response is missing token/expiresIn', async () => {
-    const { fetch: fetchImpl } = createMockFetch(() => ({ status: 200, json: { appName: 'x' } }));
+  test('throws OxyPayApiError when the mint response data envelope is missing token/expiresIn', async () => {
+    const { fetch: fetchImpl } = createMockFetch(() => ({
+      status: 200,
+      json: { data: { appName: 'x' } },
+    }));
+    const provider = createServiceTokenProvider(
+      { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
+      { fetch: fetchImpl },
+    );
+
+    await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayApiError);
+  });
+
+  test('throws OxyPayApiError when the mint response has no `data` envelope at all', async () => {
+    const { fetch: fetchImpl } = createMockFetch(() => ({
+      status: 200,
+      json: { token: 'svc_abc', expiresIn: 3600 },
+    }));
     const provider = createServiceTokenProvider(
       { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },
       { fetch: fetchImpl },

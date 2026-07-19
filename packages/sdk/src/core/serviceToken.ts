@@ -27,9 +27,16 @@ interface ServiceTokenMintResponse {
   appName?: string;
 }
 
-function isServiceTokenMintResponse(body: unknown): body is ServiceTokenMintResponse {
-  if (typeof body !== 'object' || body === null) return false;
-  const candidate = body as { token?: unknown; expiresIn?: unknown };
+/** oxy-api's `sendSuccess` helper wraps every success body in a `data` envelope. */
+interface ServiceTokenMintEnvelope {
+  data: ServiceTokenMintResponse;
+}
+
+function isServiceTokenMintEnvelope(body: unknown): body is ServiceTokenMintEnvelope {
+  if (typeof body !== 'object' || body === null || !('data' in body)) return false;
+  const { data } = body as { data: unknown };
+  if (typeof data !== 'object' || data === null) return false;
+  const candidate = data as { token?: unknown; expiresIn?: unknown };
   return typeof candidate.token === 'string' && typeof candidate.expiresIn === 'number';
 }
 
@@ -74,14 +81,14 @@ export function createServiceTokenProvider(
     if (!response.ok) {
       throw errorFromResponse(response.status, body);
     }
-    if (!isServiceTokenMintResponse(body)) {
+    if (!isServiceTokenMintEnvelope(body)) {
       throw new OxyPayApiError(
-        'Oxy Pay: the service-token mint response was missing `token`/`expiresIn`',
+        'Oxy Pay: the service-token mint response was missing `data.token`/`data.expiresIn`',
       );
     }
 
-    cachedToken = body.token;
-    cachedExpiresAt = Date.now() + body.expiresIn * 1000;
+    cachedToken = body.data.token;
+    cachedExpiresAt = Date.now() + body.data.expiresIn * 1000;
     return cachedToken;
   }
 

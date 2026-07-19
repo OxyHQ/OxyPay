@@ -21,9 +21,11 @@ export function serviceTokenMintResponse(
   return {
     status: 200,
     json: {
-      token: overrides.token ?? TEST_SERVICE_TOKEN,
-      expiresIn: overrides.expiresIn ?? 3600,
-      appName: 'Test App',
+      data: {
+        token: overrides.token ?? TEST_SERVICE_TOKEN,
+        expiresIn: overrides.expiresIn ?? 3600,
+        appName: 'Test App',
+      },
     },
   };
 }
