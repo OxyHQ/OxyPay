@@ -211,6 +211,78 @@ describe("POST /v1/payment_intents", () => {
     });
     expect(count).toBe(0);
   });
+
+  test("no service app credentials at all -> 401", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: (_req, _res, next) => next(),
+        optionalServiceAuth: stubOptionalServiceAuth,
+      }),
+    );
+    const noAuthServer = app.listen(0);
+    const noAuthAddress = noAuthServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noAuthAddress.port}/v1/payment_intents`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "idem-create-noauth",
+          },
+          body: JSON.stringify({ amount: "150000000", network: "testnet" }),
+        },
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noAuthServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
+  test("a credential without payments:write is rejected (403)", async () => {
+    const noScopeRequireMerchant: RequestHandler = (req, _res, next) => {
+      (req as OxyAuthRequest).serviceApp = {
+        appId: TEST_APP_ID,
+        appName: "t",
+        scopes: ["payments:read"],
+        credentialId: "c",
+        environment: "development",
+      };
+      next();
+    };
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: noScopeRequireMerchant,
+        optionalServiceAuth: stubOptionalServiceAuth,
+      }),
+    );
+    const noScopeServer = app.listen(0);
+    const noScopeAddress = noScopeServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noScopeAddress.port}/v1/payment_intents`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "idem-create-noscope",
+          },
+          body: JSON.stringify({ amount: "150000000", network: "testnet" }),
+        },
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noScopeServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
 });
 
 describe("GET /v1/payment_intents/:id", () => {
@@ -318,6 +390,69 @@ describe("POST /v1/payment_intents/:id/reject", () => {
     expect(res.status).toBe(200);
     const body = await readJson(res);
     expect(body.status).toBe("rejected");
+  });
+
+  test("no service app credentials at all -> 401", async () => {
+    const created = await createIntent("idem-reject-noauth");
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: (_req, _res, next) => next(),
+        optionalServiceAuth: stubOptionalServiceAuth,
+      }),
+    );
+    const noAuthServer = app.listen(0);
+    const noAuthAddress = noAuthServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noAuthAddress.port}/v1/payment_intents/${created.body.id}/reject`,
+        { method: "POST" },
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noAuthServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
+  test("a credential without payments:write is rejected (403)", async () => {
+    const created = await createIntent("idem-reject-noscope");
+    const noScopeRequireMerchant: RequestHandler = (req, _res, next) => {
+      (req as OxyAuthRequest).serviceApp = {
+        appId: TEST_APP_ID,
+        appName: "t",
+        scopes: ["payments:read"],
+        credentialId: "c",
+        environment: "development",
+      };
+      next();
+    };
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createPaymentIntentsRouter({
+        requireMerchant: noScopeRequireMerchant,
+        optionalServiceAuth: stubOptionalServiceAuth,
+      }),
+    );
+    const noScopeServer = app.listen(0);
+    const noScopeAddress = noScopeServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noScopeAddress.port}/v1/payment_intents/${created.body.id}/reject`,
+        { method: "POST" },
+      );
+      expect(res.status).toBe(403);
+
+      const reloaded = await PaymentIntent.findOne({ id: created.body.id });
+      expect(reloaded?.status).toBe("created");
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noScopeServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 });
 

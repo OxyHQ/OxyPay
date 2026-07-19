@@ -27,7 +27,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
   (req as OxyAuthRequest).serviceApp = {
     appId: APP_ID,
     appName: "t",
-    scopes: [],
+    scopes: ["payments:write"],
     credentialId: "c",
     environment: "development",
   };
@@ -176,5 +176,63 @@ describe("POST /v1/webhook_deliveries/:id/redeliver", () => {
       method: "POST",
     });
     expect(res.status).toBe(404);
+  });
+
+  test("no service app credentials at all -> 401", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createWebhookDeliveriesRouter({
+        requireMerchant: (_req, _res, next) => next(),
+        safeFetch: fakeSafeFetch,
+      }),
+    );
+    const noAuthServer = app.listen(0);
+    const noAuthAddress = noAuthServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noAuthAddress.port}/v1/webhook_deliveries/${deliveryId}/redeliver`,
+        { method: "POST" },
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noAuthServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
+  test("a credential without payments:write is rejected (403)", async () => {
+    const noScopeRequireMerchant: RequestHandler = (req, _res, next) => {
+      (req as OxyAuthRequest).serviceApp = {
+        appId: APP_ID,
+        appName: "t",
+        scopes: ["payments:read"],
+        credentialId: "c",
+        environment: "development",
+      };
+      next();
+    };
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createWebhookDeliveriesRouter({
+        requireMerchant: noScopeRequireMerchant,
+        safeFetch: fakeSafeFetch,
+      }),
+    );
+    const noScopeServer = app.listen(0);
+    const noScopeAddress = noScopeServer.address() as AddressInfo;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${noScopeAddress.port}/v1/webhook_deliveries/${deliveryId}/redeliver`,
+        { method: "POST" },
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        noScopeServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 });

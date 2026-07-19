@@ -1,11 +1,12 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 import mongoose from "mongoose";
+import { oxyClient } from "@oxyhq/core";
 import { PaymentIntent } from "../models/PaymentIntent";
 import { WebhookDelivery } from "../models/WebhookDelivery";
 import { buildEvent, deliver, type SafeFetchFn } from "../services/webhookDispatcher";
 import { toPaymentIntentDTO, toWebhookDeliveryDTO } from "../lib/serialize";
-import { sendError, wrap } from "../lib/http";
+import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
 
 /**
@@ -25,6 +26,8 @@ export function createWebhookDeliveriesRouter(deps: {
   router.post(
     "/v1/webhook_deliveries/:id/redeliver",
     requireMerchant,
+    requireAuthenticated,
+    oxyClient.requireScope("payments:write"),
     wrap(async (req, res) => {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;

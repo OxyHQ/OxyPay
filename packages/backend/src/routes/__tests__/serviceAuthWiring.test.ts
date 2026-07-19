@@ -87,7 +87,10 @@ afterAll(async () => {
 });
 
 test("a genuinely HMAC-signed service token minted with the configured secret is accepted", async () => {
-  const token = signRealServiceToken({ appId: APP_ID, appName: "wiring-test" }, TEST_SECRET);
+  const token = signRealServiceToken(
+    { appId: APP_ID, appName: "wiring-test", scopes: ["payments:write"] },
+    TEST_SECRET,
+  );
   const res = await fetch(`${baseUrl}/v1/payment_intents`, {
     method: "POST",
     headers: {

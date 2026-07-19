@@ -50,3 +50,17 @@ export function requireServiceApp(req: Request, res: Response): ResolvedServiceA
   }
   return { appId: serviceApp.appId, environment: serviceApp.environment };
 }
+
+/**
+ * Merchant-route auth gate, shared by every scope-checked merchant-privileged
+ * route (`merchants.ts`, `paymentIntents.ts`, `webhookDeliveries.ts`).
+ * `oxyClient.requireScope()` answers 403 SERVICE_TOKEN_REQUIRED when
+ * `req.serviceApp` is missing entirely, not 401 — gate on serviceApp
+ * presence FIRST so a fully unauthenticated caller gets 401 like every other
+ * route in this gateway, and requireScope's 403 is reserved for
+ * "authenticated but missing the required scope".
+ */
+export const requireAuthenticated: RequestHandler = (req, res, next) => {
+  if (!requireServiceApp(req, res)) return;
+  next();
+};

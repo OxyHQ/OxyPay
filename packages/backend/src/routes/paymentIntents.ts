@@ -23,7 +23,13 @@ import { reserveNextAddress } from "../services/reserveAddress";
 import { newId, clientSecretFor } from "../lib/ids";
 import { applyEvent } from "../services/intentState";
 import { toPaymentIntentDTO } from "../lib/serialize";
-import { sendError, wrap, isDuplicateKeyError, requireServiceApp } from "../lib/http";
+import {
+  sendError,
+  wrap,
+  isDuplicateKeyError,
+  requireServiceApp,
+  requireAuthenticated,
+} from "../lib/http";
 
 const DEFAULT_EXPIRY_SECONDS = 15 * 60;
 const MS_PER_SECOND = 1000;
@@ -107,6 +113,8 @@ export function createPaymentIntentsRouter(deps: {
   router.post(
     "/v1/payment_intents",
     requireMerchant,
+    requireAuthenticated,
+    oxyClient.requireScope("payments:write"),
     wrap(async (req, res) => {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;
@@ -206,16 +214,6 @@ export function createPaymentIntentsRouter(deps: {
       }
     }),
   );
-
-  // `oxyClient.requireScope()` answers 403 SERVICE_TOKEN_REQUIRED when
-  // `req.serviceApp` is missing entirely, not 401 — gate on serviceApp
-  // presence FIRST so a fully unauthenticated caller gets 401 like every
-  // other route in this gateway, and requireScope's 403 is reserved for
-  // "authenticated but missing the required scope" (mirrors `merchants.ts`).
-  const requireAuthenticated: RequestHandler = (req, res, next) => {
-    if (!requireServiceApp(req, res)) return;
-    next();
-  };
 
   router.get(
     "/v1/payment_intents",
@@ -326,6 +324,8 @@ export function createPaymentIntentsRouter(deps: {
   router.post(
     "/v1/payment_intents/:id/reject",
     requireMerchant,
+    requireAuthenticated,
+    oxyClient.requireScope("payments:write"),
     wrap(async (req, res) => {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;

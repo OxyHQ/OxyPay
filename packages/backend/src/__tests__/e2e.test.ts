@@ -41,7 +41,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
   (req as OxyAuthRequest).serviceApp = {
     appId: APP_ID,
     appName: "e2e",
-    scopes: [],
+    scopes: ["payments:write"],
     credentialId: "c",
     environment: "development",
   };
