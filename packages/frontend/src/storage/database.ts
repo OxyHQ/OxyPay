@@ -69,6 +69,12 @@ export interface AddressRow {
   used: number;
 }
 
+export interface SocialReceiveAddressRow {
+  index_num: number;
+  address: string;
+  used: number;
+}
+
 export interface PeerRow {
   host: string;
   port: number;
@@ -168,6 +174,12 @@ const SCHEMA_SQL = `
     used INTEGER DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS social_receive_addresses (
+    index_num INTEGER PRIMARY KEY,
+    address TEXT UNIQUE NOT NULL,
+    used INTEGER DEFAULT 0
+  );
+
   CREATE TABLE IF NOT EXISTS peers (
     host TEXT PRIMARY KEY,
     port INTEGER NOT NULL,
@@ -219,6 +231,7 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_transactions_block_height ON transactions(block_height);
   CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp);
   CREATE INDEX IF NOT EXISTS idx_addresses_change_used ON addresses(is_change, used);
+  CREATE INDEX IF NOT EXISTS idx_social_receive_used ON social_receive_addresses(used);
   CREATE INDEX IF NOT EXISTS idx_contacts_address ON contacts(address);
   CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 `;
@@ -812,6 +825,61 @@ export class Database {
       return 0;
     }
     return row.max_used + 1;
+  }
+
+  // -----------------------------------------------------------------------
+  // Social-receive addresses (spec §4.3 — Oxy-identity-derived branch,
+  // parallel to the private BIP44 spending tree above)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Persist a batch of derived social-receive addresses. `INSERT OR IGNORE`
+   * makes this idempotent: re-deriving and re-inserting an already-persisted
+   * index is a safe no-op, so callers never need to check existence first.
+   */
+  async insertSocialReceiveAddresses(
+    rows: { index: number; address: string }[],
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    await this.db.withTransactionAsync(async () => {
+      const stmt = await this.db.prepareAsync(
+        `INSERT OR IGNORE INTO social_receive_addresses (index_num, address, used)
+         VALUES (?, ?, 0)`,
+      );
+      try {
+        for (const row of rows) {
+          await stmt.executeAsync(row.index, row.address);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
+    });
+  }
+
+  async getSocialReceiveAddresses(): Promise<SocialReceiveAddressRow[]> {
+    return this.db.getAllAsync<SocialReceiveAddressRow>(
+      "SELECT * FROM social_receive_addresses ORDER BY index_num ASC",
+    );
+  }
+
+  async markSocialReceiveAddressUsed(address: string): Promise<void> {
+    await this.db.runAsync(
+      "UPDATE social_receive_addresses SET used = 1 WHERE address = ?",
+      address,
+    );
+  }
+
+  /**
+   * The highest social-receive index marked used, or -1 if none are used yet.
+   * Mirrors `getNextUnusedIndex`'s role for the private spending tree: the
+   * caller extends the watched window to stay `SOCIAL_RECEIVE_GAP_LIMIT`
+   * ahead of this value.
+   */
+  async getHighestUsedSocialReceiveIndex(): Promise<number> {
+    const row = await this.db.getFirstAsync<{ max_used: number | null }>(
+      "SELECT MAX(index_num) as max_used FROM social_receive_addresses WHERE used = 1",
+    );
+    return row?.max_used ?? -1;
   }
 
   // -----------------------------------------------------------------------
