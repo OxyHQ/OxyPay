@@ -2,8 +2,7 @@ import { test, expect } from "bun:test";
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { SsrfRejection, type SafeFetchResult } from "@oxyhq/core/server";
-import type { PaymentIntent } from "@oxypay/shared-types";
-import { verifyWebhook } from "../webhookSigner";
+import { verifyWebhook, type PaymentIntent } from "@oxypay/shared-types";
 import {
   buildEvent,
   deliver,

@@ -20,9 +20,14 @@
   // compiles nothing itself. `files: []` suppresses the default `**/*` include
   // so the root never double-includes package sources (which made `tsc -b`
   // expect in-place .d.ts outputs the noEmit frontend never emits → TS6305).
+  //
+  // `packages/shared-types` is deliberately NOT referenced here: it is a
+  // publish-ready dual CJS/ESM package now (mirrors `@oxyhq/contracts`), built
+  // with 3 non-composite tsconfigs (cjs/esm/types) rather than a single
+  // composite project — consumers resolve it via node_modules like any other
+  // published dependency, the same way oxy-api resolves `@oxyhq/contracts`.
   "files": [],
   "references": [
-    { "path": "./packages/shared-types" },
     { "path": "./packages/backend" },
     { "path": "./packages/frontend" }
   ],

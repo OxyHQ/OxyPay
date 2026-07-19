@@ -4,13 +4,13 @@ import {
   UpstreamError,
   type SafeFetchResult,
 } from "@oxyhq/core/server";
-import type {
-  PaymentIntent,
-  WebhookEvent,
-  WebhookEventType,
+import {
+  signWebhook,
+  type PaymentIntent,
+  type WebhookEvent,
+  type WebhookEventType,
 } from "@oxypay/shared-types";
 import { newId } from "../lib/ids";
-import { signWebhook } from "./webhookSigner";
 
 /** The concrete `safeFetch` signature — injected in tests, real one in prod. */
 export type SafeFetchFn = typeof import("@oxyhq/core/server").safeFetch;

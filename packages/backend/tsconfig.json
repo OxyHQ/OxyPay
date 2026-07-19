@@ -19,6 +19,5 @@
     "types": ["bun", "node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "../shared-types" }]
+  "exclude": ["node_modules", "dist"]
 }

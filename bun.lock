@@ -130,9 +130,9 @@
     },
     "packages/shared-types": {
       "name": "@oxypay/shared-types",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
-        "@fairco.in/core": "^0.1.1",
+        "@fairco.in/core": "^0.3.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -1763,8 +1763,6 @@
     "@oxypay/frontend/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@oxypay/frontend/zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
-
-    "@oxypay/shared-types/@fairco.in/core": ["@fairco.in/core@0.1.1", "", { "dependencies": { "@noble/hashes": "^1.8.0", "@noble/secp256k1": "^2.2.3", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "bs58": "^6.0.0" } }, "sha512-xdIrAlr3Yyp01XbsQP4yWeFGbyYEzT72x0QttV0q6gvv8uKoByGWNkYbaVLS6f6ZwW7KQu8oXoPd0cWRJLXf5w=="],
 
     "@react-native/community-cli-plugin/semver": ["semver@7.8.4", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA=="],
 

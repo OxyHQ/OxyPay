@@ -21,11 +21,11 @@ import type {
   OxyAuthRequest,
   SafeFetchResult,
 } from "@oxyhq/core/server";
+import { verifyWebhook } from "@oxypay/shared-types";
 import { Merchant } from "../models/Merchant";
 import { PaymentIntent } from "../models/PaymentIntent";
 import { WebhookDelivery } from "../models/WebhookDelivery";
 import { createGateway, type Gateway } from "../server";
-import { verifyWebhook } from "../services/webhookSigner";
 import type { ExplorerTx } from "../services/explorer";
 
 const XPUB =

@@ -9,11 +9,23 @@ export {
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
 export { type WebhookDelivery } from './webhookDelivery';
+export { signWebhook, verifyWebhook } from './webhookSigner';
 export {
   type MerchantEnvironment,
   type Merchant,
   MERCHANT_ENVIRONMENTS,
 } from './merchant';
+export { type MerchantDisplay } from './merchantDisplay';
+export {
+  type PaymentLink,
+  type PublicPaymentLink,
+  type CreatePaymentLinkParams,
+} from './paymentLink';
+export {
+  type CheckoutSession,
+  type CheckoutSessionPublic,
+  type CreateCheckoutSessionParams,
+} from './checkoutSession';
 export {
   type SocialNextAddressResponse,
   type SocialReceiveCursorResponse,
