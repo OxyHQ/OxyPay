@@ -32,6 +32,7 @@ import { Button as BloomButton } from "@oxyhq/bloom/button";
 import { FairCoinSymbol } from "../components/FairCoinSymbol";
 import type { ContactRow } from "../../storage/database";
 import { FONT_PHUDU_BLACK } from "../../utils/fonts";
+import { useTransactionEnrichment } from "../../hooks/useTransactionEnrichment";
 import { t } from "../../i18n";
 
 const CONTENT_MAX_WIDTH = 500;
@@ -154,6 +155,9 @@ export function TransactionDetailSheet({
     () => transactions.find((tx) => tx.txid === txid),
     [transactions, txid],
   );
+
+  const enrichment = useTransactionEnrichment(transaction ? [transaction.address] : []);
+  const identity = transaction ? enrichment[transaction.address] : undefined;
 
   // Load note and contact info on layout (avoids an effect for a one-shot read).
   const handleLayout = useCallback(() => {
@@ -311,6 +315,18 @@ export function TransactionDetailSheet({
             <DetailRow
               label={t("transaction.fee")}
               value={t("transaction.feeIncluded")}
+            />
+          ) : null}
+          {identity && identity.kind !== "unknown" ? (
+            <DetailRow
+              label={t("transaction.with")}
+              value={
+                identity.kind === "merchant"
+                  ? (identity.displayName ?? t("transaction.item.merchant"))
+                  : `${identity.displayName ?? identity.username ?? ""}${
+                      identity.username ? ` (@${identity.username})` : ""
+                    }`
+              }
             />
           ) : null}
           <DetailRow

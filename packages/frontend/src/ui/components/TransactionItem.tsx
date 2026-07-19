@@ -8,6 +8,8 @@ import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@oxyhq/bloom/theme";
+import { Avatar } from "@oxyhq/bloom/avatar";
+import type { EnrichmentResult } from "@oxypay/shared-types";
 import { AmountText } from "./AmountText";
 import { ConfirmationRing } from "./ConfirmationRing";
 import { t } from "../../i18n";
@@ -35,6 +37,15 @@ interface TransactionItemProps {
    * back to navigating to the standalone `/transaction/[txid]` route.
    */
   onPress?: (txid: string) => void;
+  /**
+   * Resolved counterparty identity (spec §4.8) — when present (and not
+   * `kind:'unknown'`), overrides the default "Sent"/"Received" label +
+   * address subtitle + leading icon with "Paid at <merchant>" / "Sent to @x"
+   * / "Received from @x" + their avatar. Omit (or pass an `unknown`-kind
+   * result) to keep the default rendering — the honest fallback for a pure
+   * external on-chain payment (spec §4.5).
+   */
+  identity?: EnrichmentResult;
 }
 
 interface TypeConfig {
@@ -106,6 +117,18 @@ function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
+function describeIdentityLabel(type: TransactionType, identity: EnrichmentResult): string {
+  if (identity.kind === "merchant") {
+    return t("transaction.item.paidAt", {
+      name: identity.displayName ?? t("transaction.item.merchant"),
+    });
+  }
+  const name = identity.displayName ?? identity.username ?? "";
+  return type === "send"
+    ? t("transaction.item.sentToUser", { name })
+    : t("transaction.item.receivedFromUser", { name });
+}
+
 export function TransactionItem({
   txid,
   type,
@@ -114,10 +137,15 @@ export function TransactionItem({
   timestamp,
   confirmations,
   onPress,
+  identity: rawIdentity,
 }: TransactionItemProps) {
   const router = useRouter();
   const theme = useTheme();
   const staticConfig = STATIC_TYPE_CONFIG[type];
+  // Defensive: honor the prop's own contract (an `unknown`-kind result
+  // degrades exactly like an omitted prop) even though today's one caller
+  // already filters it out before passing it down.
+  const identity = rawIdentity && rawIdentity.kind !== "unknown" ? rawIdentity : undefined;
   const iconColor = type === "receive" ? theme.colors.primary : staticConfig.iconColor;
   const timeAgo = useMemo(() => formatTimeAgo(timestamp), [timestamp]);
   const truncated = useMemo(() => truncateAddress(address), [address]);
@@ -148,28 +176,37 @@ export function TransactionItem({
           color={theme.colors.warning}
           size={44}
         >
-          <View
-            className={`${settled ? "w-11 h-11" : "w-9 h-9"} rounded-full ${staticConfig.iconBg} items-center justify-center`}
-          >
-            <MaterialCommunityIcons
-              name={staticConfig.icon}
-              size={settled ? 20 : 18}
-              color={iconColor}
+          {identity ? (
+            <Avatar
+              source={identity.avatarFileId}
+              variant="thumb"
+              size={settled ? 44 : 36}
+              name={identity.displayName ?? identity.username ?? ""}
             />
-          </View>
+          ) : (
+            <View
+              className={`${settled ? "w-11 h-11" : "w-9 h-9"} rounded-full ${staticConfig.iconBg} items-center justify-center`}
+            >
+              <MaterialCommunityIcons
+                name={staticConfig.icon}
+                size={settled ? 20 : 18}
+                color={iconColor}
+              />
+            </View>
+          )}
         </ConfirmationRing>
       </View>
 
       {/* Label + address */}
       <View className="flex-1 mr-3">
         <Text className="text-foreground text-sm font-medium" numberOfLines={1}>
-          {t(staticConfig.labelKey)}
+          {identity ? describeIdentityLabel(type, identity) : t(staticConfig.labelKey)}
         </Text>
         <Text
           className="text-muted-foreground text-xs mt-0.5"
           numberOfLines={1}
         >
-          {truncated}
+          {identity?.kind === "user" && identity.username ? `@${identity.username}` : truncated}
         </Text>
       </View>
 

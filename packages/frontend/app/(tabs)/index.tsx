@@ -60,6 +60,7 @@ import { queryClient } from "../../src/services/query-client";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { Tabs, TabsTrigger } from "@oxyhq/bloom/tabs";
 import { BUY_BASE_URL } from "@fairco.in/core";
+import { useTransactionEnrichment } from "../../src/hooks/useTransactionEnrichment";
 import { t } from "../../src/i18n";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -333,6 +334,12 @@ export default function HomeScreen() {
     [transactions],
   );
 
+  const enrichmentAddresses = useMemo(
+    () => activityGroups.flatMap((group) => group.items.map((tx) => tx.address)),
+    [activityGroups],
+  );
+  const enrichment = useTransactionEnrichment(enrichmentAddresses);
+
   const sync = useMemo((): { icon: IconName; color: string; label: string } => {
     if (connectedPeers === 0) {
       return {
@@ -532,6 +539,11 @@ export default function HomeScreen() {
                     timestamp={tx.timestamp}
                     confirmations={tx.confirmations}
                     onPress={openTxDetail}
+                    identity={
+                      enrichment[tx.address]?.kind !== "unknown"
+                        ? enrichment[tx.address]
+                        : undefined
+                    }
                   />
                 ))}
               </View>
