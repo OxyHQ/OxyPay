@@ -8,8 +8,9 @@ import { CheckoutView } from '../components/CheckoutView';
 // `/c/:sessionId` — wraps exactly one `PaymentIntent` (Stripe Checkout
 // Session parity). The client secret travels in the URL FRAGMENT
 // (`#cs=<secret>`), not the query string, so it never reaches server/CDN
-// access logs; the app is free to forward it as a query param on the actual
-// API request, a separate request to a separate host.
+// access logs; the app forwards it to the Gateway via the
+// `X-Oxy-Pay-Client-Secret` header rather than a query param, so it never
+// lands in the Gateway's own access logs either.
 export function SessionRoute() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [state, setState] = useState<LoadState<CheckoutSessionPublic>>({ status: 'loading' });
@@ -21,9 +22,9 @@ export function SessionRoute() {
       return;
     }
     let cancelled = false;
-    gatewayGet<CheckoutSessionPublic>(
-      `/v1/checkout_sessions/${sessionId}/public?client_secret=${encodeURIComponent(clientSecret)}`,
-    )
+    gatewayGet<CheckoutSessionPublic>(`/v1/checkout_sessions/${sessionId}/public`, {
+      headers: { 'X-Oxy-Pay-Client-Secret': clientSecret },
+    })
       .then((session) => {
         if (!cancelled) setState({ status: 'ready', data: session });
       })

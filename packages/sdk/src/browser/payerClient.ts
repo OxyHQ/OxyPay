@@ -18,7 +18,11 @@ import { errorFromResponse, OxyPayApiError, OxyPayInvalidRequestError } from '..
 const DEFAULT_GATEWAY_URL = 'https://api.pay.oxy.so';
 
 export interface OxyPayCheckoutClient {
-  /** `GET /v1/payment_intents/:id?client_secret=…` — the initial REST snapshot. */
+  /**
+   * `GET /v1/payment_intents/:id` — the initial REST snapshot. Sends
+   * `clientSecret` via the `X-Oxy-Pay-Client-Secret` header, never a query
+   * param, so the capability token never lands in server/CDN access logs.
+   */
   getPaymentIntent(id: string, clientSecret: string): Promise<PaymentIntent>;
   /** Realtime status stream over the Gateway's socket contract, filtered to this intent. */
   subscribe(
@@ -68,10 +72,9 @@ export function createOxyPayCheckout(
   async function getPaymentIntent(id: string, clientSecret: string): Promise<PaymentIntent> {
     let response: Response;
     try {
-      response = await fetch(
-        `${baseUrl}/v1/payment_intents/${encodeURIComponent(id)}` +
-          `?client_secret=${encodeURIComponent(clientSecret)}`,
-      );
+      response = await fetch(`${baseUrl}/v1/payment_intents/${encodeURIComponent(id)}`, {
+        headers: { 'X-Oxy-Pay-Client-Secret': clientSecret },
+      });
     } catch (cause) {
       throw new OxyPayApiError(
         `Failed to reach the Oxy Pay Gateway at ${baseUrl}: ${

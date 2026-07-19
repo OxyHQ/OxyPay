@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 test('renders the payment intent route shell, then falls back once the frozen @oxyhq/pay/checkout client rejects', async () => {
-  window.history.pushState({}, '', '/i/pi_test123?client_secret=pi_test123_secret_abc');
+  window.history.pushState({}, '', '/i/pi_test123#client_secret=pi_test123_secret_abc');
   render(<App />);
 
   expect(screen.getByText(/loading payment intent pi_test123/i)).toBeDefined();

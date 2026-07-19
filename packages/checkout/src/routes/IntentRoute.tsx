@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import type { PaymentIntent } from '@oxypay/shared-types';
 import { getPaymentIntent } from '../lib/intentClient';
 import type { LoadState } from '../lib/loadState';
 import { CheckoutView } from '../components/CheckoutView';
 
-// `/i/:intentId` — the simplest path: `client_secret` travels in the query
-// string (this route is also what the SDK embed / a deep-linked "pay" button
-// targets, so the URL needs to be shareable/copyable as a whole).
+// `/i/:intentId` — the simplest path: `client_secret` travels in the URL
+// FRAGMENT (`#client_secret=<secret>`), not the query string, so it never
+// reaches server/CDN access logs — same rationale as SessionRoute's `#cs=`.
+// This route is also what the SDK embed / a deep-linked "pay" button
+// targets, so the URL needs to be shareable/copyable as a whole.
 export function IntentRoute() {
   const { intentId } = useParams<{ intentId: string }>();
-  const [searchParams] = useSearchParams();
-  const clientSecret = searchParams.get('client_secret');
   const [state, setState] = useState<LoadState<PaymentIntent>>({ status: 'loading' });
 
   useEffect(() => {
+    const clientSecret = new URLSearchParams(window.location.hash.slice(1)).get('client_secret');
     if (!intentId || !clientSecret) {
       setState({ status: 'error', message: 'This payment page is missing required parameters.' });
       return;
@@ -33,7 +34,7 @@ export function IntentRoute() {
     return () => {
       cancelled = true;
     };
-  }, [intentId, clientSecret]);
+  }, [intentId]);
 
   return (
     <main className="checkout-page">

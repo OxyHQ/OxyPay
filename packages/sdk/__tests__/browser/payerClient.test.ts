@@ -100,7 +100,7 @@ const INTENT: PaymentIntent = {
 };
 
 describe('getPaymentIntent', () => {
-  test('GETs /v1/payment_intents/:id with client_secret as a query param and returns the DTO', async () => {
+  test('GETs /v1/payment_intents/:id with client_secret as the X-Oxy-Pay-Client-Secret header and returns the DTO', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({
       status: 200,
       json: INTENT,
@@ -112,13 +112,13 @@ describe('getPaymentIntent', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.method).toBe('GET');
-    expect(requests[0]?.url).toBe(
-      `${TEST_GATEWAY_URL}/v1/payment_intents/pi_1?client_secret=secret_1`,
-    );
+    expect(requests[0]?.url).toBe(`${TEST_GATEWAY_URL}/v1/payment_intents/pi_1`);
+    expect(requests[0]?.url).not.toContain('client_secret');
+    expect(requests[0]?.headers.get('X-Oxy-Pay-Client-Secret')).toBe('secret_1');
     expect(result).toEqual(INTENT);
   });
 
-  test('URL-encodes the id and client_secret', async () => {
+  test('URL-encodes the id and never puts client_secret in the URL', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({ status: 200, json: INTENT }));
     globalThis.fetch = fetchImpl;
     const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
@@ -127,7 +127,8 @@ describe('getPaymentIntent', () => {
 
     const url = new URL(requests[0]?.url ?? '');
     expect(url.pathname).toBe('/v1/payment_intents/pi%2F1');
-    expect(url.searchParams.get('client_secret')).toBe('sec ret');
+    expect(url.search).toBe('');
+    expect(requests[0]?.headers.get('X-Oxy-Pay-Client-Secret')).toBe('sec ret');
   });
 
   test('defaults gatewayUrl to https://api.pay.oxy.so when not given', async () => {

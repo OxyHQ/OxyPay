@@ -8,13 +8,18 @@ import { GATEWAY_URL } from './config';
 async function gatewayFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${GATEWAY_URL}${path}`, init);
   if (!response.ok) {
-    throw new Error(`Gateway request to ${path} failed with status ${response.status}`);
+    // Strip the query string before it lands in a thrown Error.message — a
+    // route can render this message straight into the DOM (SessionRoute),
+    // and the path must never carry a capability token even if some future
+    // caller passes one as a query param again (defense in depth).
+    const pathWithoutQuery = path.split('?')[0];
+    throw new Error(`Gateway request to ${pathWithoutQuery} failed with status ${response.status}`);
   }
   return (await response.json()) as T;
 }
 
-export function gatewayGet<T>(path: string): Promise<T> {
-  return gatewayFetch<T>(path);
+export function gatewayGet<T>(path: string, init?: RequestInit): Promise<T> {
+  return gatewayFetch<T>(path, init);
 }
 
 export function gatewayPost<T>(path: string): Promise<T> {
