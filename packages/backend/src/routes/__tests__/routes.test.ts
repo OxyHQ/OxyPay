@@ -141,6 +141,18 @@ afterAll(async () => {
 
 describe("POST /v1/payment_intents", () => {
   test("creates an intent (201) with a pi_ id, derived address and client_secret", async () => {
+    // Order-independence: this is the only test in the file that asserts an
+    // EXACT derived address (`FIRST_ADDRESS` = index 0 of `XPUB`). The
+    // merchant's `nextDerivationIndex` is shared, monotonically-incrementing
+    // state that every other intent-creating test also advances, so under
+    // `--randomize` a sibling test can reserve index 0 first. Pin the
+    // merchant back to a known derivation state right before reserving so
+    // this test's outcome never depends on what ran before it.
+    await Merchant.updateOne(
+      { oxyAppId: TEST_APP_ID, environment: "development" },
+      { $set: { nextDerivationIndex: 0 } },
+    );
+
     const { status, body } = await createIntent("idem-create-1");
 
     expect(status).toBe(201);
