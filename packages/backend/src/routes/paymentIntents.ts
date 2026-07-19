@@ -8,7 +8,7 @@ import type { FilterQuery, HydratedDocument } from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
-import type { OxyAuthRequest } from "@oxyhq/core/server";
+import type { OxyAuthRequest, OxyServiceEnvironment } from "@oxyhq/core/server";
 import {
   isBaseUnitString,
   PAYMENT_INTENT_STATUSES,
@@ -27,7 +27,8 @@ import { sendError, wrap, requireServiceApp, requireAuthenticated } from "../lib
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 
-const listQuerySchema = z.object({
+/** Exported: `routes/dashboard.ts` parses the SAME query shape for its list route (F2.5) so the two never drift. */
+export const listQuerySchema = z.object({
   status: z
     .enum(PAYMENT_INTENT_STATUSES as [PaymentIntentStatus, ...PaymentIntentStatus[]])
     .optional(),
@@ -55,6 +56,19 @@ const submitTxBodySchema = z.object({
 });
 
 /**
+ * Single query owner for "find a Merchant by (oxyAppId, environment)" — no
+ * side effects, no response writes. Shared by `resolveMerchant` (service-auth
+ * path, below) and `resolveMerchantByApp` (dashboard path, F2.5) so there is
+ * exactly one place that knows the compound key `Merchant` is looked up by.
+ */
+function findMerchantByAppEnv(
+  oxyAppId: string,
+  environment: OxyServiceEnvironment,
+): Promise<HydratedDocument<MerchantDoc> | null> {
+  return Merchant.findOne({ oxyAppId, environment });
+}
+
+/**
  * Resolve the merchant behind the authenticated service app, scoped to BOTH
  * the caller's Application AND its credential's `environment` (F2.0 task 1b —
  * test/live isolation). Returns null AND writes the error response when the
@@ -70,15 +84,85 @@ export async function resolveMerchant(
 ): Promise<HydratedDocument<MerchantDoc> | null> {
   const serviceApp = requireServiceApp(req, res);
   if (!serviceApp) return null;
-  const merchant = await Merchant.findOne({
-    oxyAppId: serviceApp.appId,
-    environment: serviceApp.environment,
-  });
+  const merchant = await findMerchantByAppEnv(serviceApp.appId, serviceApp.environment);
   if (!merchant) {
     sendError(res, 403, "permission_error", "no merchant registered for this app");
     return null;
   }
   return merchant;
+}
+
+/**
+ * Dashboard-path sibling of `resolveMerchant` (F2.5): resolves a Merchant by
+ * an EXPLICIT `(applicationId, environment)` pair instead of `req.serviceApp`,
+ * since a `/v1/dashboard/*` caller is a human Oxy user, not a service-authed
+ * merchant — the application + environment come from the route param + query
+ * (already validated + membership-checked by `routes/dashboard.ts` before this
+ * is called). 404 (not 403): the caller's ACCESS to the application was
+ * already proven by `assertAppMembership`, so a missing merchant here means
+ * exactly what it says — nothing registered for this environment yet, not a
+ * permission gap.
+ */
+export async function resolveMerchantByApp(
+  applicationId: string,
+  environment: OxyServiceEnvironment,
+  res: Response,
+): Promise<HydratedDocument<MerchantDoc> | null> {
+  const merchant = await findMerchantByAppEnv(applicationId, environment);
+  if (!merchant) {
+    sendError(
+      res,
+      404,
+      "invalid_request_error",
+      "no merchant registered for this application in this environment",
+    );
+    return null;
+  }
+  return merchant;
+}
+
+export interface ListPaymentIntentsQuery {
+  status?: PaymentIntentStatus;
+  limit?: number;
+  starting_after?: string;
+}
+
+export type ListPaymentIntentsResult =
+  | { ok: true; data: HydratedDocument<PaymentIntentDoc>[]; hasMore: boolean }
+  | { ok: false; status: number; message: string };
+
+/**
+ * Shared pagination body for "list a merchant's payment intents" — factored
+ * out (F2.5) so `GET /v1/payment_intents` (below) and the dashboard's `GET
+ * /v1/dashboard/applications/:applicationId/payment_intents` run the EXACT
+ * same query/cursor/status-filter logic against different auth paths, never
+ * two copies to keep in sync.
+ */
+export async function listPaymentIntentsForMerchant(
+  merchantId: string,
+  query: ListPaymentIntentsQuery,
+): Promise<ListPaymentIntentsResult> {
+  const { status, starting_after } = query;
+  const limit = query.limit ?? DEFAULT_LIST_LIMIT;
+
+  const filter: FilterQuery<PaymentIntentDoc> = { merchantId };
+  if (status) filter.status = status;
+
+  if (starting_after) {
+    const cursor = await PaymentIntent.findOne({ id: starting_after, merchantId });
+    if (!cursor) {
+      return {
+        ok: false,
+        status: 422,
+        message: "starting_after references an unknown payment intent",
+      };
+    }
+    filter._id = { $lt: cursor._id };
+  }
+
+  const page = await PaymentIntent.find(filter).sort({ _id: -1 }).limit(limit + 1);
+  const hasMore = page.length > limit;
+  return { ok: true, data: hasMore ? page.slice(0, limit) : page, hasMore };
 }
 
 /**
@@ -179,36 +263,14 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      const { status, starting_after } = parsed.data;
-      const limit = parsed.data.limit ?? DEFAULT_LIST_LIMIT;
 
-      const filter: FilterQuery<PaymentIntentDoc> = { merchantId: merchant.id };
-      if (status) filter.status = status;
-
-      if (starting_after) {
-        const cursor = await PaymentIntent.findOne({
-          id: starting_after,
-          merchantId: merchant.id,
-        });
-        if (!cursor) {
-          sendError(
-            res,
-            422,
-            "invalid_request_error",
-            "starting_after references an unknown payment intent",
-          );
-          return;
-        }
-        filter._id = { $lt: cursor._id };
+      const result = await listPaymentIntentsForMerchant(merchant.id, parsed.data);
+      if (!result.ok) {
+        sendError(res, result.status, "invalid_request_error", result.message);
+        return;
       }
-
-      const page = await PaymentIntent.find(filter).sort({ _id: -1 }).limit(limit + 1);
-      const hasMore = page.length > limit;
-      const data = (hasMore ? page.slice(0, limit) : page).map((intent) =>
-        toPaymentIntentDTO(intent),
-      );
-
-      res.status(200).json({ object: "list", data, has_more: hasMore });
+      const data = result.data.map((intent) => toPaymentIntentDTO(intent));
+      res.status(200).json({ object: "list", data, has_more: result.hasMore });
     }),
   );
 

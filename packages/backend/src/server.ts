@@ -29,6 +29,7 @@ import { createPaymentLinksRouter } from "./routes/paymentLinks";
 import { createCheckoutSessionsRouter } from "./routes/checkoutSessions";
 import { createSocialRouter } from "./routes/social";
 import { createEnrichRouter } from "./routes/enrich";
+import { createDashboardRouter } from "./routes/dashboard";
 import {
   SettlementWatcher,
   type HydratedPaymentIntentDoc,
@@ -89,7 +90,7 @@ export interface GatewayDeps {
    * below so its tighter anonymous budget applies ONLY to those four routes).
    */
   publicRateLimit?: RequestHandler;
-  /** End-user Oxy auth for the social + enrich routes (default `createOxyAuthMiddleware(oxyClient)`). */
+  /** End-user Oxy auth for the social + enrich + dashboard routes (default `createOxyAuthMiddleware(oxyClient)`). */
   requireOxyUser?: RequestHandler;
   /** Socket connection auth (default `oxyClient.authSocket()`). */
   socketAuth?: SocketAuth;
@@ -169,7 +170,12 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
     res.status(200).json({ status: "ok" });
   });
 
-  app.use(createOxyCors());
+  // `appOrigins`: `createOxyCors`'s built-in Oxy-family allowlist only trusts
+  // ONE-LABEL `*.oxy.so` subdomains, so a two-label host like the F2.5
+  // dashboard (`dashboard.pay.oxy.so`) must be listed explicitly via
+  // `config.allowedOrigins` (`OXY_PAY_ALLOWED_ORIGINS`) — the SAME list the
+  // Socket.io `cors.origin` check below already reads.
+  app.use(createOxyCors({ appOrigins: config.allowedOrigins }));
   app.use(createOxyRateLimit(oxyClient));
   app.use(express.json());
   app.use(((_req, res, next) => {
@@ -206,6 +212,9 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   );
   app.use(createPaymentLinksRouter({ requireMerchant, publicRateLimit }));
   app.use(createCheckoutSessionsRouter({ requireMerchant, publicRateLimit }));
+  app.use(
+    createDashboardRouter({ requireOxyUser: deps.requireOxyUser, safeFetch: deps.safeFetch }),
+  );
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const message = err instanceof Error ? err.message : "internal error";

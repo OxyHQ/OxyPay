@@ -16,6 +16,12 @@ const DEFAULT_NETWORK: NetworkType = "mainnet";
 const DEFAULT_MONGODB_URI = "mongodb://localhost:27017/oxypay";
 // The hosted checkout page's host (F2.2/F2.3) — see `2026-07-19-fase2-checkout-links.md`.
 const DEFAULT_CHECKOUT_BASE_URL = "https://checkout.oxy.so";
+// The SAME literal fallback the shared `oxyClient` singleton itself is built
+// with (`@oxyhq/core`'s `OXY_API_URL = process.env.OXY_API_URL || 'https://api.oxy.so'`)
+// — not re-exported from that package's public entry, so mirrored here rather
+// than imported, matching the convention every other Oxy backend
+// (`Mention/packages/backend`, `oxy-ship`, …) already uses for the same constant.
+const DEFAULT_OXY_API_URL = "https://api.oxy.so";
 
 export interface AppConfig {
   /** Base URL of the FairCoin block explorer (no trailing slash). */
@@ -27,11 +33,17 @@ export interface AppConfig {
   /** HTTP port the API listens on. */
   port: number;
   /**
-   * Exact browser origins allowed to open a realtime Socket.io connection
-   * (comma-separated `OXY_PAY_ALLOWED_ORIGINS`). Requests with no `Origin`
-   * (native apps / server-to-server) are always allowed; an arbitrary browser
-   * origin is NEVER reflected — it must be listed here. The connection is still
-   * gated by `authSocket()` and per-intent `client_secret`.
+   * Exact browser origins allowed to open a realtime Socket.io connection AND
+   * (F2.5) to call the REST API cross-origin — both `createGateway`'s Socket.io
+   * `cors.origin` check and `createOxyCors({ appOrigins })` in `server.ts` read
+   * this same list (comma-separated `OXY_PAY_ALLOWED_ORIGINS`). It exists
+   * because `createOxyCors`'s built-in Oxy-family allowlist only trusts
+   * ONE-LABEL `*.oxy.so` subdomains — a two-label host like
+   * `dashboard.pay.oxy.so` must be listed here explicitly. Requests with no
+   * `Origin` (native apps / server-to-server) are always allowed; an arbitrary
+   * browser origin is NEVER reflected — it must be listed here. REST routes
+   * remain gated by their own auth (service token / Oxy user bearer /
+   * `client_secret`) regardless of CORS.
    */
   allowedOrigins: string[];
   /**
@@ -49,6 +61,15 @@ export interface AppConfig {
    * `PaymentLink.url` (`/l/<id>`) and `CheckoutSession.url` (`/c/<id>`).
    */
   checkoutBaseUrl: string;
+  /**
+   * Base URL of oxy-api (no trailing slash) — `services/appMembership.ts`
+   * forwards the dashboard caller's Oxy bearer here (`GET
+   * /applications/:applicationId`) to delegate `/v1/dashboard/*` authorization
+   * to oxy-api's own Application RBAC (zero RBAC duplication). Reads the SAME
+   * `OXY_API_URL` env var (and same `https://api.oxy.so` default) the shared
+   * `oxyClient` singleton itself was constructed with, so the two never drift.
+   */
+  oxyApiUrl: string;
 }
 
 function readOrigins(raw: string | undefined): string[] {
@@ -103,6 +124,7 @@ export function loadConfig(
     allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),
     checkoutBaseUrl: readNonEmpty(env.OXY_PAY_CHECKOUT_BASE_URL, DEFAULT_CHECKOUT_BASE_URL),
+    oxyApiUrl: readNonEmpty(env.OXY_API_URL, DEFAULT_OXY_API_URL),
   };
 }
 
