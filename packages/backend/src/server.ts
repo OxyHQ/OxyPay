@@ -25,6 +25,8 @@ import { WebhookDelivery } from "./models/WebhookDelivery";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
 import { createWebhookDeliveriesRouter } from "./routes/webhookDeliveries";
+import { createSocialRouter } from "./routes/social";
+import { createEnrichRouter } from "./routes/enrich";
 import {
   SettlementWatcher,
   type HydratedPaymentIntentDoc,
@@ -64,6 +66,8 @@ export interface GatewayDeps {
   requireMerchant?: RequestHandler;
   /** Optional service-auth middleware for the dual-auth payer/merchant GET route. */
   optionalServiceAuth?: RequestHandler;
+  /** End-user Oxy auth for the social + enrich routes (default `createOxyAuthMiddleware(oxyClient)`). */
+  requireOxyUser?: RequestHandler;
   /** Socket connection auth (default `oxyClient.authSocket()`). */
   socketAuth?: SocketAuth;
   /** On-chain reader (default the real Explorer client). */
@@ -157,6 +161,8 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
     oxyClient.auth({ jwtSecret: config.serviceJwtSecret, optional: true });
 
   app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
+  app.use(createSocialRouter({ requireOxyUser: deps.requireOxyUser }));
+  app.use(createEnrichRouter({ requireOxyUser: deps.requireOxyUser }));
   app.use(createMerchantsRouter({ requireMerchant }));
   app.use(
     createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
