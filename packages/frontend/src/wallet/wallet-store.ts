@@ -83,6 +83,13 @@ import {
   deriveIdentitySeed,
 } from "./identity-wallet";
 import {
+  SOCIAL_RECEIVE_GAP_LIMIT,
+  getIdentityPrivateKeyBytes,
+  deriveSocialReceiveWatchWindow,
+  getSocialReceiveSpendingKey,
+  computeWindowExtension,
+} from "./social-receive";
+import {
   getPockets,
   savePockets,
   getActivePocket,
@@ -152,6 +159,13 @@ export interface WalletState {
   isWatchOnly: boolean;
   /** Whether the active wallet's recovery phrase has been backed up. */
   hasBackedUp: boolean;
+  /**
+   * The recipient's stable social-receive default address (spec §4.3
+   * `addr(0)`) — shown on the Receive screen alongside `@username`. `null`
+   * until the social-receive window has been derived (web, keyless account,
+   * or before `initializeFromIdentity` completes).
+   */
+  socialReceiveDefaultAddress: string | null;
   /** Active Pocket (BIP44 account index) within the current wallet. */
   activeAccount: number;
   /** Pockets (BIP44 sub-accounts) of the current wallet. */
@@ -319,6 +333,15 @@ let utxoSet: UTXOSet | null = null;
 let database: Database | null = null;
 let networkConfig: NetworkConfig | null = null;
 let spvClient: SPVClient | null = null;
+/**
+ * The on-device identity's raw private key, held ONLY for deriving
+ * social-receive spending keys on demand (spec §4.3) — never used for the
+ * private spending tree, which goes through `deriveIdentitySeed`'s HKDF
+ * instead. `null` until `initializeFromIdentity` sets up social receive.
+ */
+let socialReceiveIdentityPrivateKey: Uint8Array | null = null;
+/** address -> derivation index, for every currently-watched social-receive address (used + unused window). */
+let socialReceiveAddressIndex: Map<string, number> = new Map();
 // Handle of the recurring poll that mirrors peer / sync state from the SPV
 // client into the store (peer count, height, status text, periodic rescan).
 // Held at module scope so we can clear it from `resetWalletInternals` — without
@@ -429,6 +452,124 @@ export function getActiveAccountXpub(): string | null {
  */
 export function getActiveWalletAddresses(): string[] {
   return keyManager?.getAllAddresses() ?? [];
+}
+
+/**
+ * Every address hash the wallet should watch: the private spending tree PLUS
+ * the social-receive branch (spec §4.3). `setBloomFilter` replaces the
+ * filter wholesale, so every call site that rebuilds it must include BOTH
+ * sets or the other silently drops out of coverage until the next refresh.
+ */
+function buildCombinedBloomFilterHashes(km: KeyManager): Uint8Array[] {
+  return [...km.getAllAddresses(), ...socialReceiveAddressIndex.keys()].map(
+    (addr) => decodeAddress(addr).hash,
+  );
+}
+
+/**
+ * Bring up the social-receive branch (spec §4.3) after the private spending
+ * tree is already initialized: derive (or load the persisted) watch window,
+ * populate the in-memory index map, publish the stable default address
+ * (`addr(0)`) to the store, and fold the social addresses into the SPV Bloom
+ * filter. Additive to `initialize()`'s own Bloom-filter setup — calling
+ * `setBloomFilter` again here is safe (it replaces the filter wholesale, so
+ * the FULL combined address set is passed every time, not a delta).
+ */
+async function setUpSocialReceive(
+  db: Database,
+  network: NetworkConfig,
+  currentSpvClient: SPVClient | null,
+  set: WalletSet,
+): Promise<void> {
+  const identityPrivateKey = await getIdentityPrivateKeyBytes();
+  if (!identityPrivateKey) {
+    // Web, or a race where identity was removed between initialize() and
+    // here — initializeFromIdentity() already returned "no-identity" in the
+    // normal case, so this is a defensive no-op, not the expected path.
+    return;
+  }
+  socialReceiveIdentityPrivateKey = identityPrivateKey;
+
+  let persisted = await db.getSocialReceiveAddresses();
+  if (persisted.length === 0) {
+    const initial = deriveSocialReceiveWatchWindow(
+      identityPrivateKey,
+      0,
+      SOCIAL_RECEIVE_GAP_LIMIT,
+      network,
+    );
+    await db.insertSocialReceiveAddresses(initial);
+    persisted = await db.getSocialReceiveAddresses();
+  }
+
+  socialReceiveAddressIndex = new Map(persisted.map((row) => [row.address, row.index_num]));
+  const defaultRow = persisted.find((row) => row.index_num === 0);
+  set({ socialReceiveDefaultAddress: defaultRow?.address ?? null });
+
+  if (currentSpvClient && keyManager) {
+    currentSpvClient.setBloomFilter(buildCombinedBloomFilterHashes(keyManager));
+  }
+}
+
+/**
+ * Extend the persisted + in-memory social-receive watch window if the
+ * highest USED index has moved close enough to its edge (spec §4.3 — mirrors
+ * the private tree's `markAddressUsed`-driven lookahead extension). Returns
+ * true if new addresses were derived (caller should refresh the Bloom
+ * filter), false otherwise.
+ */
+async function extendSocialReceiveWindowIfNeeded(
+  db: Database,
+  network: NetworkConfig,
+): Promise<boolean> {
+  if (!socialReceiveIdentityPrivateKey) {
+    return false;
+  }
+  const highestWatched = Math.max(-1, ...socialReceiveAddressIndex.values());
+  const highestUsed = await db.getHighestUsedSocialReceiveIndex();
+  const extension = computeWindowExtension(highestWatched, highestUsed, SOCIAL_RECEIVE_GAP_LIMIT);
+  if (!extension) {
+    return false;
+  }
+  const fresh = deriveSocialReceiveWatchWindow(
+    socialReceiveIdentityPrivateKey,
+    extension.start,
+    extension.count,
+    network,
+  );
+  await db.insertSocialReceiveAddresses(fresh);
+  for (const { index, address } of fresh) {
+    socialReceiveAddressIndex.set(address, index);
+  }
+  return true;
+}
+
+/**
+ * Resolve the signing private key for `address`: the private spending tree
+ * first, then the social-receive branch (spec §4.3) if the address isn't in
+ * the tree. Throws if neither knows the address, or if a social address is
+ * matched but the on-device identity key is unavailable (should not happen —
+ * a social address can only be watched while the identity key was present).
+ */
+async function getSigningKeyForAddress(
+  km: KeyManager,
+  address: string,
+): Promise<Uint8Array> {
+  if (km.ownsAddress(address)) {
+    return km.getPrivateKeyForAddress(address);
+  }
+  const socialIndex = socialReceiveAddressIndex.get(address);
+  if (socialIndex !== undefined) {
+    const identityPrivateKey =
+      socialReceiveIdentityPrivateKey ?? (await getIdentityPrivateKeyBytes());
+    if (!identityPrivateKey) {
+      throw new Error(
+        "Cannot sign for a social-receive address without the on-device identity key",
+      );
+    }
+    return getSocialReceiveSpendingKey(identityPrivateKey, socialIndex);
+  }
+  throw new Error(`Address not found in key manager: ${address}`);
 }
 
 /**
@@ -547,7 +688,8 @@ async function processIncomingTransaction(
     utxoSet,
     tx,
     txid,
-    (address) => keyManager?.ownsAddress(address) ?? false,
+    (address) =>
+      (keyManager?.ownsAddress(address) ?? false) || socialReceiveAddressIndex.has(address),
     networkConfig,
     confirmation,
   );
@@ -578,6 +720,12 @@ async function processIncomingTransaction(
     await database.markAddressUsed(address);
     if (keyManager.markAddressUsed(address)) {
       bloomNeedsRefresh = true;
+    }
+    if (socialReceiveAddressIndex.has(address)) {
+      await database.markSocialReceiveAddressUsed(address);
+      if (await extendSocialReceiveWindowIfNeeded(database, networkConfig)) {
+        bloomNeedsRefresh = true;
+      }
     }
   }
 
@@ -650,10 +798,7 @@ async function processIncomingTransaction(
   publishBalance(set);
 
   if (bloomNeedsRefresh && spvClient && keyManager) {
-    const addressHashes = keyManager
-      .getAllAddresses()
-      .map((addr) => decodeAddress(addr).hash);
-    spvClient.setBloomFilter(addressHashes);
+    spvClient.setBloomFilter(buildCombinedBloomFilterHashes(keyManager));
   }
 }
 
@@ -920,6 +1065,8 @@ function resetWalletInternals(): void {
     keyManager.wipe();
   }
   keyManager = null;
+  socialReceiveIdentityPrivateKey = null;
+  socialReceiveAddressIndex = new Map();
   utxoSet = null;
   database = null;
   networkConfig = null;
@@ -954,6 +1101,7 @@ const DEFAULT_WALLET_STATE = {
   masternodeUTXOs: [] as MasternodeUTXO[],
   isWatchOnly: false,
   hasBackedUp: false,
+  socialReceiveDefaultAddress: null as string | null,
   activeAccount: 0,
   pockets: [] as PocketInfo[],
   pocketBalances: {} as Record<number, bigint>,
@@ -1028,6 +1176,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   wallets: [],
   isWatchOnly: false,
   hasBackedUp: false,
+  socialReceiveDefaultAddress: null,
   activeAccount: 0,
   pockets: [],
   pocketBalances: {},
@@ -1393,6 +1542,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       return "no-identity";
     }
     await get().initialize(buildSeedSecret(seed), OXY_IDENTITY_WALLET_ID, onReady);
+    if (database && networkConfig) {
+      await setUpSocialReceive(database, networkConfig, spvClient, set);
+    }
     return "initialized";
   },
 
@@ -1528,10 +1680,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     // getNextAddress extends the lookahead window; refresh the Bloom filter so
     // a peer relays the incoming transaction that pays this address.
     if (spvClient) {
-      const addressHashes = keyManager
-        .getAllAddresses()
-        .map((addr) => decodeAddress(addr).hash);
-      spvClient.setBloomFilter(addressHashes);
+      spvClient.setBloomFilter(buildCombinedBloomFilterHashes(keyManager));
     }
 
     return derived.address;
@@ -1658,7 +1807,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           throw new Error(`UTXO not found for input ${input.txid}:${input.vout}`);
         }
 
-        const privateKey = localKeyManager.getPrivateKeyForAddress(utxo.address);
+        const privateKey = await getSigningKeyForAddress(localKeyManager, utxo.address);
         tx.inputs[i] = {
           ...tx.inputs[i],
           scriptSig: signInput(tx, i, utxo.scriptPubKey, privateKey),
