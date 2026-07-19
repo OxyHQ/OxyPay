@@ -1,14 +1,15 @@
 /* Oxy Pay checkout — hand-written CSS, no Tailwind/Bloom. This app is served
  * to anonymous payers (checkout.oxy.so); bundle weight and first paint matter
  * more than a shared design system here (spec §6). Brand token VALUES are
- * copied in as CSS custom properties rather than importing Bloom's theme.
- * `--oxy-purple*` below is a best-effort placeholder, not yet cross-checked
- * against Bloom's canonical oxy-purple token — confirm before real UI work
- * (Task 8+) lands on top of this shell. */
+ * copied in as CSS custom properties rather than importing Bloom's theme. */
 
 :root {
-  --oxy-purple: #6b4eff;
-  --oxy-purple-dark: #5638e0;
+  /* Canonical Oxy purple (Bloom preset, HSL 277 66% 56%). */
+  --oxy-purple: #c46ede;
+  /* Slightly-lighter tint for sufficient contrast against dark backgrounds —
+   * a straight darker shade would lose against --bg in dark mode. Task 9
+   * finalizes the visual. */
+  --oxy-purple-dark: #cd84e3;
   --oxy-success: #16a34a;
   --oxy-warning: #d97706;
   --oxy-danger: #dc2626;
