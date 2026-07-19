@@ -1,0 +1,63 @@
+/* Oxy Pay checkout — hand-written CSS, no Tailwind/Bloom. This app is served
+ * to anonymous payers (checkout.oxy.so); bundle weight and first paint matter
+ * more than a shared design system here (spec §6). Brand token VALUES are
+ * copied in as CSS custom properties rather than importing Bloom's theme.
+ * `--oxy-purple*` below is a best-effort placeholder, not yet cross-checked
+ * against Bloom's canonical oxy-purple token — confirm before real UI work
+ * (Task 8+) lands on top of this shell. */
+
+:root {
+  --oxy-purple: #6b4eff;
+  --oxy-purple-dark: #5638e0;
+  --oxy-success: #16a34a;
+  --oxy-warning: #d97706;
+  --oxy-danger: #dc2626;
+
+  --bg: #ffffff;
+  --bg-elevated: #f7f7fb;
+  --text: #17181c;
+  --text-muted: #5c5f6a;
+  --border: #e4e4ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121215;
+    --bg-elevated: #1b1b20;
+    --text: #f2f2f5;
+    --text-muted: #a3a5b0;
+    --border: #2a2a31;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.checkout-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.checkout-page__pending {
+  color: var(--text-muted);
+  font-size: 15px;
+  text-align: center;
+}

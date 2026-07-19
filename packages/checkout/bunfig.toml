@@ -1,0 +1,4 @@
+[test]
+# `@testing-library/react` needs a DOM; bun test's runtime is Bun, not a
+# browser, so happy-dom is registered globally before any test file loads.
+preload = "./happydom.ts"
