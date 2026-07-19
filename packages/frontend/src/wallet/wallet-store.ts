@@ -381,6 +381,20 @@ let sendInFlight = false;
 let pendingLockTeardown: null | (() => void) = null;
 
 /**
+ * Bumped by `lockWallet` the instant it fires (before anything else runs —
+ * see `lockWallet` below). A queued `initialize()` task captures the value
+ * in effect when IT started; if a checkpoint later finds the value has
+ * moved, a lock landed while this task was mid-flight (e.g. the user
+ * backgrounds the app again during an unlock's `reloadActiveWallet`). The
+ * task then abandons its own now-unwanted work via `resetWalletInternals()`
+ * instead of resurrecting `database`/`keyManager`/`spvClient`/wallet state
+ * out from under the lock — mirrors the generation-counter guard in
+ * `SendSheet.tsx`'s `reservationRequestIdRef`, applied to module state
+ * instead of component state.
+ */
+let lockEpoch = 0;
+
+/**
  * Serialises `initialize` / `switchWallet` / `restoreWallet` / `switchNetwork`
  * calls (N-1). Any call enters this single `Promise<void>` queue; the next
  * call awaits the previous one before starting, so we can never have two
@@ -1292,6 +1306,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     // be stopped (open socket leak) and its callbacks would write rows into
     // the winning wallet's DB (cross-contamination).
     return queueWalletInit(async () => {
+      // Lock-race guard (see `lockEpoch`): captured before the first await
+      // below, so every checkpoint compares against the epoch that was
+      // current when THIS task started.
+      const myEpoch = lockEpoch;
       const state = get();
       if (state.initialized) {
         // Already up (e.g. a concurrent caller won the race). Signal the
@@ -1315,6 +1333,15 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         account ?? (activeId ? await getActivePocket(activeId) : 0);
 
       database = await Database.open(activeId ?? undefined, resolvedAccount);
+      if (myEpoch !== lockEpoch) {
+        // Locked while we were opening the database: abandon this task
+        // rather than build wallet state on top of a wallet the user just
+        // locked. `resetWalletInternals` tears down exactly what we've
+        // assigned so far (this database handle) and is a no-op for
+        // anything we haven't reached yet.
+        resetWalletInternals();
+        return;
+      }
       // A wallet's stored secret is either a BIP39 mnemonic or the watch-only
       // marker `xpub:<extended public key>`. The marker MUST route to the
       // public-only KeyManager: feeding it into mnemonicToSeedSync would
@@ -1340,6 +1367,14 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         const seedCacheId = activeId ?? "default";
         const seed = await getOrDeriveBip39Seed(seedCacheId, mnemonic, walletSeedDeps);
         keyManager = KeyManager.fromSeed(seed, networkConfig, resolvedAccount);
+      }
+      if (myEpoch !== lockEpoch) {
+        // Locked while we were deriving keys (the BIP39 branch awaits a
+        // PBKDF2 derivation above). Wipe/close what this task built instead
+        // of leaving key material or a database handle dangling in module
+        // scope behind the lock screen.
+        resetWalletInternals();
+        return;
       }
       utxoSet = new UTXOSet();
 
@@ -1448,6 +1483,18 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         }
       }
 
+      if (myEpoch !== lockEpoch) {
+        // Locked while we were hydrating from disk (persisted UTXOs,
+        // addresses, social-receive window, transaction history — all pure
+        // reads/derivations up to this point). This is the mandatory gate:
+        // never publish `initialized: true` or fire `onReady` (which would
+        // lift the lock screen) for a task that started before the lock.
+        // There is no `await` between this check and the SPV start-up block
+        // below, so passing here also guarantees we won't create a live
+        // SPVClient / peer-update interval behind a locked screen.
+        resetWalletInternals();
+        return;
+      }
       set({
         initialized: true,
         loading: false,
@@ -2118,6 +2165,16 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     // (activeWalletId / wallets / network) is preserved so the right wallet is
     // brought back up. Persisted secrets and chain data are untouched, so this
     // is non-destructive and fully reversible by unlocking.
+    //
+    // Bump the lock epoch FIRST, synchronously, unconditionally — even in the
+    // sendInFlight-deferred branch below. This is what makes locking safe
+    // against a queued `initialize()` task that's mid-flight (e.g. a PIN
+    // unlock's `reloadActiveWallet` still hydrating when the app backgrounds
+    // again): the epoch bump itself is instant, so the in-flight task will
+    // see it at its very next checkpoint and abandon its own work, regardless
+    // of whether ITS teardown (this function's, for a concurrent send) runs
+    // immediately or is deferred.
+    lockEpoch++;
     const state = get();
     const applyLockState = (): void => {
       set({
