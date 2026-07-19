@@ -138,6 +138,10 @@ export function createOxyPayCheckout(
     }
     if (!ack.ok) {
       socket.disconnect();
+      // The Gateway's `subscribe` handler returns this SAME {ok:false} for
+      // an unknown intent AND a wrong client_secret (anti-enumeration — see
+      // `realtime/socket.ts`), so this is deliberately InvalidRequestError,
+      // not PermissionError: there is no signal here to tell the two apart.
       throw new OxyPayInvalidRequestError(
         `Gateway rejected subscription to payment intent ${id} ` +
           '(unknown payment intent or invalid client_secret)',
@@ -155,9 +159,29 @@ export function createOxyPayCheckout(
     };
     socket.on('intent.updated', listener);
 
+    // socket.io-client's default reconnection restores the TRANSPORT, but the
+    // server spins up a fresh Socket with no room membership — so every
+    // reconnect (mobile network blip, backgrounded tab, LB cycle) must re-run
+    // the room-join handshake or `intent.updated` silently stops arriving for
+    // the rest of the subscription's life. A hosted checkout tab can sit open
+    // unattended for minutes while a payment settles, with no app-lifecycle
+    // trigger to notice and recover — unlike the wallet, this can't rely on
+    // the user reopening the screen. `reconnect` is a Manager-level event
+    // (`socket.io`, not `socket` itself) in socket.io-client.
+    const onReconnect = (): void => {
+      void socket.emitWithAck('subscribe', { intentId: id, clientSecret }).catch(() => {
+        // Fire-and-forget: `onUpdate` has no error channel to surface a
+        // failed resubscribe (e.g. the intent expired between drop and
+        // reconnect) — socket.io keeps retrying the transport regardless, so
+        // there is nothing actionable to do with this rejection here.
+      });
+    };
+    socket.io.on('reconnect', onReconnect);
+
     return {
       unsubscribe(): void {
         socket.off('intent.updated', listener);
+        socket.io.off('reconnect', onReconnect);
         socket.disconnect();
       },
     };

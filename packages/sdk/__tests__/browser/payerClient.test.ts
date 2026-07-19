@@ -11,25 +11,49 @@ import type { PaymentIntent } from '@oxypay/shared-types';
 import { createMockFetch } from '../support/mockFetch';
 import { TEST_GATEWAY_URL } from '../support/testGateway';
 
+interface FakeManager {
+  on: ReturnType<typeof mock>;
+  off: ReturnType<typeof mock>;
+}
+
 interface FakeSocket {
   emitWithAck: ReturnType<typeof mock>;
   on: ReturnType<typeof mock>;
   off: ReturnType<typeof mock>;
   disconnect: ReturnType<typeof mock>;
+  io: FakeManager;
 }
 
 let nextSocket: FakeSocket | null = null;
 const ioCalls: Array<{ url: string; opts: unknown }> = [];
 
-function installFakeSocket(ack: { ok: boolean } | Error): FakeSocket {
+/**
+ * `ack` is either a fixed ack/error (every `emitWithAck` call resolves the
+ * same way) or a queue consumed one entry per call — the reconnect test needs
+ * the SECOND `emitWithAck` (the resubscribe) to be distinguishable from the
+ * first.
+ */
+function installFakeSocket(
+  ack: { ok: boolean } | Error | Array<{ ok: boolean } | Error>,
+): FakeSocket {
+  const queue = Array.isArray(ack) ? [...ack] : null;
   const socket: FakeSocket = {
     emitWithAck: mock(async () => {
-      if (ack instanceof Error) throw ack;
-      return ack;
+      if (!queue) {
+        if (ack instanceof Error) throw ack;
+        return ack;
+      }
+      const next = queue.shift();
+      if (next === undefined) {
+        throw new Error('installFakeSocket() ack queue exhausted — emitWithAck called too many times');
+      }
+      if (next instanceof Error) throw next;
+      return next;
     }),
     on: mock(() => {}),
     off: mock(() => {}),
     disconnect: mock(() => {}),
+    io: { on: mock(() => {}), off: mock(() => {}) },
   };
   nextSocket = socket;
   return socket;
@@ -234,17 +258,65 @@ describe('subscribe', () => {
     expect(updates[0]?.status).toBe('broadcast');
   });
 
-  test('unsubscribe removes the listener and disconnects the socket', async () => {
+  test('unsubscribe removes the listener, removes the reconnect handler, and disconnects the socket', async () => {
     const socket = installFakeSocket({ ok: true });
     const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     const { unsubscribe } = await client.subscribe('pi_1', 'secret_1', () => {});
     const listener = socket.on.mock.calls[0]?.[1];
+    const reconnectHandler = socket.io.on.mock.calls[0]?.[1];
 
     unsubscribe();
 
     expect(socket.off).toHaveBeenCalledWith('intent.updated', listener);
+    expect(socket.io.off).toHaveBeenCalledWith('reconnect', reconnectHandler);
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('on Manager reconnect, re-emits subscribe with the same {intentId, clientSecret} without duplicating the intent.updated listener', async () => {
+    const socket = installFakeSocket([{ ok: true }, { ok: true }]);
+    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const updates: PaymentIntent[] = [];
+
+    await client.subscribe('pi_1', 'secret_1', (intent) => updates.push(intent));
+
+    expect(socket.io.on).toHaveBeenCalledWith('reconnect', expect.any(Function));
+    const reconnectHandler = socket.io.on.mock.calls[0]?.[1] as () => void;
+
+    reconnectHandler();
+    // The resubscribe fires fire-and-forget — flush the microtask queue.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.emitWithAck).toHaveBeenCalledTimes(2);
+    expect(socket.emitWithAck).toHaveBeenNthCalledWith(2, 'subscribe', {
+      intentId: 'pi_1',
+      clientSecret: 'secret_1',
+    });
+    // `intent.updated` must still be registered exactly once — a reconnect
+    // must never re-add the listener (which would double-fire onUpdate).
+    expect(socket.on).toHaveBeenCalledTimes(1);
+
+    const listener = socket.on.mock.calls[0]?.[1] as (intent: PaymentIntent) => void;
+    listener({ ...INTENT, id: 'pi_1', status: 'broadcast' });
+    expect(updates).toHaveLength(1);
+  });
+
+  test('a failed resubscribe on reconnect is swallowed (no unhandled rejection, no throw)', async () => {
+    const socket = installFakeSocket([
+      { ok: true },
+      new Error('intent has since expired'),
+    ]);
+    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+
+    await client.subscribe('pi_1', 'secret_1', () => {});
+    const reconnectHandler = socket.io.on.mock.calls[0]?.[1] as () => void;
+
+    expect(() => reconnectHandler()).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.emitWithAck).toHaveBeenCalledTimes(2);
   });
 
   test('a rejected ack (ok: false) disconnects the socket and throws OxyPayInvalidRequestError', async () => {
