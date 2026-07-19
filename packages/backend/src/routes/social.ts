@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
-import { oxyClient } from "@oxyhq/core";
+import { oxyClient, isNotFoundError } from "@oxyhq/core";
 import { createOxyAuthMiddleware, getRequiredOxyUserId } from "@oxyhq/core/server";
 import type { SocialNextAddressResponse } from "@oxypay/shared-types";
 import { reserveNextSocialAddress } from "../services/socialReceive";
@@ -53,8 +53,20 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
       let recipient: { id: string };
       try {
         recipient = await oxyClient.getProfileByUsername(username);
-      } catch {
-        sendError(res, 404, "invalid_request_error", "recipient not found");
+      } catch (err) {
+        if (isNotFoundError(err)) {
+          sendError(res, 404, "invalid_request_error", "recipient not found");
+          return;
+        }
+        // Anything other than a genuine 404 (network failure, oxy-api 5xx,
+        // timeout) is an upstream outage, not a missing recipient — mapping
+        // it to 404 would both mislead the payer and hide the outage from
+        // observability. Log it and surface a distinct 5xx instead.
+        const message = err instanceof Error ? err.message : String(err);
+        process.emitWarning(
+          `OxyPay social-send profile lookup failed for @${username}: ${message}`,
+        );
+        sendError(res, 502, "api_error", "failed to resolve recipient — try again");
         return;
       }
 

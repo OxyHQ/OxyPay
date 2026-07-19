@@ -43,8 +43,20 @@ function didFor(userId: string): DidDocument {
 }
 
 const getProfileByUsernameMock = mock(async (username: string) => {
+  // Simulates a real oxy-api outage/timeout — no `.status` on the error, the
+  // same shape a network failure produces. Must NOT be treated as a 404.
+  if (username === "flaky") {
+    throw new Error("network timeout");
+  }
   const profile = PROFILES[username];
-  if (!profile) throw new Error("not found");
+  if (!profile) {
+    // Real `getProfileByUsername` 404s carry `.status` (set by
+    // `OxyServices.base.ts`'s `handleError`) — mirror that shape so
+    // `isNotFoundError` in the route under test exercises the real check.
+    const err = new Error("not found") as Error & { status: number };
+    err.status = 404;
+    throw err;
+  }
   return profile as unknown as User;
 });
 const resolveDidMock = mock(async (userId: string) => didFor(userId));
@@ -165,5 +177,11 @@ describe("POST /v1/social/:username/next_address", () => {
     const { status, body } = await postNextAddress("alice", { network: "regtest" });
     expect(status).toBe(422);
     expect(body.error?.type).toBe("invalid_request_error");
+  });
+
+  test("502s with type api_error (not 404) when the profile lookup fails upstream", async () => {
+    const { status, body } = await postNextAddress("flaky", { network: "testnet" });
+    expect(status).toBe(502);
+    expect(body.error?.type).toBe("api_error");
   });
 });
