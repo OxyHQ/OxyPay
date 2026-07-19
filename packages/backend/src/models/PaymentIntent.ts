@@ -52,6 +52,16 @@ const paymentIntentSchema = new Schema<PaymentIntentDoc>(
 // of the same key by the same merchant collides here rather than minting a twin.
 paymentIntentSchema.index({ merchantId: 1, idempotencyKey: 1 }, { unique: true });
 
+// `GET /v1/payment_intents` filters (and cursor-paginates) by `merchantId` —
+// the compound unique index above is keyed on `idempotencyKey` second, so it
+// can't serve that list query. This index turns it from a full collection
+// scan into an index scan.
+paymentIntentSchema.index({ merchantId: 1 });
+
+// `services/enrichment.ts` resolves `PaymentIntent.find({ address: {$in} })`
+// as its first address-keyed lookup — no other index covers `address`.
+paymentIntentSchema.index({ address: 1 });
+
 export const PaymentIntent = model<PaymentIntentDoc>(
   "PaymentIntent",
   paymentIntentSchema,
