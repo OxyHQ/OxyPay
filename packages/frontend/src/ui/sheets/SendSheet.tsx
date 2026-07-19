@@ -15,7 +15,7 @@
  */
 
 import type React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -142,6 +142,12 @@ export function SendSheet({
   const [showRecipientPicker, setShowRecipientPicker] = useState(false);
   const [reservingAddress, setReservingAddress] = useState(false);
   const [keylessRecipientUsername, setKeylessRecipientUsername] = useState<string | null>(null);
+  // Generation counter guarding the `reserveNextSocialAddress` continuation
+  // below against staleness: bumped on every new reservation attempt AND on
+  // every mode switch, so a reservation that resolves after the user has
+  // moved on (switched to Address mode, or back) is detected and discarded
+  // instead of silently overwriting whatever `toAddress` now holds.
+  const reservationRequestIdRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [recentRecipients, setRecentRecipients] = useState<
@@ -317,14 +323,21 @@ export function SendSheet({
 
   const handleSelectRecipient = useCallback(
     async (recipient: SocialRecipient) => {
+      const requestId = ++reservationRequestIdRef.current;
       setSelectedRecipient(recipient);
       setToAddress("");
       setKeylessRecipientUsername(null);
       setReservingAddress(true);
       try {
         const reservation = await reserveNextSocialAddress(recipient.username, network);
+        // The user may have switched modes (or triggered another pick) while
+        // this reservation was in flight — a stale resolution must never
+        // apply its address, or it would silently arm the Send button with
+        // an address the current UI never showed as chosen.
+        if (reservationRequestIdRef.current !== requestId) return;
         setToAddress(reservation.address);
       } catch (e: unknown) {
+        if (reservationRequestIdRef.current !== requestId) return;
         if (e instanceof KeylessRecipientError) {
           setKeylessRecipientUsername(recipient.username);
           setSelectedRecipient(null);
@@ -333,22 +346,31 @@ export function SendSheet({
           setSelectedRecipient(null);
         }
       } finally {
-        setReservingAddress(false);
+        // Only the request that's still current may clear the spinner — an
+        // earlier, superseded request's `finally` must not stop a newer
+        // reservation's loading state from displaying.
+        if (reservationRequestIdRef.current === requestId) setReservingAddress(false);
       }
     },
     [network],
   );
 
   const handleClearSelectedRecipient = useCallback(() => {
+    reservationRequestIdRef.current += 1;
     setSelectedRecipient(null);
     setToAddress("");
     setKeylessRecipientUsername(null);
   }, []);
 
   const handleRecipientModeChange = useCallback((mode: "person" | "address") => {
+    // Invalidate any in-flight reservation so its continuation discards its
+    // result instead of applying it after the user has moved to a different
+    // mode (see `handleSelectRecipient`'s staleness guard).
+    reservationRequestIdRef.current += 1;
     setRecipientMode(mode);
     setSelectedRecipient(null);
     setKeylessRecipientUsername(null);
+    setReservingAddress(false);
     setToAddress("");
   }, []);
 
