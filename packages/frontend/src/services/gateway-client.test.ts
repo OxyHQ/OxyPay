@@ -1,4 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import type { EnrichmentResult } from "@oxypay/shared-types";
 
 const postMock = mock(async (_path: string, _body: unknown): Promise<unknown> => {
   throw new Error("postMock not configured for this test");
@@ -65,17 +66,19 @@ describe("reserveNextSocialAddress", () => {
 
 describe("enrichAddresses", () => {
   test("posts the batch and returns the data map", async () => {
-    postMock.mockImplementationOnce(async () => ({
-      data: {
-        TAddr1: { kind: "unknown" },
-        TAddr2: { kind: "merchant", displayName: "Shop" },
-      },
-    }));
+    // The real linked client's `unwrapResponse` already strips the backend's
+    // `{ data: map }` envelope before resolving `client.post(...)`, so the
+    // mock must return the NAKED map (the post-unwrap shape), not `{ data }`
+    // — otherwise this test can't catch a re-introduced `.data` unwrap.
+    const enrichmentMap: Record<string, EnrichmentResult> = {
+      TAddr1: { kind: "unknown" },
+      TAddr2: { kind: "merchant", displayName: "Shop" },
+    };
+    postMock.mockImplementationOnce(async () => enrichmentMap);
 
     const result = await enrichAddresses(["TAddr1", "TAddr2"]);
 
     expect(postMock).toHaveBeenCalledWith("/v1/enrich", { addresses: ["TAddr1", "TAddr2"] });
-    expect(result.TAddr1).toEqual({ kind: "unknown" });
-    expect(result.TAddr2).toEqual({ kind: "merchant", displayName: "Shop" });
+    expect(result).toEqual(enrichmentMap);
   });
 });

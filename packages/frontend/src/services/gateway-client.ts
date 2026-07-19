@@ -2,7 +2,6 @@ import type { NetworkType } from '@fairco.in/core';
 import type {
   PaymentIntent,
   SocialNextAddressResponse,
-  EnrichResponse,
   EnrichmentResult,
 } from '@oxypay/shared-types';
 import { oxyServices } from '@/services/oxy-services';
@@ -89,10 +88,15 @@ export async function reserveNextSocialAddress(
  * §4.8) — "Paid at <merchant>" / "Sent to @x" / "Received from @x" / an
  * honest `unknown` for a pure external payment. Display-only: a failure here
  * must never be treated as a payment failure by callers.
+ *
+ * The Gateway sends `{ data: map }` (see `routes/enrich.ts`), but the linked
+ * client's `unwrapResponse` already strips a top-level `data` key with no
+ * `pagination` sibling before resolving — so the parsed body IS the naked
+ * map already. Returning `.data` here would unwrap a second time and yield
+ * `undefined`.
  */
 export async function enrichAddresses(
   addresses: string[],
 ): Promise<Record<string, EnrichmentResult>> {
-  const response = await gateway.client.post<EnrichResponse>('/v1/enrich', { addresses });
-  return response.data;
+  return gateway.client.post<Record<string, EnrichmentResult>>('/v1/enrich', { addresses });
 }
