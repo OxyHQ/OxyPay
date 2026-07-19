@@ -62,3 +62,170 @@ body {
   font-size: 15px;
   text-align: center;
 }
+
+.checkout-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.merchant-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.merchant-identity__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.merchant-identity__name {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.merchant-identity__description {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pay-with-oxypay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.pay-with-oxypay__amount {
+  margin: 0;
+  color: var(--text);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.pay-with-oxypay__button {
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 12px;
+  background: var(--oxy-purple);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pay-with-oxypay__button:hover {
+  background: var(--oxy-purple-dark);
+}
+
+.pay-with-oxypay__qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.qr {
+  padding: 12px;
+  background: #ffffff;
+  border-radius: 12px;
+  line-height: 0;
+}
+
+.pay-with-oxypay__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.status-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 28px 20px;
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.status-panel__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--oxy-purple);
+  border-radius: 50%;
+  animation: status-panel-spin 0.8s linear infinite;
+}
+
+@keyframes status-panel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-panel__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.status-panel--primary .status-panel__icon {
+  background: var(--oxy-purple);
+}
+
+.status-panel--warning .status-panel__icon {
+  background: var(--oxy-warning);
+}
+
+.status-panel--danger .status-panel__icon {
+  background: var(--oxy-danger);
+}
+
+.status-panel__title {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.status-panel__subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.status-panel__cta {
+  margin-top: 8px;
+  padding: 10px 24px;
+  border-radius: 10px;
+  background: var(--oxy-purple);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.status-panel__cta:hover {
+  background: var(--oxy-purple-dark);
+}

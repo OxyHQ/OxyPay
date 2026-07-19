@@ -52,19 +52,10 @@ export function SessionRoute() {
     );
   }
 
-  const { paymentIntent, successUrl } = state.data;
-  if (paymentIntent.status === 'settled' && successUrl) {
-    return (
-      <main className="checkout-page">
-        <p className="checkout-page__pending">Payment complete.</p>
-        <a href={successUrl}>Continue</a>
-      </main>
-    );
-  }
-
+  const { paymentIntent, merchant, successUrl } = state.data;
   return (
     <main className="checkout-page">
-      <CheckoutView intent={paymentIntent} />
+      <CheckoutView intent={paymentIntent} merchant={merchant} successUrl={successUrl} />
     </main>
   );
 }

@@ -6,6 +6,7 @@ import { gatewayGet, gatewayPost } from '../lib/gatewayFetch';
 import { getReusableIntentForLink, rememberIntentForLink } from '../lib/linkSession';
 import type { LoadState } from '../lib/loadState';
 import { CheckoutView } from '../components/CheckoutView';
+import { MerchantIdentity } from '../components/MerchantIdentity';
 
 type PayState = { status: 'idle' } | LoadState<PaymentIntent>;
 
@@ -82,16 +83,15 @@ export function LinkRoute() {
   if (payState.status === 'ready') {
     return (
       <main className="checkout-page">
-        <CheckoutView intent={payState.data} />
+        <CheckoutView intent={payState.data} merchant={link.merchant} />
       </main>
     );
   }
 
   return (
     <main className="checkout-page">
-      <p className="checkout-page__pending">
-        {formatFair(BigInt(link.amount))} FAIR to {link.merchant.name}
-      </p>
+      <MerchantIdentity merchant={link.merchant} />
+      <p className="checkout-page__pending">{formatFair(BigInt(link.amount))} FAIR</p>
       {payState.status === 'error' && <p className="checkout-page__pending">{payState.message}</p>}
       <button type="button" onClick={() => void handlePay()} disabled={payState.status === 'loading'}>
         {payState.status === 'loading' ? 'Starting…' : 'Pay'}

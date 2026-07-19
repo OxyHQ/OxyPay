@@ -1,5 +1,6 @@
 // @oxypay/shared-types — public API for the Oxy Pay Gateway contract.
 export { UNITS_PER_COIN, isBaseUnitString } from './money';
+export { type NetworkType } from './network';
 export {
   type PaymentIntentStatus,
   type PaymentIntent,

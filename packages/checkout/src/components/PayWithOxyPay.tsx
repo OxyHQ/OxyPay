@@ -1,0 +1,47 @@
+import type { PaymentIntent } from '@oxypay/shared-types';
+import { formatFair } from '@fairco.in/core';
+import { buildPayDeepLink } from '../lib/deepLink';
+import { Qr } from './Qr';
+
+// Heuristic, not a hard guarantee — good enough to decide "can this device
+// plausibly handle a custom URL scheme via a same-tab navigation" for the
+// mobile-vs-desktop split this button needs. Session-stable, so a plain read
+// (not state) is fine.
+function isMobileDevice(): boolean {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+// Mode A: pay through the Oxy Pay wallet app. Mobile opens the `oxypay://`
+// deep link directly; desktop shows a QR of the same link for the payer to
+// scan with their phone.
+export function PayWithOxyPay({ intent }: { intent: PaymentIntent }) {
+  const deepLink = buildPayDeepLink({
+    intentId: intent.id,
+    clientSecret: intent.clientSecret,
+    address: intent.address,
+    amount: intent.amount,
+    network: intent.network,
+  });
+
+  return (
+    <div className="pay-with-oxypay">
+      <p className="pay-with-oxypay__amount">{formatFair(BigInt(intent.amount))} FAIR</p>
+      {isMobileDevice() ? (
+        <button
+          type="button"
+          className="pay-with-oxypay__button"
+          onClick={() => {
+            window.location.href = deepLink;
+          }}
+        >
+          Pay with Oxy Pay
+        </button>
+      ) : (
+        <div className="pay-with-oxypay__qr">
+          <Qr text={deepLink} size={200} />
+          <p className="pay-with-oxypay__hint">Scan with the Oxy Pay app</p>
+        </div>
+      )}
+    </div>
+  );
+}

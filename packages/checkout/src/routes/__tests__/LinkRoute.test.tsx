@@ -18,6 +18,15 @@ mock.module('../../lib/intentClient', () => ({
   }),
 }));
 
+// A resolved intent now renders the full CheckoutView -> PayWithOxyPay ->
+// Qr chain (Task 9), which draws to a real <canvas> 2D context — unsupported
+// by happy-dom (no canvas rendering engine), unrelated to what this suite
+// tests (reuse-if-open, not QR rendering). Stub it out; `Qr` itself isn't
+// exercised here.
+mock.module('qr-creator/dist/qr-creator.es6.min.js', () => ({
+  default: { render: () => undefined },
+}));
+
 const { LinkRoute } = await import('../LinkRoute');
 
 const LINK: PublicPaymentLink = {
@@ -92,7 +101,9 @@ test('reuses an open intent without minting a fresh one', async () => {
   renderLinkRoute();
   fireEvent.click(await screen.findByRole('button', { name: /pay/i }));
 
-  expect(await screen.findByText(/1 FAIR — created/i)).toBeDefined();
+  // status 'created' is an awaiting-payment state — CheckoutView renders
+  // PayWithOxyPay (amount + deep link/QR), not StatusPanel yet.
+  expect(await screen.findByText('1 FAIR')).toBeDefined();
   expect(getPaymentIntentMock).toHaveBeenCalledWith('pi_open789', 'pi_open789_secret');
   // Only the link-details GET should have hit the Gateway — no mint POST.
   expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -121,7 +132,9 @@ test('mints a fresh intent once the remembered one is terminal', async () => {
   renderLinkRoute();
   fireEvent.click(await screen.findByRole('button', { name: /pay/i }));
 
-  expect(await screen.findByText(/1 FAIR — created/i)).toBeDefined();
+  // status 'created' is an awaiting-payment state — CheckoutView renders
+  // PayWithOxyPay (amount + deep link/QR), not StatusPanel yet.
+  expect(await screen.findByText('1 FAIR')).toBeDefined();
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(sessionStorage.getItem('oxypay:link-intent:link_test123')).toContain('pi_fresh456');
 });
