@@ -1,23 +1,84 @@
-import { test, expect, afterEach } from 'bun:test';
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
-import { App } from '../App';
+import type { PaymentIntent } from '@oxypay/shared-types';
+
+// App renders IntentRoute for `/i/:intentId`, which touches
+// `@oxyhq/pay/checkout` through this app's one touchpoint,
+// `lib/intentClient.ts`. Mock it here the same way every route suite does
+// (see routes/__tests__/IntentRoute.test.tsx) so this suite exercises App's
+// own routing/rendering behavior, independent of whatever state the SDK's
+// `dist/` build happens to be in.
+const getPaymentIntentMock = mock(async (): Promise<PaymentIntent> => {
+  throw new Error('getPaymentIntentMock not configured for this test');
+});
+mock.module('../lib/intentClient', () => ({
+  getPaymentIntent: getPaymentIntentMock,
+  subscribe: mock(async () => () => undefined),
+  submitTx: mock(async () => {
+    throw new Error('submitTx is not exercised by App');
+  }),
+}));
+
+// Renders the full CheckoutView -> PayWithOxyPay -> Qr chain, which draws to
+// a real <canvas> 2D context — unsupported by happy-dom (no canvas rendering
+// engine), unrelated to what this suite tests. Stub it out (same pattern as
+// IntentRoute.test.tsx / LinkRoute.test.tsx).
+mock.module('qr-creator/dist/qr-creator.es6.min.js', () => ({
+  default: { render: () => undefined },
+}));
+
+const { App } = await import('../App');
+
+function makeIntent(overrides: Partial<PaymentIntent> = {}): PaymentIntent {
+  return {
+    id: 'pi_test123',
+    object: 'payment_intent',
+    status: 'created',
+    amount: '100000000',
+    currency: 'FAIR',
+    network: 'testnet',
+    address: 'TAddressExample1111111111111111111',
+    merchantId: 'merch_1',
+    txid: null,
+    confirmations: 0,
+    clientSecret: 'pi_test123_secret_abc',
+    metadata: {},
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  getPaymentIntentMock.mockReset();
+});
 
 afterEach(() => {
   cleanup();
 });
 
-test('renders the payment intent route shell, then falls back once the frozen @oxyhq/pay/checkout client rejects', async () => {
+test('renders the payment intent route shell, then the CheckoutView once the client resolves an intent', async () => {
+  const intent = makeIntent();
+  getPaymentIntentMock.mockImplementation(async () => intent);
+
   window.history.pushState({}, '', '/i/pi_test123#client_secret=pi_test123_secret_abc');
   render(<App />);
 
   expect(screen.getByText(/loading payment intent pi_test123/i)).toBeDefined();
-  // Deliberately unmocked — asserts against the REAL frozen `@oxyhq/pay/checkout`
-  // stub (every method rejects with this exact message until the SDK plan's
-  // Task 5 merges in), not a fixture. Await the settled state within this
-  // same test so the `.catch()` state update (a microtask away from the
-  // render above) can't leak past this test's completion and land
-  // un-`act()`-wrapped on a later test.
-  expect(await screen.findByText(/not implemented yet/i)).toBeDefined();
+  expect(await screen.findByText('1 FAIR')).toBeDefined();
+  expect(getPaymentIntentMock).toHaveBeenCalledWith('pi_test123', 'pi_test123_secret_abc');
+});
+
+test('shows the error state once the client rejects', async () => {
+  getPaymentIntentMock.mockImplementation(async () => {
+    throw new Error('Payment intent not found.');
+  });
+
+  window.history.pushState({}, '', '/i/pi_test123#client_secret=pi_test123_secret_abc');
+  render(<App />);
+
+  expect(await screen.findByText('Payment intent not found.')).toBeDefined();
 });
 
 test('renders a not-found shell for an unknown route', () => {
