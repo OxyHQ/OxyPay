@@ -16,7 +16,7 @@
 
 import type React from "react";
 import { useCallback, useMemo, useState } from "react";
-import { View, Text, TextInput, ScrollView, Pressable } from "react-native";
+import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import * as Clipboard from "expo-clipboard";
@@ -40,6 +40,9 @@ import {
 import { FairCoinSymbol } from "../components/FairCoinSymbol";
 import { QRScanner } from "../components/QRScanner";
 import { ContactPicker } from "../components/ContactPicker";
+import { SocialRecipientPicker, type SocialRecipient } from "../components/SocialRecipientPicker";
+import { UserAvatar } from "../components/UserAvatar";
+import { reserveNextSocialAddress, KeylessRecipientError } from "../../services/gateway-client";
 import { getCachedPrice } from "../../services/price";
 import type { RecentRecipientRow, ContactRow } from "../../storage/database";
 import { useTheme } from "@oxyhq/bloom/theme";
@@ -134,6 +137,11 @@ export function SendSheet({
   const [feeLevel, setFeeLevel] = useState<FeeLevel>("medium");
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
+  const [recipientMode, setRecipientMode] = useState<"person" | "address">("person");
+  const [selectedRecipient, setSelectedRecipient] = useState<SocialRecipient | null>(null);
+  const [showRecipientPicker, setShowRecipientPicker] = useState(false);
+  const [reservingAddress, setReservingAddress] = useState(false);
+  const [keylessRecipientUsername, setKeylessRecipientUsername] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [recentRecipients, setRecentRecipients] = useState<
@@ -240,7 +248,8 @@ export function SendSheet({
     addressValid &&
     amountSats !== null &&
     amountSats > 0n &&
-    validationError === null;
+    validationError === null &&
+    !reservingAddress;
 
   // Computed inline (not memoised): `getCachedPrice()` is module state, not a
   // reactive dependency, so a useMemo keyed only on amountSats would freeze
@@ -297,6 +306,52 @@ export function SendSheet({
     setShowContactPicker(false);
   }, []);
 
+  const handleOpenRecipientPicker = useCallback(() => {
+    setKeylessRecipientUsername(null);
+    setShowRecipientPicker(true);
+  }, []);
+
+  const handleCloseRecipientPicker = useCallback(() => {
+    setShowRecipientPicker(false);
+  }, []);
+
+  const handleSelectRecipient = useCallback(
+    async (recipient: SocialRecipient) => {
+      setSelectedRecipient(recipient);
+      setToAddress("");
+      setKeylessRecipientUsername(null);
+      setReservingAddress(true);
+      try {
+        const reservation = await reserveNextSocialAddress(recipient.username, network);
+        setToAddress(reservation.address);
+      } catch (e: unknown) {
+        if (e instanceof KeylessRecipientError) {
+          setKeylessRecipientUsername(recipient.username);
+          setSelectedRecipient(null);
+        } else {
+          setError(e instanceof Error ? e.message : t("send.error.failedSend"));
+          setSelectedRecipient(null);
+        }
+      } finally {
+        setReservingAddress(false);
+      }
+    },
+    [network],
+  );
+
+  const handleClearSelectedRecipient = useCallback(() => {
+    setSelectedRecipient(null);
+    setToAddress("");
+    setKeylessRecipientUsername(null);
+  }, []);
+
+  const handleRecipientModeChange = useCallback((mode: "person" | "address") => {
+    setRecipientMode(mode);
+    setSelectedRecipient(null);
+    setKeylessRecipientUsername(null);
+    setToAddress("");
+  }, []);
+
   const handleContactSelect = useCallback((address: string) => {
     setToAddress(address);
   }, []);
@@ -351,20 +406,25 @@ export function SendSheet({
       setSuccess(null);
       setToAddress("");
       setAmount("");
+      setSelectedRecipient(null);
+      setKeylessRecipientUsername(null);
       setSentTxid(txid);
       sentControl.open();
 
-      // Record recent recipient
-      const db = getDatabase();
-      if (db) {
-        db.addRecentRecipient(sentAddress);
-        refreshRecentRecipients();
+      // Recent-recipients / save-as-contact only apply to raw-address sends —
+      // a social-receive address is single-use, so saving it as a reusable
+      // contact would be misleading (spec §4.3, addr(i>=1) is fresh per payment).
+      if (recipientMode === "address") {
+        const db = getDatabase();
+        if (db) {
+          db.addRecentRecipient(sentAddress);
+          refreshRecentRecipients();
 
-        // Prompt to save as contact if not already saved
-        const existingContact = await getContactByAddress(db, sentAddress);
-        if (!existingContact) {
-          setPendingSaveAddress(sentAddress);
-          saveContactControl.open();
+          const existingContact = await getContactByAddress(db, sentAddress);
+          if (!existingContact) {
+            setPendingSaveAddress(sentAddress);
+            saveContactControl.open();
+          }
         }
       }
     } catch (e: unknown) {
@@ -378,6 +438,7 @@ export function SendSheet({
     amountSats,
     feeRate,
     sendTransaction,
+    recipientMode,
     getContactByAddress,
     refreshRecentRecipients,
     saveContactControl,
@@ -453,93 +514,189 @@ export function SendSheet({
           </Text>
         </View>
 
-        {/* Recipient — card-less: a filled surface field, no border */}
+        {/* Recipient — Person (primary) / Address (secondary) toggle, spec §4.4 */}
         <View>
-          <Text className={SECTION_LABEL}>{t("send.sendTo")}</Text>
-          <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2">
-            {matchedContact ? (
-              <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center flex-1">
-                  <View className="mr-3">
-                    <ContactAvatar name={matchedContact.name} size={40} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-foreground text-base font-semibold">
-                      {matchedContact.name}
-                    </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5">
-                      {truncateAddress(matchedContact.address)}
-                    </Text>
-                  </View>
-                </View>
-                <Pressable
-                  className="p-1.5 rounded-full active:opacity-60"
-                  onPress={handleClearRecipient}
-                  accessibilityLabel={t("send.clearRecipient")}
+          <View className="flex-row items-center justify-between">
+            <Text className={SECTION_LABEL}>{t("send.sendTo")}</Text>
+            <View className="flex-row bg-surface rounded-full p-0.5">
+              <Pressable
+                onPress={() => handleRecipientModeChange("person")}
+                className={`px-3 py-1.5 rounded-full ${recipientMode === "person" ? "bg-primary/15" : ""}`}
+              >
+                <Text
+                  className={`text-xs font-semibold ${recipientMode === "person" ? "text-primary" : "text-muted-foreground"}`}
                 >
-                  <MaterialCommunityIcons
-                    name="close-circle"
-                    size={20}
-                    color={theme.colors.textSecondary}
-                  />
-                </Pressable>
-              </View>
-            ) : (
-              <TextInput
-                className="text-foreground text-base"
-                style={{ paddingVertical: 2 }}
-                placeholder={t("send.addressPlaceholder")}
-                placeholderTextColor={theme.colors.textSecondary}
-                value={toAddress}
-                onChangeText={setToAddress}
-                autoCapitalize="none"
-                autoCorrect={false}
-                multiline={false}
-              />
-            )}
+                  {t("send.recipientMode.person")}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleRecipientModeChange("address")}
+                className={`px-3 py-1.5 rounded-full ${recipientMode === "address" ? "bg-primary/15" : ""}`}
+              >
+                <Text
+                  className={`text-xs font-semibold ${recipientMode === "address" ? "text-primary" : "text-muted-foreground"}`}
+                >
+                  {t("send.recipientMode.address")}
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
-          <View className="flex-row gap-2 mt-2.5">
-            <Pressable
-              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
-              onPress={handlePaste}
-            >
-              <MaterialCommunityIcons
-                name="content-paste"
-                size={14}
-                color={theme.colors.primary}
-              />
-              <Text className="text-primary text-xs ml-1.5 font-semibold">
-                {t("send.paste")}
-              </Text>
-            </Pressable>
-            <Pressable
-              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
-              onPress={handleOpenScanner}
-            >
-              <MaterialCommunityIcons
-                name="qrcode-scan"
-                size={14}
-                color={theme.colors.primary}
-              />
-              <Text className="text-primary text-xs ml-1.5 font-semibold">
-                {t("send.scanQR")}
-              </Text>
-            </Pressable>
-            <Pressable
-              className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
-              onPress={handleOpenContactPicker}
-            >
-              <MaterialCommunityIcons
-                name="account-box"
-                size={14}
-                color={theme.colors.primary}
-              />
-              <Text className="text-primary text-xs ml-1.5 font-semibold">
-                {t("send.contacts")}
-              </Text>
-            </Pressable>
-          </View>
+          {recipientMode === "person" ? (
+            <View className="mt-2">
+              <View className="bg-surface rounded-2xl px-4 py-3.5">
+                {reservingAddress ? (
+                  <View className="flex-row items-center py-1">
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <Text className="text-muted-foreground text-sm ml-2">
+                      {t("send.recipientMode.reserving")}
+                    </Text>
+                  </View>
+                ) : selectedRecipient ? (
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1">
+                      <View className="mr-3">
+                        <UserAvatar
+                          avatarFileId={selectedRecipient.avatarFileId}
+                          displayName={selectedRecipient.displayName}
+                          username={selectedRecipient.username}
+                          size={40}
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-foreground text-base font-semibold">
+                          {selectedRecipient.displayName ?? selectedRecipient.username}
+                        </Text>
+                        <Text className="text-muted-foreground text-xs mt-0.5">
+                          @{selectedRecipient.username}
+                        </Text>
+                      </View>
+                    </View>
+                    <Pressable
+                      className="p-1.5 rounded-full active:opacity-60"
+                      onPress={handleClearSelectedRecipient}
+                      accessibilityLabel={t("send.clearRecipient")}
+                    >
+                      <MaterialCommunityIcons
+                        name="close-circle"
+                        size={20}
+                        color={theme.colors.textSecondary}
+                      />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable
+                    className="flex-row items-center justify-between active:opacity-70"
+                    onPress={handleOpenRecipientPicker}
+                  >
+                    <Text className="text-muted-foreground text-base">
+                      {t("send.recipientMode.choosePlaceholder")}
+                    </Text>
+                    <MaterialCommunityIcons
+                      name="account-search"
+                      size={20}
+                      color={theme.colors.primary}
+                    />
+                  </Pressable>
+                )}
+              </View>
+
+              {keylessRecipientUsername ? (
+                <View className="bg-primary/10 rounded-2xl p-3.5 mt-2.5">
+                  <Text className="text-foreground text-sm text-center">
+                    {t("send.recipientMode.keyless", { username: keylessRecipientUsername })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <>
+              <View className="bg-surface rounded-2xl px-4 py-3.5 mt-2">
+                {matchedContact ? (
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1">
+                      <View className="mr-3">
+                        <ContactAvatar name={matchedContact.name} size={40} />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-foreground text-base font-semibold">
+                          {matchedContact.name}
+                        </Text>
+                        <Text className="text-muted-foreground text-xs mt-0.5">
+                          {truncateAddress(matchedContact.address)}
+                        </Text>
+                      </View>
+                    </View>
+                    <Pressable
+                      className="p-1.5 rounded-full active:opacity-60"
+                      onPress={handleClearRecipient}
+                      accessibilityLabel={t("send.clearRecipient")}
+                    >
+                      <MaterialCommunityIcons
+                        name="close-circle"
+                        size={20}
+                        color={theme.colors.textSecondary}
+                      />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <TextInput
+                    className="text-foreground text-base"
+                    style={{ paddingVertical: 2 }}
+                    placeholder={t("send.addressPlaceholder")}
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={toAddress}
+                    onChangeText={setToAddress}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    multiline={false}
+                  />
+                )}
+              </View>
+
+              <View className="flex-row gap-2 mt-2.5">
+                <Pressable
+                  className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
+                  onPress={handlePaste}
+                >
+                  <MaterialCommunityIcons
+                    name="content-paste"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text className="text-primary text-xs ml-1.5 font-semibold">
+                    {t("send.paste")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
+                  onPress={handleOpenScanner}
+                >
+                  <MaterialCommunityIcons
+                    name="qrcode-scan"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text className="text-primary text-xs ml-1.5 font-semibold">
+                    {t("send.scanQR")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="flex-1 flex-row items-center justify-center bg-surface rounded-full px-3 py-2.5 active:opacity-70"
+                  onPress={handleOpenContactPicker}
+                >
+                  <MaterialCommunityIcons
+                    name="account-box"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text className="text-primary text-xs ml-1.5 font-semibold">
+                    {t("send.contacts")}
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
 
         {validationError && toAddress.length > 0 ? (
@@ -675,7 +832,13 @@ export function SendSheet({
         <View className="mt-2">
           <ListItem
             title={t("send.confirm.to")}
-            subtitle={matchedContact ? matchedContact.name : toAddress}
+            subtitle={
+              recipientMode === "person" && selectedRecipient
+                ? `${selectedRecipient.displayName ?? selectedRecipient.username} (@${selectedRecipient.username})`
+                : matchedContact
+                  ? matchedContact.name
+                  : toAddress
+            }
             showChevron={false}
           />
           <ListItem
@@ -786,6 +949,13 @@ export function SendSheet({
         visible={showContactPicker}
         onSelect={handleContactSelect}
         onClose={handleCloseContactPicker}
+      />
+
+      {/* Social recipient picker (spec §4.4 step 1) */}
+      <SocialRecipientPicker
+        visible={showRecipientPicker}
+        onSelect={handleSelectRecipient}
+        onClose={handleCloseRecipientPicker}
       />
     </>
   );
