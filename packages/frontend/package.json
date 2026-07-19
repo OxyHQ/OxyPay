@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
-    "@fairco.in/core": "0.1.1",
+    "@fairco.in/core": "0.3.0",
     "@gorhom/bottom-sheet": "^5.2.9",
     "@maplibre/maplibre-react-native": "^10.4.2",
     "@noble/hashes": "1.8.0",
