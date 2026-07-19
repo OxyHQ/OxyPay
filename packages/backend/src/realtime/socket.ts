@@ -67,28 +67,182 @@ function parseSubscribe(payload: unknown): SubscribeRequest | null {
   return { intentId, clientSecret };
 }
 
+/* -------------------------------------------------------------------------
+ * Throttling — defense-in-depth for the anonymous realtime surface.
+ *
+ * `optionalSocketAuth` above made the CONNECTION identity-optional so a
+ * checkout/embed payer can reach `subscribe` (see its doc comment above).
+ * That left the connection itself, and `subscribe`, reachable by anyone with
+ * no identity to hold accountable — and, unlike the REST API, with no rate
+ * limiter at all: `createOxyRateLimit` (`server.ts`) is Express-only and
+ * never sees engine.io's HTTP upgrade or WebSocket frames. Reviewed as a
+ * non-blocking MINOR (sec-realtime): no data leak — the capability check
+ * below is untouched, `client_secret` stays un-guessable — pure
+ * resource-abuse (unbounded connections; unbounded indexed
+ * `PaymentIntent.findOne` calls per `subscribe`). The two throttles below
+ * close it.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Minimal in-memory fixed-window counter — the same algorithm
+ * `express-rate-limit`'s default `MemoryStore` uses (see the pair limiter in
+ * `routes/social.ts`), reimplemented here because socket.io connection
+ * middleware and event handlers have no Express `req`/`res` to hand
+ * `express-rate-limit`.
+ *
+ * IN-MEMORY, PER-INSTANCE: with more than one gateway task behind the ALB,
+ * each instance enforces its own independent budget — an attacker spread
+ * across N instances effectively gets N× the caps below. Acceptable for v1,
+ * same caveat already logged for the `routes/social.ts` pair limiter; a
+ * horizontal deploy needs a shared (Redis-backed) store, unique-prefixed per
+ * limiter the way `rate-limit-redis` is used elsewhere in this ecosystem.
+ */
+export class FixedWindowLimiter {
+  private readonly hits = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(
+    private readonly windowMs: number,
+    private readonly max: number,
+  ) {}
+
+  /** Record one hit for `key`; returns `false` once `key` is over budget for the current window. */
+  consume(key: string, now: number = Date.now()): boolean {
+    const state = this.hits.get(key);
+    if (state === undefined || now >= state.resetAt) {
+      this.hits.set(key, { count: 1, resetAt: now + this.windowMs });
+      return true;
+    }
+    if (state.count >= this.max) {
+      return false;
+    }
+    state.count += 1;
+    return true;
+  }
+
+  /** Drop expired entries — called periodically so a long-lived process's map can't grow unboundedly. */
+  sweep(now: number = Date.now()): void {
+    for (const [key, state] of this.hits) {
+      if (now >= state.resetAt) {
+        this.hits.delete(key);
+      }
+    }
+  }
+}
+
+/** How often `initSocket`'s limiter maps are swept of expired entries. */
+const LIMITER_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Per-IP cap on NEW socket connections. A legitimate checkout/embed page
+ * opens exactly one; 20/minute leaves generous headroom for shared corporate
+ * NAT / mobile-carrier CGNAT and flaky-network reconnects while still
+ * bounding a spam loop that today pays no cost at all. Exported so tests
+ * assert against the authoritative values rather than a magic number that
+ * could silently drift out of sync with the throttle.
+ */
+export const IP_CONNECT_WINDOW_MS = 60_000;
+export const IP_CONNECT_MAX = 20;
+
+/**
+ * Per-socket cap on `subscribe` calls. A legitimate payer subscribes to one
+ * intent (occasionally a couple — e.g. a cart with several payment links);
+ * 20/minute is far above any real checkout flow while bounding a socket that
+ * loops `subscribe` to churn indexed `PaymentIntent.findOne` lookups.
+ */
+export const SUBSCRIBE_WINDOW_MS = 60_000;
+export const SUBSCRIBE_MAX_PER_WINDOW = 20;
+
+const FORWARDED_FOR_HEADER = "x-forwarded-for";
+
+/**
+ * Resolve the real client IP from a socket handshake. Engine.io has no
+ * trust-proxy concept of its own: `socket.handshake.address` is always the
+ * raw TCP peer (`req.connection.remoteAddress`), which behind the ALB is the
+ * ALB's address, never the payer's browser — unlike Express, where `req.ip`
+ * resolves through `X-Forwarded-For` once `trust proxy` is set (`server.ts`).
+ * This throttle therefore reads the header itself, taking its LEFTMOST entry
+ * — the client is the one hop the ALB adds — matching what `req.ip` resolves
+ * to on the Express side for the same request path. Falls back to the raw
+ * transport address when no header is present (local dev, direct connections).
+ */
+export function resolveClientIp(socket: unknown): string {
+  const handshake = (
+    socket as {
+      handshake?: {
+        headers?: Record<string, string | string[] | undefined>;
+        address?: string;
+      };
+    }
+  ).handshake;
+  const forwardedFor = handshake?.headers?.[FORWARDED_FOR_HEADER];
+  const header = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const first = header?.split(",")[0]?.trim();
+  return first && first.length > 0 ? first : (handshake?.address ?? "unknown");
+}
+
+/**
+ * Socket.io connection middleware enforcing `IP_CONNECT_MAX` new connections
+ * per `IP_CONNECT_WINDOW_MS` per client IP. Wired BEFORE `optionalSocketAuth`
+ * in `initSocket` so it also shields the identity verifier itself from a
+ * connection-spam loop, and applies uniformly to authed and anonymous
+ * connections alike — neither needs more than a handful of connections for
+ * any real flow.
+ */
+export function ipConnectionThrottle(limiter: FixedWindowLimiter): SocketAuth {
+  return (socket, next) => {
+    if (!limiter.consume(resolveClientIp(socket))) {
+      next(new Error("too many connections — try again shortly"));
+      return;
+    }
+    next();
+  };
+}
+
 /**
  * Wire the realtime layer. The CONNECTION is identity-optional (see
  * `optionalSocketAuth`) — a checkout/embed payer with no Oxy session can
- * still connect. Joining a specific intent's room is capability-scoped: it
- * requires proving possession of that intent's `client_secret`, verified in
- * constant time, regardless of whether the socket carries an identity — so
- * ANY holder of a valid client_secret can subscribe to that intent (and only
- * that intent), never enumerate someone else's. The payer's wallet then
- * receives live `intent.updated` events as the settlement watcher advances
- * the intent. `subscribe` is the only event this layer handles; if a future
- * event needs to be identity/merchant-scoped, it must check `socket.user`
- * itself — the optional connection auth does NOT imply every event is safe
- * for an anonymous socket.
+ * still connect, subject to `ipConnectionThrottle` above. Joining a specific
+ * intent's room is capability-scoped: it requires proving possession of that
+ * intent's `client_secret`, verified in constant time, regardless of whether
+ * the socket carries an identity — so ANY holder of a valid client_secret can
+ * subscribe to that intent (and only that intent), never enumerate someone
+ * else's, subject to the per-socket `SUBSCRIBE_MAX_PER_WINDOW` throttle. The
+ * payer's wallet then receives live `intent.updated` events as the
+ * settlement watcher advances the intent. `subscribe` is the only event this
+ * layer handles; if a future event needs to be identity/merchant-scoped, it
+ * must check `socket.user` itself — the optional connection auth does NOT
+ * imply every event is safe for an anonymous socket.
  */
 export function initSocket(io: Server, deps: SocketDeps = {}): void {
   const identityAuth = deps.socketAuth ?? oxyClient.authSocket();
+  const ipConnectLimiter = new FixedWindowLimiter(IP_CONNECT_WINDOW_MS, IP_CONNECT_MAX);
+  const subscribeLimiter = new FixedWindowLimiter(
+    SUBSCRIBE_WINDOW_MS,
+    SUBSCRIBE_MAX_PER_WINDOW,
+  );
+
+  // Swept on a shared interval — unref'd so it never keeps the event loop
+  // (or a test run) alive, matching `SettlementWatcher`'s convention.
+  const sweepTimer = setInterval(() => {
+    ipConnectLimiter.sweep();
+    subscribeLimiter.sweep();
+  }, LIMITER_SWEEP_INTERVAL_MS);
+  sweepTimer.unref?.();
+
+  io.use(ipConnectionThrottle(ipConnectLimiter));
   io.use(optionalSocketAuth(identityAuth));
 
   io.on("connection", (socket: Socket) => {
     socket.on(
       "subscribe",
       async (payload: unknown, ack?: (result: { ok: boolean }) => void) => {
+        // Keyed by `socket.id` (unique per connection, assigned by
+        // socket.io) — independent of the per-IP connection throttle above.
+        if (!subscribeLimiter.consume(socket.id)) {
+          ack?.({ ok: false });
+          return;
+        }
+
         const request = parseSubscribe(payload);
         if (request === null) {
           ack?.({ ok: false });

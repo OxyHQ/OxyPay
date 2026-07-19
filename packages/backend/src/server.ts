@@ -168,6 +168,19 @@ export async function onIntentChange(
 export function createGateway(deps: GatewayDeps = {}): Gateway {
   const app = express();
 
+  // Trust the ALB as exactly one hop: `req.ip` then resolves through
+  // `X-Forwarded-For` to the real client address instead of the ALB's own
+  // address. Without this, EVERY request behind the shared ALB collapses
+  // into the same handful of buckets in `createOxyRateLimit` below — the
+  // exact "shared load balancer IP" failure mode that library's own doc
+  // comment (`@oxyhq/core/server/rateLimit.ts`) warns about. Matches every
+  // other Oxy backend on ECS (oxy-api, mention, homiio, syra). Engine.io
+  // (the realtime layer's transport) has no equivalent trust-proxy concept
+  // of its own and is NOT affected by this setting — see
+  // `realtime/socket.ts`'s `resolveClientIp`, which reads the same header
+  // directly for the same reason.
+  app.set("trust proxy", 1);
+
   // Unauthenticated liveness probe for the ALB target-group health check.
   // Mounted first so it is never CORS-blocked or rate-limited, and returns 200
   // regardless of auth (every other route is auth-gated). It reveals nothing.
