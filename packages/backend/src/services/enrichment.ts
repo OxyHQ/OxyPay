@@ -55,20 +55,23 @@ export async function enrichAddresses(
   }
 
   // 2. Social sends/receives — SocialSendAttribution, scoped to the VIEWER's
-  // own side of the payment (never leak a counterparty for an address the
-  // caller wasn't party to).
+  // own side of the payment IN THE QUERY ITSELF (never leak a counterparty
+  // for an address the caller wasn't party to — a doc where the viewer is
+  // neither sender nor recipient never leaves Mongo).
   const remaining = addresses.filter((a) => !resolvedAddresses.has(a));
   if (remaining.length > 0) {
     const attributions = await SocialSendAttribution.find({
       address: { $in: remaining },
+      $or: [{ senderUserId: viewerUserId }, { recipientUserId: viewerUserId }],
     });
     const counterpartyByAddress = new Map<string, string>();
     for (const attribution of attributions) {
-      if (attribution.senderUserId === viewerUserId) {
-        counterpartyByAddress.set(attribution.address, attribution.recipientUserId);
-      } else if (attribution.recipientUserId === viewerUserId) {
-        counterpartyByAddress.set(attribution.address, attribution.senderUserId);
-      }
+      counterpartyByAddress.set(
+        attribution.address,
+        attribution.senderUserId === viewerUserId
+          ? attribution.recipientUserId
+          : attribution.senderUserId,
+      );
     }
 
     if (counterpartyByAddress.size > 0) {
