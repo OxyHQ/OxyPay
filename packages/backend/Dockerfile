@@ -37,6 +37,8 @@ COPY package.json bun.lock bunfig.toml tsconfig.json ./
 COPY packages/shared-types/package.json packages/shared-types/
 COPY packages/backend/package.json packages/backend/
 COPY packages/frontend/package.json packages/frontend/
+COPY packages/sdk/package.json packages/sdk/
+COPY packages/checkout/package.json packages/checkout/
 
 # Install the full workspace, including dev tooling (typescript, @types/*).
 # --ignore-scripts skips the root `postinstall` (build:shared-types): the source
@@ -67,6 +69,8 @@ COPY --from=builder /app/package.json /app/bun.lock /app/bunfig.toml ./
 COPY --from=builder /app/packages/shared-types/package.json packages/shared-types/
 COPY --from=builder /app/packages/backend/package.json packages/backend/
 COPY --from=builder /app/packages/frontend/package.json packages/frontend/
+COPY --from=builder /app/packages/sdk/package.json packages/sdk/
+COPY --from=builder /app/packages/checkout/package.json packages/checkout/
 
 # Compiled shared-types output (imported as dist/index.js) + the backend TS
 # source and its tsconfig (run directly under Bun — no compiled entrypoint).
