@@ -1,6 +1,6 @@
 {
   "name": "@oxyhq/pay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Oxy Pay SDK — a Stripe-ergonomics TypeScript client over the Oxy Pay Gateway REST + realtime contract. Server entry (`@oxyhq/pay`) mints Oxy service tokens from an ApplicationCredential and exposes paymentIntents/paymentLinks/checkout.sessions/webhooks; browser entry (`@oxyhq/pay/checkout`) is the anonymous payer-side client core.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
