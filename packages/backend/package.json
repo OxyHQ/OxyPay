@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@oxypay/shared-types": "*",
-    "@oxyhq/core": "^12.8.0",
+    "@oxyhq/core": "^12.11.0",
     "@fairco.in/core": "^0.3.0",
     "@scure/bip32": "^1.7.0",
     "express": "^4.21.2",
