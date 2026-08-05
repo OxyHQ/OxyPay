@@ -1,58 +1,176 @@
 # Oxy Pay
 
-Oxy Pay is the payments service of the Oxy ecosystem. It is a **custodial,
-server-side payments platform** — think Google Pay or Apple Pay for the Oxy
-account. Users hold a balance, send and receive payments, and pay merchants.
-FairCoin top-ups and withdrawals are supported through a separate self-custodial
-wallet (FairWallet, lives in its own repo).
+<p align="center">
+  <b>A FairCoin payments gateway with Stripe's ergonomics and no custody of anyone's money.</b><br>
+  Payment intents, payment links, hosted checkout, signed webhooks, and an SDK to drive them.
+</p>
 
-This is a **bun + turbo monorepo** containing the Oxy Pay backend, the
-Oxy Pay mobile/web app, and the shared types used by both.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@oxyhq/pay"><img alt="@oxyhq/pay" src="https://img.shields.io/npm/v/@oxyhq/pay?style=flat-square&label=%40oxyhq%2Fpay&labelColor=440151&color=D26AE7"></a>
+  <img alt="Bun" src="https://img.shields.io/badge/bun-1.0+-440151?style=flat-square&logo=bun&logoColor=white">
+  <img alt="Expo" src="https://img.shields.io/badge/Expo-57-440151?style=flat-square&logo=expo&logoColor=white">
+  <img alt="MongoDB" src="https://img.shields.io/badge/MongoDB-Mongoose-440151?style=flat-square&logo=mongodb&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-440151?style=flat-square&logo=typescript&logoColor=white">
+</p>
 
-```
-OxyPay/
-├── packages/
-│   ├── shared-types/   @oxypay/shared-types   — TS types shared by backend and frontend
-│   ├── backend/        @oxypay/backend        — Express API + MongoDB + FairCoin node integration
-│   └── frontend/       @oxypay/frontend       — Expo app (iOS / Android / Web) with Bloom UI
-└── package.json
-```
+---
 
-The public **`@oxyhq/pay` SDK** (consumed by Mention, Allo, Homiio, TNP, etc. to
-accept payments) lives in a separate repo: `OxyPaySDK/`. Both the app and the
-SDK talk to the **same backend** in this repo.
+<table>
+<tr>
+<td valign="top" width="50%">
+
+### 🔒 The Gateway cannot spend your money
+
+A merchant record holds a **watch only account `xpub` and nothing else**. There is no
+field for a private key, a mnemonic or a seed anywhere in the schema.
+
+A pre validate hook on the model rejects any private extended key handed in as `xpub`, so
+the non custody property is enforced by the database layer rather than by convention.
+
+Each payment intent gets a receive address derived from that `xpub`. Funds go straight to
+the merchant.
+
+</td>
+<td valign="top" width="50%">
+
+### 🧾 Stripe shaped on purpose
+
+`payment_intents`, `payment_links` and `checkout_sessions`, with `Idempotency-Key` on
+creates and HMAC signed webhooks carrying a timestamp against replay.
+
+Test and live are isolated by the environment on the credential that authenticated the
+call, not by a flag the caller sends. One Oxy app gets at most one merchant per
+environment.
+
+Amounts are canonical base unit strings and never floats. The currency is `FAIR`.
+
+</td>
+</tr>
+</table>
+
+## Packages
+
+A Bun workspace monorepo. Everything is under `packages/`.
+
+| Path | Package | What it is |
+|---|---|---|
+| [`packages/backend`](packages/backend/) | `@oxypay/backend` | The Gateway. Express, Mongoose and Socket.IO on Bun |
+| [`packages/sdk`](packages/sdk/) | [`@oxyhq/pay`](https://www.npmjs.com/package/@oxyhq/pay) | The published SDK. Server client plus a browser checkout client |
+| [`packages/checkout`](packages/checkout/) | `@oxypay/checkout` | The hosted, anonymous, payer facing checkout web app. Vite and React |
+| [`packages/frontend`](packages/frontend/) | `@oxypay/frontend` | Expo app for iOS, Android, web and Electron |
+| [`packages/shared-types`](packages/shared-types/) | `@oxypay/shared-types` | The wire contract shared by all of the above |
+
+`shared-types` is the reason the webhook signer cannot drift: the Gateway signs and the
+SDK verifies through the same exported routine.
 
 ## Quick start
 
+You need Bun and a MongoDB instance.
+
 ```bash
-bun install
-bun run build:shared-types
-bun run dev
+bun install                    # postinstall builds shared-types for you
+bun run dev                    # every package at once
 ```
 
-- Backend: <http://localhost:3001>
-- Frontend: <http://localhost:8081>
+Or one at a time:
+
+```bash
+bun run dev:backend            # bun --watch, listens on 3001 by default
+bun run dev:frontend           # expo start --clear
+```
+
+`checkout` and `sdk` have no root alias, so reach them through the workspace filter:
+
+```bash
+bun run --filter @oxypay/checkout dev
+bun run --filter @oxyhq/pay dev
+```
+
+<details>
+<summary><b>Every script</b></summary>
+
+<br>
+
+**Root**: `dev`, `dev:frontend`, `dev:backend`, `build`, `build:shared-types`,
+`build:frontend`, `build:backend`, `test`, `lint`, `clean`, `start:frontend`,
+`start:backend`.
+
+| Package | Scripts |
+|---|---|
+| `@oxypay/backend` | `dev`, `start`, `build`, `typecheck`, `lint`, `test`, `clean` |
+| `@oxyhq/pay` | `build` (cjs, esm and types), `dev`, `typecheck`, `lint`, `test`, `clean` |
+| `@oxypay/checkout` | `dev`, `build`, `preview`, `typecheck`, `test` |
+| `@oxypay/frontend` | `dev`, `start`, `android`, `ios`, `web`, `electron`, `build`, `electron:build`, `typecheck`, `lint`, `test` |
+| `@oxypay/shared-types` | same build trio as the SDK, plus `dev`, `typecheck`, `lint`, `test`, `clean` |
+
+</details>
+
+## Integrating
+
+Install the SDK, not this repo.
+
+```bash
+bun add @oxyhq/pay
+```
+
+```ts
+import { OxyPay } from '@oxyhq/pay';
+
+const oxypay = new OxyPay({
+  publicKey: process.env.OXY_APP_PUBLIC_KEY,
+  secret: process.env.OXY_APP_SECRET,
+});
+
+const intent = await oxypay.paymentIntents.create(
+  { amount: '2500', network: 'mainnet' },
+  { idempotencyKey: crypto.randomUUID() },
+);
+```
+
+Hand `intent.clientSecret` to the browser and mount the payer side widget from
+`@oxyhq/pay/checkout`. Full walkthrough in
+[`docs/integrating-oxy-pay.md`](docs/integrating-oxy-pay.md).
 
 ## Authentication
 
-Oxy Pay authenticates users via their Oxy account. The backend trusts
-`@oxyhq/core`'s `oxyClient.auth()` middleware for user JWTs and exposes
-service-token endpoints (`oxyClient.serviceAuth()`) for internal Oxy services
-that need to charge or query on behalf of a user.
+There is no bespoke Oxy Pay API key. The SDK is configured with the **same
+`ApplicationCredential`** Oxy Console already issues, presents it to the Oxy API to mint a
+short lived service token, and re mints when that token expires.
 
-## Payment methods
+The backend verifies callers with `@oxyhq/core/server`, using `createOxyAuthMiddleware`,
+`requireOxyAuth` and `getRequiredOxyUserId`. There is no app local bearer parser.
 
-- **Oxy Pay balance** — custodial account balance held by the Oxy Pay
-  backend. Instant debit, no on-chain confirmation needed.
-- **FairCoin top-up / withdrawal** — connects to a FairCoin node (or a service
-  bridge to the FairCoin chain) for funding and cashing out the balance.
-- **Card** (future) — credit/debit card on/off ramp through a regulated
-  provider. Disabled by default.
+The payer side is different by design: a payer is anonymous and proves nothing except
+possession of a payment intent's `clientSecret`, which travels in a request header rather
+than a query string so it stays out of access logs.
 
-## Repos
+See [`OxyHQ/oxy`](https://github.com/OxyHQ/oxy) for the identity platform behind all of
+this.
 
-- `OxyHQServices` — the Oxy core monorepo (`@oxyhq/core`, `@oxyhq/services`,
-  `@oxyhq/auth`, Oxy API).
-- `OxyPay` (this repo) — Oxy Pay backend and app.
-- `OxyPaySDK` — `@oxyhq/pay` SDK for embedding Oxy Pay in any Oxy app.
-- `FairWallet` — self-custodial FairCoin wallet app (separate ecosystem).
+## Gateway surface
+
+| Route group | File |
+|---|---|
+| Payment intents | [`paymentIntents.ts`](packages/backend/src/routes/paymentIntents.ts) |
+| Payment links | [`paymentLinks.ts`](packages/backend/src/routes/paymentLinks.ts) |
+| Checkout sessions | [`checkoutSessions.ts`](packages/backend/src/routes/checkoutSessions.ts) |
+| Merchants | [`merchants.ts`](packages/backend/src/routes/merchants.ts) |
+| Webhook deliveries | [`webhookDeliveries.ts`](packages/backend/src/routes/webhookDeliveries.ts) |
+| Dashboard | [`dashboard.ts`](packages/backend/src/routes/dashboard.ts) |
+| Social send and receive | [`social.ts`](packages/backend/src/routes/social.ts) |
+| Enrichment | [`enrich.ts`](packages/backend/src/routes/enrich.ts) |
+
+Realtime intent updates go out over Socket.IO, which is what lets a checkout page move
+from `confirming` to `settled` without polling.
+
+## Documentation
+
+- [Integrating Oxy Pay](docs/integrating-oxy-pay.md), the guide for merchants
+- [Roadmap](docs/OXY-PAY-ROADMAP.md)
+
+## Related
+
+| Repo | What it is |
+|---|---|
+| [`OxyHQ/oxy`](https://github.com/OxyHQ/oxy) | The Oxy platform: identity, signed records, API and SDK |
+| [`OxyHQ/OxyPaySDK`](https://github.com/OxyHQ/OxyPaySDK) | Landing page for `@oxyhq/pay`. The source is here, in `packages/sdk` |
