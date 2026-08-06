@@ -1,6 +1,7 @@
 {
   "name": "oxypay",
   "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Oxy Pay monorepo — backend, mobile/web app, and shared types.",
   "private": true,
   "workspaces": [
