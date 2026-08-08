@@ -45,33 +45,43 @@ jobs:
           role-to-assume: arn:aws:iam::237343248947:role/oxy-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
+      # The secrets are enumerated one at a time, on purpose.
+      #
+      # The allowlist below already existed, but the VALUES still came from
+      # `toJSON(secrets)`, and it is that expression which holds deploys: a
+      # workflow that walks every repository secret into a shell loop is shaped
+      # exactly like an exfiltration payload, so GitHub creates the run with
+      # conclusion `action_required` and ZERO jobs until a human clicks
+      # "Approve and run" in the UI. The REST approve endpoint only serves fork
+      # pull requests, so it cannot be automated, and the approval is per run —
+      # every deploy needs a person. Filtering the blob after the fact does not
+      # help; the blob must never be built.
+      #
+      # The list is the secrets the `oxypay` task definition actually consumes.
+      # Adding a new one means adding it here, or it never reaches SSM.
       - name: Sync GitHub secrets -> SSM (GitHub is the source of truth)
         env:
-          SECRETS_JSON: ${{ toJSON(secrets) }}
-          # Explicit backend runtime allowlist. MONGODB_URI is read by config.ts;
-          # SERVICE_TOKEN_SECRET / IP_HASH_SALT / DEVICE_ID_SALT / OXY_API_URL are
-          # read by @oxyhq/core (service-auth verification + hashing). Do NOT sync
-          # unrelated CI/CD credentials into the SSM parameter hierarchy.
-          SSM_SECRET_ALLOWLIST: >-
-            MONGODB_URI SERVICE_TOKEN_SECRET IP_HASH_SALT DEVICE_ID_SALT
-            OXY_API_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+          # Read by packages/backend/src/config.ts (`loadConfig`).
+          APP_MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          APP_OXY_ACCESS_TOKEN_SECRET: ${{ secrets.OXY_ACCESS_TOKEN_SECRET }}
+          # Read by @oxyhq/core (request hashing).
+          APP_IP_HASH_SALT: ${{ secrets.IP_HASH_SALT }}
+          APP_DEVICE_ID_SALT: ${{ secrets.DEVICE_ID_SALT }}
         run: |
-          SHARED="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY"
-          echo "$SECRETS_JSON" | jq -r --arg allowlist "$SSM_SECRET_ALLOWLIST" '
-            ($allowlist | split(" ")) as $allowed
-            | to_entries[]
-            | select(.key as $k | $allowed | index($k))
-            | [.key,.value]|@tsv
-          ' | \
-          while IFS=$'\t' read -r k v; do
-            [ -z "$k" ] && continue
-            if [ -z "$v" ] || [ "$v" = "-" ]; then
-              echo "::warning::skip empty/placeholder secret $k; SSM unchanged"
-              continue
+          sync_secret() {
+            name="$1"; value="$2"; path="$3"
+            if [ -z "$value" ] || [ "$value" = "-" ]; then
+              echo "::warning::skip empty/placeholder secret $name; SSM unchanged"
+              return 0
             fi
-            case " $SHARED " in *" $k "*) path="/oxy/_shared/$k";; *) path="/oxy/$APP/$k";; esac
-            aws ssm put-parameter --name "$path" --value "$v" --type SecureString --overwrite >/dev/null && echo "synced -> $path"
-          done
+            aws ssm put-parameter --name "$path" --value "$value" --type SecureString --overwrite >/dev/null
+            echo "synced -> $path"
+          }
+
+          sync_secret MONGODB_URI "$APP_MONGODB_URI" "/oxy/$APP/MONGODB_URI"
+          sync_secret OXY_ACCESS_TOKEN_SECRET "$APP_OXY_ACCESS_TOKEN_SECRET" "/oxy/$APP/OXY_ACCESS_TOKEN_SECRET"
+          sync_secret IP_HASH_SALT "$APP_IP_HASH_SALT" "/oxy/$APP/IP_HASH_SALT"
+          sync_secret DEVICE_ID_SALT "$APP_DEVICE_ID_SALT" "/oxy/$APP/DEVICE_ID_SALT"
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
