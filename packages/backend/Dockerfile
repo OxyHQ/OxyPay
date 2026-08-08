@@ -15,10 +15,11 @@
 #   docker build -f packages/backend/Dockerfile -t oxypay-backend .
 #
 # Runtime configuration comes from the environment. ECS injects MONGODB_URI and
-# the Oxy service secrets (SERVICE_TOKEN_SECRET, IP_HASH_SALT, DEVICE_ID_SALT,
-# OXY_API_URL) from SSM `/oxy/oxypay/*` (+ `/oxy/_shared/*`); non-secret config
-# (PORT, OXYPAY_NETWORK, EXPLORER_BASE_URL, OXY_PAY_ALLOWED_ORIGINS) is set as
-# plain task-definition env. See .github/workflows/deploy-aws.yml.
+# the Oxy service secrets (OXY_ACCESS_TOKEN_SECRET, IP_HASH_SALT,
+# DEVICE_ID_SALT) from SSM `/oxy/oxypay/*` (+ `/oxy/_shared/*`); non-secret
+# config (PORT, OXYPAY_NETWORK, EXPLORER_BASE_URL, OXY_PAY_ALLOWED_ORIGINS,
+# OXY_API_URL) is set as plain task-definition env.
+# See .github/workflows/deploy-aws.yml.
 
 # ── Stage 1: build (install deps, compile shared-types, type-gate the backend) ──
 FROM oven/bun:1.3.14-alpine AS builder
