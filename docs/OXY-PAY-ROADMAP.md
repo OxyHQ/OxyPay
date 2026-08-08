@@ -110,5 +110,5 @@
 - [x] `GET /health` (liveness sin auth para el health check del ALB)
 - [ ] `deploy-cloudflare.yml` (frontend — bloqueado con Track B)
 - [ ] `oxy-infra/terraform-uswest2/app-oxypay.tf` — **prereq duro**: crea ECR `oxy/oxypay` + servicio ECS `oxypay` (port 3001, target group apunta a `/health`) + SSM `/oxy/oxypay/*`. **Archivo ya escrito y pusheado** (rama `oxy-infra:feat/oxypay-infra`, sin mergear a `main`) — falta merge + `terraform apply` + secrets/DNS.
-- [ ] GitHub repo secrets: `MONGODB_URI`, `SERVICE_TOKEN_SECRET` (= el que la Oxy API usa para mintear service tokens), `IP_HASH_SALT`, `DEVICE_ID_SALT`, `OXY_API_URL`
+- [ ] GitHub repo secrets: `MONGODB_URI`, `OXY_ACCESS_TOKEN_SECRET` (= el que la Oxy API usa para firmar los service tokens; lo lee `config.ts` como `serviceJwtSecret`), `IP_HASH_SALT`, `DEVICE_ID_SALT`
 - [ ] `pay.oxy.so` (CF Pages) + `api.pay.oxy.so` (ALB)
