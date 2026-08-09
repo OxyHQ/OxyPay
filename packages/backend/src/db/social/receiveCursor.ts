@@ -8,6 +8,11 @@ import { uuidv7 } from '@oxyhq/db';
  * Claim the next unused social-receive index for a user on a network,
  * creating their cursor if this is their first social payment.
  *
+ * Carries the same cost as `db/merchants/derivationIndex.ts` — read that
+ * function's first paragraph before changing anything here. A wrong index is
+ * money at an address the recipient cannot spend from, or two senders sharing
+ * one address; single-use is the whole point of a per-payment address.
+ *
  * ## One statement, including the lazy create
  *
  * An ordinary Oxy user has no registration step, so the row may not exist yet

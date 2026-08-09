@@ -83,6 +83,25 @@ export const WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed'] as const;
 export const CURRENCY_CODES = ['FAIR'] as const;
 
 /**
+ * The highest derivation index this schema can store — `int4`'s ceiling, and
+ * NOT a coincidence: it is exactly the highest legal non-hardened BIP32 child
+ * index, `HARDENED_OFFSET - 1`.
+ *
+ * Verified against both derivation paths rather than assumed. `@fairco.in/core`
+ * exports the same number as `MAX_SOCIAL_RECEIVE_INDEX` and refuses anything
+ * above it, and `deriveIntentAddress` derives from a public-only node, on which
+ * `@scure/bip32` cannot derive a hardened child at all ("Could not derive
+ * hardened child key"). So `integer` holds the whole legal space and one value
+ * beyond it — which is why an overflow is a REFUSAL of an index that could not
+ * have been derived anyway, rather than a limit this schema imposes.
+ *
+ * `db/__tests__/derivationIndexBound.test.ts` fails the build if those two
+ * numbers ever stop agreeing: were the derivable space to widen, `integer`
+ * would silently start refusing legal indices.
+ */
+export const MAX_DERIVATION_INDEX = 2147483647;
+
+/**
  * A canonical non-negative base-unit integer string — the exact pattern
  * `isBaseUnitString` (`@oxypay/shared-types`) enforces in the application,
  * restated here because the database is where a value that skipped the

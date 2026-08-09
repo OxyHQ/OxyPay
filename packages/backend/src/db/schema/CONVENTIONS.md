@@ -82,10 +82,26 @@ one amount has exactly one spelling.
 
 ## Counters, and why they are `integer`
 
+A wrong derivation index is not a wrong number on a screen. It is money at an
+address the recipient cannot spend from, or two payers sharing one address the
+gateway can then attribute to neither. That is the standard every decision in
+this section is held to.
+
 `merchants.next_derivation_index` and `social_receive_cursors.next_derivation_index`
 are `integer`, and that is the domain rather than a size guess: a non-hardened
-BIP32 child index is bounded by 2^31 − 1, exactly `int4`'s ceiling. Two
-consequences, both wanted:
+BIP32 child index is bounded by 2^31 − 1, exactly `int4`'s ceiling.
+
+**Verified against both derivation paths, not assumed.** `@fairco.in/core`
+exports `MAX_SOCIAL_RECEIVE_INDEX = HARDENED_OFFSET - 1` and `assertValidIndex`
+refuses anything above it; and `deriveIntentAddress` derives from a public-only
+node — it throws on any extended key carrying a private key — on which
+`@scure/bip32` cannot derive a hardened child at all (`Could not derive hardened
+child key`). Both numbers are `2147483647`. `db/__tests__/derivationIndexBound.test.ts`
+pins the agreement, by CROSSING the boundary rather than by comparing a constant
+against itself, and fails the build if the derivable space ever widens — at
+which point `integer` would silently start refusing legal indices.
+
+Two consequences, both wanted:
 
 - Exhausting it raises `22003` and REFUSES the reservation, instead of wrapping
   to an index already handed out — an address that already has a payment on it.
