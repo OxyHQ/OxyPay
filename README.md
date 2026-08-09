@@ -9,7 +9,7 @@
   <a href="https://www.npmjs.com/package/@oxyhq/pay"><img alt="@oxyhq/pay" src="https://img.shields.io/npm/v/@oxyhq/pay?style=flat-square&label=%40oxyhq%2Fpay&labelColor=440151&color=D26AE7"></a>
   <img alt="Bun" src="https://img.shields.io/badge/bun-1.0+-440151?style=flat-square&logo=bun&logoColor=white">
   <img alt="Expo" src="https://img.shields.io/badge/Expo-57-440151?style=flat-square&logo=expo&logoColor=white">
-  <img alt="MongoDB" src="https://img.shields.io/badge/MongoDB-Mongoose-440151?style=flat-square&logo=mongodb&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-Drizzle-440151?style=flat-square&logo=postgresql&logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-440151?style=flat-square&logo=typescript&logoColor=white">
 </p>
 
@@ -54,7 +54,7 @@ A Bun workspace monorepo. Everything is under `packages/`.
 
 | Path | Package | What it is |
 |---|---|---|
-| [`packages/backend`](packages/backend/) | `@oxypay/backend` | The Gateway. Express, Mongoose and Socket.IO on Bun |
+| [`packages/backend`](packages/backend/) | `@oxypay/backend` | The Gateway. Express, Drizzle on PostgreSQL and Socket.IO on Bun |
 | [`packages/sdk`](packages/sdk/) | [`@oxyhq/pay`](https://www.npmjs.com/package/@oxyhq/pay) | The published SDK. Server client plus a browser checkout client |
 | [`packages/checkout`](packages/checkout/) | `@oxypay/checkout` | The hosted, anonymous, payer facing checkout web app. Vite and React |
 | [`packages/frontend`](packages/frontend/) | `@oxypay/frontend` | Expo app for iOS, Android, web and Electron |
@@ -65,7 +65,9 @@ SDK verifies through the same exported routine.
 
 ## Quick start
 
-You need Bun and a MongoDB instance.
+You need Bun and a PostgreSQL instance — `docker compose -f
+docker-compose.postgres.yml up -d` starts one, and the backend refuses to boot
+without `DATABASE_URL` pointing at it (see `packages/backend/.env.example`).
 
 ```bash
 bun install                    # postinstall builds shared-types for you
