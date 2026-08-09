@@ -4,6 +4,7 @@ import { uuidv7 } from '@oxyhq/db';
 import { isCheckViolation, isUniqueViolation, sqlStateOf } from '@oxyhq/db';
 import { reserveNextDerivationIndex } from '../merchants/derivationIndex';
 import { merchants } from '../schema';
+import { MAX_DERIVATION_INDEX } from '../schema/valueSets';
 import {
   POSTGRES_TESTS_ENABLED,
   createSuiteDatabase,
@@ -138,7 +139,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('merchant derivation-index reservation'
    * has a payment on it.
    */
   it('refuses to advance past the int4 ceiling instead of wrapping', async () => {
-    const merchantId = await insertMerchant({ nextDerivationIndex: 2147483647 });
+    const merchantId = await insertMerchant({ nextDerivationIndex: MAX_DERIVATION_INDEX });
 
     let raised: unknown;
     try {
@@ -158,7 +159,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('merchant derivation-index reservation'
       .select({ next: merchants.nextDerivationIndex })
       .from(merchants)
       .where(eq(merchants.id, merchantId));
-    expect(row?.next).toBe(2147483647);
+    expect(row?.next).toBe(MAX_DERIVATION_INDEX);
   });
 
   it('refuses a negative counter', async () => {

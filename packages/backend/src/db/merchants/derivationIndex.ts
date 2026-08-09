@@ -16,13 +16,21 @@ export interface ReservedDerivationIndex {
 /**
  * Claim the merchant's next BIP32 child index, atomically.
  *
+ * ## What a wrong index costs
+ *
+ * Read this before simplifying anything below. The number this returns is not
+ * displayed anywhere — it is derived into the address a payer sends real money
+ * to. Getting it wrong has two failure modes and neither is recoverable by
+ * editing code afterwards: an index the merchant's own wallet does not scan
+ * produces funds sitting at an address they cannot spend from, and a repeated
+ * index produces two payers sharing one address, which the gateway cannot then
+ * attribute to either intent.
+ *
  * ## Why this is one statement and not a read followed by a write
  *
- * The index this returns becomes a receive address a payer sends money to. Two
- * callers receiving the same index derive the SAME address, so two payments
- * land on one address and the gateway cannot tell them apart. A
- * read-modify-write leaves exactly that window open; `UPDATE … SET x = x + 1`
- * takes the row lock and does not.
+ * A read-modify-write leaves exactly the repeated-index window open: two
+ * callers read the same value and derive the same address. `UPDATE … SET x = x
+ * + 1` takes the row lock and does not.
  *
  * `RETURNING next_derivation_index - 1` is the PRE-increment value — the index
  * this call reserved — and is the direct port of Mongo's `findOneAndUpdate({
