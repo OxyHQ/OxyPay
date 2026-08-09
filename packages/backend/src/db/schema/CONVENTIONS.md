@@ -171,6 +171,32 @@ Two that ARE there, because every writer was checked:
   spellings of one fact and both writers derive the second from the first; the
   CHECK is that derivation, where the two cannot come apart.
 
+## A Mongoose hook has no Postgres counterpart, and losing one is silent
+
+The most dangerous thing about this port is not a column type. It is that
+`models/*.ts` enforce rules in `pre('validate')` hooks, which run on EVERY save
+regardless of the call site — and a drizzle schema has no hooks at all. A rule
+that was true by construction becomes true only of writes that go through one
+function, and NOTHING fails when it is dropped.
+
+The instance here is the one the repository's AGENTS.md calls the legal
+firewall: `Merchant`'s hook derives index 0 from the submitted `xpub` to prove it
+is watch-only, so a merchant handing over an `xprv` is refused rather than
+silently granting this gateway the ability to spend their funds. It is not
+expressible as a CHECK — deciding it requires deriving a secp256k1 child key —
+so it moved into `db/merchants/merchantRepository.ts`'s `assertWatchOnly`, and
+`insertMerchant` being the single writer is the only thing keeping it honest.
+
+**Measured:** deleting that one call reds exactly ONE test out of 288. Every
+other test hands in a valid xpub and stays green, because telling the two apart
+requires a fixture that is a real PRIVATE extended key — which is why
+`merchantRepository.realdb.test.ts` builds one from the canonical mnemonic
+rather than asserting on a string, and proves it really is private before using
+it to prove anything.
+
+Before porting any model, list its hooks. Each one is either re-expressed at a
+single write chokepoint with a test that would fail without it, or it is gone.
+
 ## Protected columns
 
 `db/protectedColumns.ts` withholds `merchants.webhook_secret` and
