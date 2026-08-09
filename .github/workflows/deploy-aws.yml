@@ -63,6 +63,13 @@ jobs:
         env:
           # Read by packages/backend/src/config.ts (`loadConfig`).
           APP_MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          # The Postgres connection string. Currently read by the migrator and
+          # by `db/postgres.ts`, which nothing calls at boot — the routes are
+          # still on Mongo. It is synced now so the parameter is in place before
+          # the change that makes it required. An unset or placeholder GitHub
+          # secret is SKIPPED by sync_secret below, so adding this line cannot
+          # overwrite a value provisioned directly in SSM.
+          APP_DATABASE_URL: ${{ secrets.DATABASE_URL }}
           APP_OXY_ACCESS_TOKEN_SECRET: ${{ secrets.OXY_ACCESS_TOKEN_SECRET }}
           # Read by @oxyhq/core (request hashing).
           APP_IP_HASH_SALT: ${{ secrets.IP_HASH_SALT }}
@@ -79,6 +86,7 @@ jobs:
           }
 
           sync_secret MONGODB_URI "$APP_MONGODB_URI" "/oxy/$APP/MONGODB_URI"
+          sync_secret DATABASE_URL "$APP_DATABASE_URL" "/oxy/$APP/DATABASE_URL"
           sync_secret OXY_ACCESS_TOKEN_SECRET "$APP_OXY_ACCESS_TOKEN_SECRET" "/oxy/$APP/OXY_ACCESS_TOKEN_SECRET"
           sync_secret IP_HASH_SALT "$APP_IP_HASH_SALT" "/oxy/$APP/IP_HASH_SALT"
           sync_secret DEVICE_ID_SALT "$APP_DEVICE_ID_SALT" "/oxy/$APP/DEVICE_ID_SALT"

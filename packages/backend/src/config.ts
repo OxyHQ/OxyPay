@@ -30,6 +30,19 @@ export interface AppConfig {
   network: NetworkType;
   /** MongoDB connection string. */
   mongodbUri: string;
+  /**
+   * PostgreSQL connection string, or `undefined` where none is configured.
+   *
+   * Optional for exactly as long as no route reads Postgres. `db/postgres.ts`
+   * refuses to open a pool without it, with a named error rather than a `!`, so
+   * an unconfigured deployment fails at the call that needed the database
+   * instead of at boot — which is what keeps this change safe to deploy ahead
+   * of the task definition carrying `DATABASE_URL`. The change that moves the
+   * first route to Postgres makes it REQUIRED here and calls
+   * `connectPostgres()` from `server.ts`, so a misconfigured task crash-loops
+   * rather than serving half a service.
+   */
+  databaseUrl: string | undefined;
   /** HTTP port the API listens on. */
   port: number;
   /**
@@ -120,6 +133,7 @@ export function loadConfig(
     ),
     network: readNetwork(env.OXYPAY_NETWORK),
     mongodbUri: readNonEmpty(env.MONGODB_URI, DEFAULT_MONGODB_URI),
+    databaseUrl: readOptional(env.DATABASE_URL),
     port: readPort(env.PORT),
     allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),

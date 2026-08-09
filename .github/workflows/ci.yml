@@ -1,0 +1,105 @@
+# Gates that run on every push and pull request.
+#
+# This repository had no CI workflow at all — only `deploy-aws.yml`, which runs
+# after main has already moved. Nothing checked a pull request, so the first
+# signal a change was broken was a rolled ECS service.
+#
+# The Postgres service container is what makes the database gates real: the
+# schema invariants, the CHECK constraints, the row lock behind the derivation
+# index reservation and the migration itself are all properties only a server
+# has. `packages/backend/src/db/__tests__/schemaGates.realdb.test.ts` fails the
+# build if `TEST_DATABASE_URL` is missing while `CI` is set, so a container that
+# silently stopped being provisioned cannot read as a green run.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # x86, deliberately: GitHub-hosted arm64 runners do not support service
+    # containers at all. The deploy job builds on arm64; this one does not need
+    # to, and pinning it there would cost the database entirely.
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Plain postgres — this schema requires NO extensions (see
+        # REQUIRED_EXTENSIONS in packages/backend/src/db/migrate.ts). An image
+        # carrying one nobody installs on RDS would let a migration that reached
+        # for it pass here and fail in production.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: oxypay
+          POSTGRES_PASSWORD: oxypay
+          POSTGRES_DB: oxypay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oxypay"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://oxypay:oxypay@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2
+        with:
+          # The SAME version the Dockerfile pins (oven/bun:1.3.14-alpine). A
+          # mismatch produces `lockfile had changes, but lockfile is frozen`
+          # in one place and not the other.
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+
+      - name: Lockfile is in sync with the manifests
+        # `--frozen-lockfile` above fails only when a range resolves to nothing;
+        # it exits 0 on a dependency added without regenerating the lockfile. A
+        # plain install plus a diff is what actually answers the question.
+        run: |
+          bun install
+          if ! git diff --quiet -- bun.lock; then
+            echo "::error::bun.lock changed after a plain install — commit it with the package.json change"
+            git --no-pager diff -- bun.lock
+            exit 1
+          fi
+
+      # Both published packages are built before the typecheck, because two
+      # consumers resolve them through their `dist`: the backend imports
+      # `@oxypay/shared-types`' compiled output, and `@oxypay/checkout` imports
+      # `@oxyhq/pay/checkout`. Without these, the typecheck fails with a TS2307
+      # that says nothing about the change under review.
+      - run: bun run build:shared-types
+      - run: bun run --filter @oxyhq/pay build
+
+      - name: Typecheck every package
+        run: bun run --filter '*' typecheck
+
+      - name: Migrations match the schema
+        # A schema edited without regenerating produces DDL that never reaches
+        # any database — every local test still passes, because the test harness
+        # applies the OLD migration and the queries are built from the NEW
+        # schema only where the two happen to agree.
+        working-directory: packages/backend
+        run: |
+          bunx drizzle-kit generate
+          if ! git diff --quiet -- src/db/migrations; then
+            echo "::error::the drizzle schema has changes with no migration — run 'bun run db:generate' and add the deploy-phase marker"
+            git --no-pager status --porcelain -- src/db/migrations
+            exit 1
+          fi
+
+      # Every package, not just the backend. `TEST_DATABASE_URL` is set on the
+      # job, so the backend's real-database suites run here and refuse to be
+      # skipped.
+      - run: bun run --filter '*' test

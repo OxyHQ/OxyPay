@@ -1,0 +1,32 @@
+# Local Postgres for `bun run --cwd packages/backend test`.
+#
+#   docker compose -f docker-compose.postgres.yml up -d
+#   export TEST_DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/postgres
+#
+# Plain `postgres:17-alpine`, not `postgis/postgis`: this schema needs NO
+# extensions (see `REQUIRED_EXTENSIONS` in `packages/backend/src/db/migrate.ts`),
+# and an image carrying one nobody installs would let a migration that reached
+# for it pass locally and fail on RDS.
+#
+# Port 5439 rather than 5432 so this never collides with another Oxy service's
+# local server on the same machine. The suite connects to the `postgres`
+# maintenance database and creates one throwaway database per test file.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: oxypay-postgres
+    environment:
+      POSTGRES_USER: oxypay
+      POSTGRES_PASSWORD: oxypay
+      POSTGRES_DB: oxypay
+    ports:
+      - '5439:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oxypay']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      # Throwaway by construction: a test database that survives a restart is a
+      # test database that can carry a previous run's rows into this one.
+      - /var/lib/postgresql/data
