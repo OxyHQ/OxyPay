@@ -167,6 +167,18 @@ Two that ARE there, because every writer was checked:
   are reached only by the settlement watcher, which selects on `txid` being
   present. `failed` is deliberately outside the set — `approved → failed` is
   legal and pairs with no txid.
+
+  **This CHECK also decides which fixture can test the code around it, and that
+  is not a coincidence.** A mutation survived here: dropping `isNotNull(txid)`
+  from `findWatchableIntents` left the whole suite green, because every
+  txid-less fixture was `created` and the STATUS predicate excluded it before
+  the txid predicate was ever reached. The obvious discriminating fixture — a
+  txid-less `broadcast` row — is UNREPRESENTABLE, because this constraint
+  forbids exactly it. So the only status that both permits a missing txid and
+  reaches that query is `failed`, the one status left out of the set above. The
+  constraint and the fixture that tests around it are one design decision seen
+  from two sides; narrowing the constraint later would silently remove the only
+  fixture that can exercise the predicate.
 - `webhook_deliveries_status_agrees_check`. `delivered` and `last_status` are two
   spellings of one fact and both writers derive the second from the first; the
   CHECK is that derivation, where the two cannot come apart.
