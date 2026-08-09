@@ -1,0 +1,266 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { isCheckViolation, isForeignKeyViolation, uuidv7 } from '@oxyhq/db';
+import { insertMerchant, type MerchantRow } from '../merchants/merchantRepository';
+import { insertPaymentIntent } from '../payments/paymentIntentRepository';
+import {
+  findDeliveryForMerchant,
+  insertWebhookDelivery,
+  listDeliveriesForMerchant,
+} from '../webhooks/webhookDeliveryRepository';
+import {
+  findAttributionsForViewer,
+  insertSendAttribution,
+} from '../social/sendAttribution';
+import {
+  POSTGRES_TESTS_ENABLED,
+  createSuiteDatabase,
+  dropSuiteDatabase,
+  type SuiteDatabase,
+} from '../testDatabase';
+
+const XPUB =
+  'DRKVrRr8WgU4mARJnCLAp77sKJ5h5K79VH8sredx2qPY8BUKogTYqoAXdTAzzvS5MgBDGGWb2Zoa2AwzoLRsbGGkBm1q2r7QSfRYWCizWfvMfPZn';
+
+let suite: SuiteDatabase | undefined;
+
+async function makeMerchant(): Promise<MerchantRow> {
+  const unique = uuidv7();
+  return (await insertMerchant(suite!.db, {
+    oxyAppId: `app_${unique}`,
+    environment: 'development',
+    network: 'testnet',
+    xpub: XPUB,
+    publicId: `merch_${unique}`,
+  }))!;
+}
+
+async function makeIntent(merchant: MerchantRow) {
+  const unique = uuidv7();
+  return (await insertPaymentIntent(suite!.db, {
+    publicId: `pi_${unique}`,
+    merchantId: merchant.id,
+    amount: '100000000',
+    network: merchant.network,
+    address: `T${unique}`,
+    clientSecret: `pi_${unique}_secret_x`,
+    idempotencyKey: unique,
+    metadata: {},
+    expiresAt: new Date(Date.now() + 900_000),
+  }))!;
+}
+
+describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attribution repositories', () => {
+  beforeAll(async () => {
+    suite = await createSuiteDatabase();
+  });
+
+  afterAll(async () => {
+    await dropSuiteDatabase(suite);
+    suite = undefined;
+  });
+
+  /**
+   * `last_status` is derived from `delivered` at the single write point, so the
+   * pair can never disagree — and the caller has no parameter with which to make
+   * them. Both truth values are exercised, because deriving only one correctly
+   * would still pass a test that checked one.
+   */
+  it('derives last_status from delivered, both ways', async () => {
+    const merchant = await makeMerchant();
+    const intent = await makeIntent(merchant);
+
+    const ok = await insertWebhookDelivery(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      eventId: `evt_${uuidv7()}`,
+      eventType: 'payment_intent.settled',
+      url: 'https://merchant.example/hook',
+      attempts: 1,
+      delivered: true,
+    });
+    expect(ok.lastStatus).toBe('delivered');
+
+    const failed = await insertWebhookDelivery(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      eventId: `evt_${uuidv7()}`,
+      eventType: 'payment_intent.failed',
+      url: 'https://merchant.example/hook',
+      attempts: 3,
+      delivered: false,
+    });
+    expect(failed.lastStatus).toBe('failed');
+  });
+
+  it('refuses a delivery that made no attempt', async () => {
+    const merchant = await makeMerchant();
+    const intent = await makeIntent(merchant);
+    let raised: unknown;
+    try {
+      await insertWebhookDelivery(suite!.db, {
+        merchantId: merchant.id,
+        paymentIntentId: intent.id,
+        eventId: `evt_${uuidv7()}`,
+        eventType: 'payment_intent.settled',
+        url: 'https://merchant.example/hook',
+        attempts: 0,
+        delivered: false,
+      });
+    } catch (error) {
+      raised = error;
+    }
+    expect(isCheckViolation(raised, 'webhook_deliveries_attempts_check')).toBe(true);
+  });
+
+  it('refuses a delivery for an intent that does not exist', async () => {
+    const merchant = await makeMerchant();
+    let raised: unknown;
+    try {
+      await insertWebhookDelivery(suite!.db, {
+        merchantId: merchant.id,
+        paymentIntentId: uuidv7(),
+        eventId: `evt_${uuidv7()}`,
+        eventType: 'payment_intent.settled',
+        url: 'https://merchant.example/hook',
+        attempts: 1,
+        delivered: true,
+      });
+    } catch (error) {
+      raised = error;
+    }
+    expect(
+      isForeignKeyViolation(raised, 'webhook_deliveries_payment_intent_id_payment_intents_id_fk')
+    ).toBe(true);
+  });
+
+  it('never returns another merchant\'s delivery', async () => {
+    const owner = await makeMerchant();
+    const stranger = await makeMerchant();
+    const intent = await makeIntent(owner);
+    const delivery = await insertWebhookDelivery(suite!.db, {
+      merchantId: owner.id,
+      paymentIntentId: intent.id,
+      eventId: `evt_${uuidv7()}`,
+      eventType: 'payment_intent.settled',
+      url: 'https://merchant.example/hook',
+      attempts: 1,
+      delivered: true,
+    });
+
+    expect((await findDeliveryForMerchant(suite!.db, delivery.id, owner.id))?.id).toBe(delivery.id);
+    expect(await findDeliveryForMerchant(suite!.db, delivery.id, stranger.id)).toBeNull();
+  });
+
+  /**
+   * The cursor no longer needs an ObjectId format guard. An id of ANY shape that
+   * does not exist simply pages nothing — which is what the deleted
+   * `mongoose.isValidObjectId` check was really protecting against, expressed by
+   * the lookup itself rather than by a format test.
+   */
+  it('pages a merchant\'s log and tolerates a cursor of any shape', async () => {
+    const merchant = await makeMerchant();
+    const intent = await makeIntent(merchant);
+    for (let index = 0; index < 3; index += 1) {
+      await insertWebhookDelivery(suite!.db, {
+        merchantId: merchant.id,
+        paymentIntentId: intent.id,
+        eventId: `evt_${uuidv7()}`,
+        eventType: 'payment_intent.settled',
+        url: 'https://merchant.example/hook',
+        attempts: 1,
+        delivered: true,
+      });
+    }
+
+    const first = await listDeliveriesForMerchant(suite!.db, { merchantId: merchant.id, limit: 2 });
+    expect(first.data).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+
+    const second = await listDeliveriesForMerchant(suite!.db, {
+      merchantId: merchant.id,
+      limit: 2,
+      after: first.data.at(-1)!.id,
+    });
+    expect(second.data).toHaveLength(1);
+    expect(second.hasMore).toBe(false);
+
+    // A 24-char ObjectId hex — the shape the deleted guard used to accept, and
+    // which is now simply an id that matches nothing.
+    const legacyShaped = await listDeliveriesForMerchant(suite!.db, {
+      merchantId: merchant.id,
+      limit: 2,
+      after: '0'.repeat(24),
+    });
+    expect(legacyShaped.data).toEqual([]);
+  });
+
+  it('attributes an address to one payment relationship, once', async () => {
+    const address = `T${uuidv7()}`;
+    const sender = uuidv7();
+    const recipient = uuidv7();
+
+    const created = await insertSendAttribution(suite!.db, {
+      address,
+      network: 'testnet',
+      senderUserId: sender,
+      recipientUserId: recipient,
+      derivationIndex: 1,
+    });
+    expect(created?.derivationIndex).toBe(1);
+
+    // Single-use: a second relationship claiming the same address is refused.
+    expect(
+      await insertSendAttribution(suite!.db, {
+        address,
+        network: 'testnet',
+        senderUserId: uuidv7(),
+        recipientUserId: uuidv7(),
+        derivationIndex: 2,
+      })
+    ).toBeNull();
+  });
+
+  it('refuses an attribution at the recipient\'s default index', async () => {
+    let raised: unknown;
+    try {
+      await insertSendAttribution(suite!.db, {
+        address: `T${uuidv7()}`,
+        network: 'testnet',
+        senderUserId: uuidv7(),
+        recipientUserId: uuidv7(),
+        derivationIndex: 0,
+      });
+    } catch (error) {
+      raised = error;
+    }
+    expect(isCheckViolation(raised, 'social_send_attributions_derivation_index_check')).toBe(true);
+  });
+
+  /**
+   * An attribution names two Oxy users, so returning one to anybody else tells a
+   * stranger who paid whom. Both parties are seeded AND a third party, because a
+   * query returning only the sender's view would pass whether or not the
+   * recipient half worked, and one returning everything would pass both.
+   */
+  it('shows an attribution to both parties and to nobody else', async () => {
+    const address = `T${uuidv7()}`;
+    const sender = uuidv7();
+    const recipient = uuidv7();
+    const stranger = uuidv7();
+    await insertSendAttribution(suite!.db, {
+      address,
+      network: 'testnet',
+      senderUserId: sender,
+      recipientUserId: recipient,
+      derivationIndex: 1,
+    });
+
+    expect((await findAttributionsForViewer(suite!.db, [address], sender)).map((r) => r.address)).toEqual([address]);
+    expect((await findAttributionsForViewer(suite!.db, [address], recipient)).map((r) => r.address)).toEqual([address]);
+    expect(await findAttributionsForViewer(suite!.db, [address], stranger)).toEqual([]);
+  });
+
+  it('answers an empty address list without a query', async () => {
+    expect(await findAttributionsForViewer(suite!.db, [], uuidv7())).toEqual([]);
+  });
+});
