@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { isCheckViolation, isForeignKeyViolation, uuidv7 } from '@oxyhq/db';
 import {
+  findIntentByIdForMerchant,
   findIntentByIdempotencyKey,
+  findIntentById,
   findIntentByPublicId,
   findIntentForMerchant,
   findIntentsByAddresses,
@@ -280,8 +282,9 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('payment intent repository', () => {
       [first!.publicId, second!.publicId].sort()
     );
 
-    // `inArray` with no values builds `in ()`, a syntax error — so the empty
-    // case must short-circuit rather than reach the database at all.
+    // The empty input answers empty. That is the behaviour, not the guard: on
+    // drizzle-orm 0.45.2 `inArray(col, [])` renders `where false`, so the
+    // short-circuit saves a round trip rather than avoiding a syntax error.
     expect(await findIntentsByAddresses(suite!.db, [])).toEqual([]);
   });
 
@@ -335,6 +338,51 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('payment intent repository', () => {
     const failedOnes = (await findWatchableIntents(suite!.db, ['failed'])).map((row) => row.publicId);
     expect(failedOnes).toContain(failedWithTxid!.publicId);
     expect(failedOnes).not.toContain(noTxid!.publicId);
+  });
+
+  /**
+   * The two id spaces, told apart.
+   *
+   * `checkout_sessions.payment_intent_id` holds the intent's PRIMARY KEY where
+   * the Mongo document held the public `pi_…`, so resolving a session's wrapped
+   * intent is a different lookup from resolving one a payer named. Every
+   * assertion but the second would pass a read that matched on `public_id`
+   * instead — it returns the same row — so the discriminating case is the one
+   * that hands the public id to the internal read and requires nothing back.
+   */
+  it('resolves an intent by its internal id, and never by its public id', async () => {
+    const merchant = await makeMerchant();
+    const created = (await insertPaymentIntent(suite!.db, intentParams(merchant.id)))!;
+
+    expect((await findIntentById(suite!.db, created.id))?.publicId).toBe(created.publicId);
+    expect(await findIntentById(suite!.db, created.publicId)).toBeNull();
+    expect(await findIntentById(suite!.db, uuidv7())).toBeNull();
+  });
+
+  /**
+   * The IDOR wall on the redelivery path's lookup.
+   *
+   * A `webhook_deliveries` row names its intent by primary key, and redelivery
+   * loads it under merchant authentication — so the scope is re-stated in the
+   * WHERE clause. The fixture is a SECOND merchant, because a one-sided one
+   * passes whether or not the predicate is there: the id is unique, so dropping
+   * the merchant term still returns exactly one row, and it is the owner's.
+   */
+  it('never returns another merchant\'s intent from the by-id scoped read', async () => {
+    const owner = await makeMerchant();
+    const stranger = await makeMerchant();
+    const created = (await insertPaymentIntent(suite!.db, intentParams(owner.id)))!;
+
+    expect((await findIntentByIdForMerchant(suite!.db, created.id, owner.id))?.publicId).toBe(
+      created.publicId
+    );
+    // A foreign row and a missing one are the same answer, so the caller's 404
+    // cannot be told from its other 404 — existence does not leak.
+    expect(await findIntentByIdForMerchant(suite!.db, created.id, stranger.id)).toBeNull();
+    expect(await findIntentByIdForMerchant(suite!.db, uuidv7(), owner.id)).toBeNull();
+    // The mix-up the identical signatures invite, priced: handing the scoped
+    // by-id read a `pi_…` matches nothing. It never returns a different intent.
+    expect(await findIntentByIdForMerchant(suite!.db, created.publicId, owner.id)).toBeNull();
   });
 
   it('returns null for an unknown intent rather than throwing', async () => {

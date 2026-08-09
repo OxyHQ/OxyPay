@@ -89,9 +89,10 @@ export async function insertSendAttribution(
  * Postgres.
  *
  * `inArray`, not a `sql` template holding the array — a bare `${array}` renders
- * as a row constructor, which Postgres rejects. The empty case short-circuits,
- * because `inArray` with no values builds `in ()`, a syntax error rather than
- * the empty result the caller means.
+ * as a row constructor, which Postgres rejects. The empty case short-circuits to
+ * save a round trip, not to avoid an error: measured on drizzle-orm 0.45.2
+ * against a real server, `inArray(col, [])` renders `where false` and returns no
+ * rows.
  */
 export async function findAttributionsForViewer(
   db: DatabaseOrTransaction,
