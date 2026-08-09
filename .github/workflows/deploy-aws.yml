@@ -21,6 +21,13 @@ on:
       - 'bunfig.toml'
       - '.github/workflows/deploy-aws.yml'
   workflow_dispatch:
+    inputs:
+      migration_phase:
+        description: 'Migration run. Leave as pre-post for a normal release; `all` is the from-zero genesis / cutover only.'
+        required: false
+        default: pre-post
+        type: choice
+        options: [pre-post, all]
 
 permissions:
   id-token: write
@@ -32,6 +39,12 @@ env:
   APP: oxypay
   CLUSTER: oxy-cluster
   DOCKERFILE: packages/backend/Dockerfile
+  # The database the migrator is allowed to write DDL to. Checked against
+  # `current_database()` by `--target-database`, so a task whose DATABASE_URL
+  # reaches somewhere else fails instead of migrating it — a migrator pointed at
+  # the wrong database does not error, it finds an empty ledger, applies the
+  # whole journal and reports success over a database nobody meant to touch.
+  PG_DATABASE: oxypay
 
 jobs:
   deploy:
@@ -101,6 +114,109 @@ jobs:
           docker push "$IMG:${{ github.sha }}"
           docker push "$IMG:latest"
 
+      # ── Migrations run as one-shot ECS tasks, around the rollout ─────────────
+      #
+      # Two phases, and the split is the whole point (see @oxyhq/db's phases.ts):
+      # `pre` is additive and safe while the OLD image still serves, so it runs
+      # BEFORE the service update; `post` drops and narrows, which would break
+      # the old image, so it runs AFTER the new one is live. Every migration file
+      # declares its own side and the migrator refuses to guess for one that does
+      # not.
+      #
+      # The task REUSES the service's live task definition and network
+      # configuration rather than registering its own, which is what gives the
+      # migrator the same DATABASE_URL secret, subnets and security groups the
+      # service has. Only the command is overridden. That also means it runs the
+      # image the task definition points at — the `:latest` tag this workflow
+      # just pushed — so `run-task` gets the NEW image without a second revision.
+      # If the task definition is ever pinned to an immutable tag, this step must
+      # register a revision instead, or it will migrate using the OLD image.
+      - name: Resolve the ECS one-shot shape
+        id: ecs
+        env:
+          # Absent on a `push` trigger, where only the default is ever right.
+          REQUESTED_PHASE: ${{ github.event.inputs.migration_phase }}
+        run: |
+          set -euo pipefail
+          echo "phase_mode=${REQUESTED_PHASE:-pre-post}" >> "$GITHUB_OUTPUT"
+
+          STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" --query 'services[0].status' --output text 2>/dev/null || echo NONE)
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "ECS service $APP not created yet — nothing to migrate or deploy against"
+            echo "has_database_url=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" --query 'services[0].taskDefinition' --output text)
+          NET=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" --query 'services[0].networkConfiguration' --output json)
+          CONTAINER=$(aws ecs describe-task-definition --task-definition "$TD" --query 'taskDefinition.containerDefinitions[0].name' --output text)
+          echo "task_definition=$TD" >> "$GITHUB_OUTPUT"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          # JSON on one line: a GITHUB_OUTPUT value cannot span lines unhelped.
+          echo "network=$(echo "$NET" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          # Does the task definition actually inject DATABASE_URL? Asked of the
+          # LIVE definition rather than assumed, because the answer is owned by
+          # oxy-infra's terraform and not by this repository — and because the
+          # failure it prevents is confusing: a migration task with no
+          # DATABASE_URL exits non-zero with "Refusing to migrate", which reads
+          # like a broken migration rather than a missing secret.
+          #
+          # Skipping is correct only while NO route reads Postgres: `config.ts`
+          # keeps `databaseUrl` optional and nothing calls `connectPostgres()` at
+          # boot, so an unapplied migration harms nothing today. This guard
+          # RETIRES with that — once `DATABASE_URL` is required at boot, a task
+          # definition missing it crash-loops the service, so the state this
+          # skips over stops being reachable.
+          SECRETS=$(aws ecs describe-task-definition --task-definition "$TD" --query 'taskDefinition.containerDefinitions[0].secrets[].name' --output text)
+          if echo "$SECRETS" | tr '\t' '\n' | grep -qx DATABASE_URL; then
+            echo "has_database_url=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_database_url=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$TD does not inject DATABASE_URL, so migrations are SKIPPED. The parameter exists at /oxy/$APP/DATABASE_URL; add it to the task definition's secrets[] in oxy-infra (terraform-uswest2) to turn migrations on."
+          fi
+
+      # Does this release contain a post-rollout migration at all? Grepped with
+      # the pattern @oxyhq/db EXPORTS (`POST_PHASE_GREP_PATTERN`), never a copy —
+      # `src/db/__tests__/deployWorkflow.test.ts` asserts this workflow contains
+      # that exact string, so the two cannot drift. The grep is sound only
+      # because the migrator separately proves every file carries exactly one
+      # well-formed marker; without that a typo would read as "no post migration"
+      # and the drop would never be applied by anything.
+      - name: Detect a post-rollout migration in this release
+        id: phases
+        run: |
+          if grep -rlE '^-- oxy:deploy-phase=post$' packages/backend/src/db/migrations >/dev/null 2>&1; then
+            echo "has_post=true" >> "$GITHUB_OUTPUT"
+            echo "this release carries at least one post-rollout migration"
+          else
+            echo "has_post=false" >> "$GITHUB_OUTPUT"
+            echo "no post-rollout migration in this release"
+          fi
+
+      # The CUTOVER path, chosen by hand from workflow_dispatch. One `all` run
+      # applies the whole chain in journal order before the rollout, which the
+      # pre/post pair cannot do: a `pre` migration queued behind an unapplied
+      # `post` one BLOCKS by design. It is safe only on a database no image is
+      # serving yet — which is also why it must never be the default. This is the
+      # path the from-zero genesis takes.
+      - name: Migrate (all) — cutover only, never a normal release
+        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.has_database_url == 'true' && steps.ecs.outputs.phase_mode == 'all'
+        run: .github/scripts/run-migration-task.sh all
+        env:
+          TASK_DEFINITION: ${{ steps.ecs.outputs.task_definition }}
+          CONTAINER_NAME: ${{ steps.ecs.outputs.container }}
+          NETWORK_CONFIGURATION: ${{ steps.ecs.outputs.network }}
+
+      - name: Migrate (pre) — before the rollout
+        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.has_database_url == 'true' && steps.ecs.outputs.phase_mode != 'all'
+        run: .github/scripts/run-migration-task.sh pre
+        env:
+          TASK_DEFINITION: ${{ steps.ecs.outputs.task_definition }}
+          CONTAINER_NAME: ${{ steps.ecs.outputs.container }}
+          NETWORK_CONFIGURATION: ${{ steps.ecs.outputs.network }}
+
       - name: Deploy to ECS (rolling; skipped until the service exists)
         run: |
           set -euo pipefail
@@ -152,3 +268,22 @@ jobs:
 
           echo "::error::ECS rollout for $APP did not reach COMPLETED within ${MAX_WAIT_SECS}s (genuine timeout)"
           exit 1
+
+      # Only when the release actually has one. Skipping the task entirely is not
+      # an optimisation — a `post` run against a database with a pending `pre`
+      # migration BLOCKS by design, so running it every time would turn a normal
+      # release into a red deploy.
+      # Skipped entirely on the cutover path: the `all` run above already applied
+      # these, so a `post` here would find nothing — and running it would only
+      # add a way for a green cutover to end on a red step.
+      - name: Migrate (post) — after the new image is live
+        if: >-
+          steps.ecs.outputs.status == 'ACTIVE'
+          && steps.ecs.outputs.has_database_url == 'true'
+          && steps.ecs.outputs.phase_mode != 'all'
+          && steps.phases.outputs.has_post == 'true'
+        run: .github/scripts/run-migration-task.sh post
+        env:
+          TASK_DEFINITION: ${{ steps.ecs.outputs.task_definition }}
+          CONTAINER_NAME: ${{ steps.ecs.outputs.container }}
+          NETWORK_CONFIGURATION: ${{ steps.ecs.outputs.network }}
