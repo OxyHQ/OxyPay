@@ -3,12 +3,12 @@ import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { oxyClient } from "@oxyhq/core";
 import { loadConfig } from "../../config";
-import { Merchant } from "../../models/Merchant";
-import { PaymentIntent } from "../../models/PaymentIntent";
+import {
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createPaymentIntentsRouter } from "../paymentIntents";
 
 // Real TESTNET account xpub for the canonical all-"abandon" + "art" mnemonic —
@@ -49,16 +49,13 @@ function signRealServiceToken(claims: Record<string, unknown>, secret: string): 
   return `${headerB64}.${payloadB64}.${signature}`;
 }
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
 
+useGatewayDatabase();
+
 beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentIntent.init();
-  await Merchant.create({
+  await seedMerchant({
     publicId: "merch_test0000000000000001",
     oxyAppId: APP_ID,
     environment: "development",
@@ -66,7 +63,16 @@ beforeAll(async () => {
     xpub: XPUB,
   });
 
-  const config = loadConfig({ OXY_ACCESS_TOKEN_SECRET: TEST_SECRET });
+  // `loadConfig` is handed an EXPLICIT env rather than `process.env`, so it
+  // does not inherit `DATABASE_URL` — which the Postgres-native config now
+  // requires. It is passed through from the ambient environment (the same one
+  // this file's `import "../../config"` already loads at module scope) because
+  // this test's subject is `serviceJwtSecret` and nothing here opens a pool
+  // from this config object.
+  const config = loadConfig({
+    DATABASE_URL: process.env.DATABASE_URL,
+    OXY_ACCESS_TOKEN_SECRET: TEST_SECRET,
+  });
   const requireMerchant = oxyClient.serviceAuth({ jwtSecret: config.serviceJwtSecret });
   const optionalServiceAuth = oxyClient.auth({ jwtSecret: config.serviceJwtSecret, optional: true });
 
@@ -82,8 +88,6 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 test("a genuinely HMAC-signed service token minted with the configured secret is accepted", async () => {

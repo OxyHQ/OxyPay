@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { HydratedDocument } from "mongoose";
 import type { NetworkType } from "@fairco.in/core";
-import type { MerchantDoc } from "../models/Merchant";
-import { PaymentIntent } from "../models/PaymentIntent";
-import type { PaymentIntentDoc } from "../models/PaymentIntent";
+import { getDb } from "../db/postgres";
+import type { MerchantRow } from "../db/merchants/merchantRepository";
+import {
+  findIntentByIdempotencyKey,
+  insertPaymentIntent,
+} from "../db/payments/paymentIntentRepository";
+import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
 import { reserveNextAddress } from "./reserveAddress";
 import { newId, clientSecretFor } from "../lib/ids";
-import { isDuplicateKeyError } from "../lib/http";
 
 const DEFAULT_EXPIRY_SECONDS = 15 * 60;
 const MS_PER_SECOND = 1000;
@@ -27,7 +29,7 @@ export class NetworkMismatchError extends Error {
 }
 
 export interface CreateIntentInput {
-  merchant: HydratedDocument<MerchantDoc>;
+  merchant: MerchantRow;
   amount: string;
   network: NetworkType;
   metadata?: Record<string, string>;
@@ -43,7 +45,7 @@ export interface CreateIntentInput {
 }
 
 export interface CreateIntentResult {
-  intent: HydratedDocument<PaymentIntentDoc>;
+  intent: PaymentIntentRow;
   reused: boolean;
 }
 
@@ -60,57 +62,57 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
     throw new NetworkMismatchError(network, merchant.network);
   }
 
+  const db = getDb();
+
   // Idempotency (fast path): a prior intent for this key wins as-is. Only
   // meaningful when the caller supplied a key.
   if (idempotencyKey) {
-    const existing = await PaymentIntent.findOne({
-      merchantId: merchant.id,
-      idempotencyKey,
-    });
+    const existing = await findIntentByIdempotencyKey(db, merchant.id, idempotencyKey);
     if (existing) {
       return { intent: existing, reused: true };
     }
   }
 
   const { address } = await reserveNextAddress(merchant.id);
-  const id = newId("pi");
-  const clientSecret = clientSecretFor(id);
+  const publicId = newId("pi");
+  const clientSecret = clientSecretFor(publicId);
   const expiresAt = new Date(
     Date.now() + (expiresInSeconds ?? DEFAULT_EXPIRY_SECONDS) * MS_PER_SECOND,
   );
   const key = idempotencyKey ?? randomUUID();
 
-  try {
-    // Explicit field whitelist — never spread a caller body (mass-assignment
-    // would be an IDOR).
-    const intent = await PaymentIntent.create({
-      id,
-      status: "created",
-      amount,
-      network,
-      address,
-      merchantId: merchant.id,
-      txid: null,
-      confirmations: 0,
-      clientSecret,
-      idempotencyKey: key,
-      metadata: metadata ? new Map(Object.entries(metadata)) : new Map<string, string>(),
-      expiresAt,
-    });
+  // Explicit field whitelist — never spread a caller body (mass-assignment
+  // would be an IDOR). `status`, `currency` and `confirmations` take their
+  // column defaults inside the repository: a caller does not get to mint an
+  // intent that is already settled.
+  const intent = await insertPaymentIntent(db, {
+    publicId,
+    merchantId: merchant.id,
+    amount,
+    network,
+    address,
+    clientSecret,
+    idempotencyKey: key,
+    metadata: metadata ?? {},
+    expiresAt,
+  });
+
+  if (intent) {
     return { intent, reused: false };
-  } catch (err) {
-    // Idempotency (race path): a concurrent create with the same key lost the
-    // unique-index bet — return the winner rather than erroring. Only
-    // meaningful when the caller supplied a key to race on.
-    if (idempotencyKey && isDuplicateKeyError(err)) {
-      const winner = await PaymentIntent.findOne({
-        merchantId: merchant.id,
-        idempotencyKey,
-      });
-      if (winner) {
-        return { intent: winner, reused: true };
-      }
-    }
-    throw err;
   }
+
+  // Idempotency (race path): a concurrent create with the same key lost the
+  // unique-index bet — return the winner rather than erroring. `insertPaymentIntent`
+  // converges on `(merchant_id, idempotency_key)` and answers `null` rather
+  // than raising, so this is a branch and no longer a caught duplicate-key
+  // error. Only reachable when the caller supplied a key to race on: without
+  // one the key is a fresh uuid nothing else can collide with.
+  if (idempotencyKey) {
+    const winner = await findIntentByIdempotencyKey(db, merchant.id, idempotencyKey);
+    if (winner) {
+      return { intent: winner, reused: true };
+    }
+  }
+
+  throw new Error(`payment intent insert converged on no row for merchant ${merchant.id}`);
 }

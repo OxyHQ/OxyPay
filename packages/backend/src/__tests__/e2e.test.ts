@@ -12,9 +12,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { IncomingMessage } from "node:http";
 import { Socket as NetSocket } from "node:net";
+import { eq } from "drizzle-orm";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { io as ioClient } from "socket.io-client";
 import type { NetworkType } from "@fairco.in/core";
 import type {
@@ -22,9 +21,19 @@ import type {
   SafeFetchResult,
 } from "@oxyhq/core/server";
 import { verifyWebhook } from "@oxypay/shared-types";
-import { Merchant } from "../models/Merchant";
-import { PaymentIntent } from "../models/PaymentIntent";
-import { WebhookDelivery } from "../models/WebhookDelivery";
+import { merchants, paymentIntents } from "../db/schema";
+import {
+  findMerchantByAppEnvironment,
+  type MerchantRow,
+} from "../db/merchants/merchantRepository";
+import { findIntentByPublicId } from "../db/payments/paymentIntentRepository";
+import { listDeliveriesForMerchant } from "../db/webhooks/webhookDeliveryRepository";
+import {
+  gatewayDb,
+  seedIntent,
+  seedMerchant,
+  useGatewayDatabase,
+} from "./helpers/gatewayTestDatabase";
 import { createGateway, type Gateway } from "../server";
 import { intentRoom } from "../realtime/socket";
 import type { ExplorerTx } from "../services/explorer";
@@ -92,17 +101,15 @@ const fakeSafeFetch = async (
   return { response, status: 200, headers: {}, finalUrl: url };
 };
 
-let mongod: MongoMemoryServer;
 let gateway: Gateway;
 let baseUrl: string;
+/** The registered merchant, kept so the delivery-log read below has its id. */
+let merchantRow: MerchantRow;
+
+useGatewayDatabase();
 
 beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentIntent.init();
-
-  await Merchant.create({
+  merchantRow = await seedMerchant({
     publicId: "merch_test0000000000000001",
     oxyAppId: APP_ID,
     environment: "development",
@@ -131,11 +138,9 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+afterAll(() => {
   gateway.io.close();
   gateway.httpServer.close();
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -276,7 +281,7 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   expect(authedEvent.status).toBe("settled");
 
   // 6. The intent is settled in the DB.
-  const doc = await PaymentIntent.findOne({ id: created.id });
+  const doc = await findIntentByPublicId(gatewayDb(), created.id);
   expect(doc?.status).toBe("settled");
 
   // 7. A correctly-signed settled webhook was delivered to the merchant.
@@ -301,15 +306,32 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   expect(payload.data.object.status).toBe("settled");
 
   // 7b. The delivery was also persisted (F2.0 task 4).
-  const deliveryLog = await WebhookDelivery.find({ merchantId: (await Merchant.findOne({ oxyAppId: APP_ID }))?.id });
+  const deliveryLog = (
+    await listDeliveriesForMerchant(gatewayDb(), {
+      merchantId: merchantRow.id,
+      limit: 50,
+    })
+  ).data;
   expect(deliveryLog.length).toBeGreaterThan(0);
-  const lastDelivery = deliveryLog.at(-1);
+  // NEWEST first — `listDeliveriesForMerchant` is the paginated read and orders
+  // by primary key descending, where the Mongo `find()` this replaces returned
+  // insertion order. `at(0)` is the same delivery `at(-1)` used to name.
+  const lastDelivery = deliveryLog.at(0);
   expect(lastDelivery?.delivered).toBe(true);
-  expect(lastDelivery?.intentId).toBe(created.id);
+  expect(lastDelivery?.intentPublicId).toBe(created.id);
 
   // 8. Non-custody invariant: no private-key/seed field was ever persisted.
-  const merchantDoc = await Merchant.findOne({ oxyAppId: APP_ID }).lean();
-  const intentDoc = await PaymentIntent.findOne({ id: created.id }).lean();
+  // Every column of both rows, not a repository projection: a projection can
+  // only report the columns it selects, and the question here is what the
+  // table HOLDS — which is what Mongo's `.lean()` answered.
+  const [merchantDoc] = await gatewayDb()
+    .select()
+    .from(merchants)
+    .where(eq(merchants.oxyAppId, APP_ID));
+  const [intentDoc] = await gatewayDb()
+    .select()
+    .from(paymentIntents)
+    .where(eq(paymentIntents.publicId, created.id));
   const persistedKeys = [
     ...Object.keys(merchantDoc ?? {}),
     ...Object.keys(intentDoc ?? {}),
@@ -324,15 +346,13 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
 });
 
 test("subscribe is capability-scoped by client_secret — a wrong secret joins nothing, and an authed identity does not substitute for the capability (no leak)", async () => {
-  const merchant = await Merchant.findOne({ oxyAppId: APP_ID });
+  const merchant = await findMerchantByAppEnvironment(gatewayDb(), APP_ID, "development");
   if (!merchant) throw new Error("e2e merchant fixture missing");
-  const intent = await PaymentIntent.create({
-    id: "pi_0000000000000000000000e1",
-    status: "created",
+  const intent = await seedIntent(merchant, {
+    publicId: "pi_0000000000000000000000e1",
     amount: AMOUNT,
     network: "testnet",
     address: FIRST_ADDRESS,
-    merchantId: merchant.id,
     clientSecret: "pi_0000000000000000000000e1_secret_real",
     idempotencyKey: "idem_no_leak",
     expiresAt: new Date(Date.now() + 60_000),
@@ -365,7 +385,7 @@ test("subscribe is capability-scoped by client_secret — a wrong secret joins n
 
   const anonAck = await withTimeout(
     new Promise<{ ok: boolean }>((resolve) => {
-      anon.emit("subscribe", { intentId: intent.id, clientSecret: "wrong-secret" }, resolve);
+      anon.emit("subscribe", { intentId: intent.publicId, clientSecret: "wrong-secret" }, resolve);
     }),
     5000,
     "anon wrong-secret subscribe ack",
@@ -374,7 +394,7 @@ test("subscribe is capability-scoped by client_secret — a wrong secret joins n
 
   const authedAck = await withTimeout(
     new Promise<{ ok: boolean }>((resolve) => {
-      authed.emit("subscribe", { intentId: intent.id, clientSecret: "wrong-secret" }, resolve);
+      authed.emit("subscribe", { intentId: intent.publicId, clientSecret: "wrong-secret" }, resolve);
     }),
     5000,
     "authed wrong-secret subscribe ack",
@@ -384,7 +404,7 @@ test("subscribe is capability-scoped by client_secret — a wrong secret joins n
   // Neither socket actually joined the intent's room — a failed capability
   // check never falls back to identity, so `emitIntentUpdate` would reach
   // no one. Checked server-side (deterministic; no fixed-delay listener).
-  const room = gateway.io.sockets.adapter.rooms.get(intentRoom(intent.id));
+  const room = gateway.io.sockets.adapter.rooms.get(intentRoom(intent.publicId));
   expect(room).toBeUndefined();
 
   anon.close();

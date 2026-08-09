@@ -9,11 +9,15 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { and, eq, sql } from "drizzle-orm";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
-import { Merchant } from "../../models/Merchant";
-import { PaymentIntent } from "../../models/PaymentIntent";
+import { merchants, paymentIntents } from "../../db/schema";
+import { findIntentByPublicId } from "../../db/payments/paymentIntentRepository";
+import {
+  gatewayDb,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createPaymentIntentsRouter } from "../paymentIntents";
 
 // Real TESTNET account xpub for the canonical all-"abandon" + "art" mnemonic
@@ -75,12 +79,27 @@ interface IntentResponse {
   error?: { type: string; message: string };
 }
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
 
 async function readJson(res: Response): Promise<IntentResponse> {
   return (await res.json()) as IntentResponse;
+}
+
+/**
+ * `PaymentIntent.countDocuments({ idempotencyKey })`'s port. `idempotency_key`
+ * is internal — absent from every repository's selected columns and from the
+ * DTO — so a bare count goes through drizzle directly. It throws rather than
+ * defaulting when the aggregate returns nothing, so a broken query cannot read
+ * as the zero/one both callers assert.
+ */
+async function countIntentsByIdempotencyKey(idempotencyKey: string): Promise<number> {
+  const [row] = await gatewayDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(paymentIntents)
+    .where(eq(paymentIntents.idempotencyKey, idempotencyKey));
+  if (!row) throw new Error("count(*) returned no row");
+  return row.n;
 }
 
 async function createIntent(
@@ -101,13 +120,10 @@ async function createIntent(
   return { status: res.status, body: await readJson(res) };
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentIntent.init();
+useGatewayDatabase();
 
-  await Merchant.create({
+beforeAll(async () => {
+  await seedMerchant({
     publicId: "merch_test0000000000000001",
     oxyAppId: TEST_APP_ID,
     environment: "development",
@@ -135,8 +151,6 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 describe("POST /v1/payment_intents", () => {
@@ -148,10 +162,15 @@ describe("POST /v1/payment_intents", () => {
     // `--randomize` a sibling test can reserve index 0 first. Pin the
     // merchant back to a known derivation state right before reserving so
     // this test's outcome never depends on what ran before it.
-    await Merchant.updateOne(
-      { oxyAppId: TEST_APP_ID, environment: "development" },
-      { $set: { nextDerivationIndex: 0 } },
-    );
+    await gatewayDb()
+      .update(merchants)
+      .set({ nextDerivationIndex: 0 })
+      .where(
+        and(
+          eq(merchants.oxyAppId, TEST_APP_ID),
+          eq(merchants.environment, "development"),
+        ),
+      );
 
     const { status, body } = await createIntent("idem-create-1");
 
@@ -179,9 +198,7 @@ describe("POST /v1/payment_intents", () => {
     expect(second.body.id).toBe(first.body.id);
     expect(second.body.address).toBe(first.body.address);
 
-    const count = await PaymentIntent.countDocuments({
-      idempotencyKey: "idem-replay",
-    });
+    const count = await countIntentsByIdempotencyKey("idem-replay");
     expect(count).toBe(1);
   });
 
@@ -221,9 +238,7 @@ describe("POST /v1/payment_intents", () => {
     const body = await readJson(res);
     expect(body.error?.type).toBe("invalid_request_error");
 
-    const count = await PaymentIntent.countDocuments({
-      idempotencyKey: "idem-network-mismatch",
-    });
+    const count = await countIntentsByIdempotencyKey("idem-network-mismatch");
     expect(count).toBe(0);
   });
 
@@ -431,7 +446,9 @@ describe("POST /v1/payment_intents/:id/submit_tx (payer path)", () => {
     );
     expect(res.status).toBe(403);
 
-    const reloaded = await PaymentIntent.findOne({ id: created.body.id });
+    // `created.body.id` is the WIRE id (`pi_…`), which Postgres stores as
+    // `public_id` — the internal primary key is a uuid no response carries.
+    const reloaded = await findIntentByPublicId(gatewayDb(), created.body.id);
     expect(reloaded?.txid).toBeNull();
     expect(reloaded?.status).toBe("created");
   });
@@ -503,7 +520,8 @@ describe("POST /v1/payment_intents/:id/reject", () => {
       );
       expect(res.status).toBe(403);
 
-      const reloaded = await PaymentIntent.findOne({ id: created.body.id });
+      // The WIRE id again — `public_id` in Postgres, not the primary key.
+      const reloaded = await findIntentByPublicId(gatewayDb(), created.body.id);
       expect(reloaded?.status).toBe("created");
     } finally {
       await new Promise<void>((resolve, reject) => {
@@ -549,9 +567,12 @@ describe("GET /v1/payment_intents (list)", () => {
       `${baseUrl}/v1/payment_intents?limit=1&starting_after=${page1Body.data[0]?.id}`,
     );
     const page2Body = (await page2.json()) as { data: IntentResponse[] };
-    // Newest-first (`_id: -1`) sort + a `$lt`-on-`_id` cursor: `second` was
-    // created immediately after `first` with no interleaving creates, so the
-    // next document strictly older than `second` is `first` itself.
+    // Newest-first primary-key sort + a `<`-on-the-primary-key cursor:
+    // `second` was created immediately after `first` with no interleaving
+    // creates, so the next row strictly older than `second` is `first` itself.
+    // The key is a uuid v7, whose ordering is only millisecond-resolved — two
+    // rows minted inside one millisecond sort arbitrarily — and each create
+    // here is a separate HTTP round trip, so they never share one.
     expect(page2Body.data[0]?.id).toBe(first.body.id);
   });
 

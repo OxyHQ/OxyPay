@@ -19,9 +19,10 @@ import type {
   WebhookEventType,
 } from "@oxypay/shared-types";
 import { config } from "./config";
-import { connectDb } from "./db";
-import { Merchant } from "./models/Merchant";
-import { WebhookDelivery } from "./models/WebhookDelivery";
+import { connectPostgres } from "./db/postgres";
+import { getDb } from "./db/postgres";
+import { findWebhookTarget } from "./db/merchants/merchantRepository";
+import { insertWebhookDelivery } from "./db/webhooks/webhookDeliveryRepository";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
 import { createWebhookDeliveriesRouter } from "./routes/webhookDeliveries";
@@ -30,10 +31,8 @@ import { createCheckoutSessionsRouter } from "./routes/checkoutSessions";
 import { createSocialRouter } from "./routes/social";
 import { createEnrichRouter } from "./routes/enrich";
 import { createDashboardRouter } from "./routes/dashboard";
-import {
-  SettlementWatcher,
-  type HydratedPaymentIntentDoc,
-} from "./services/settlementWatcher";
+import { SettlementWatcher } from "./services/settlementWatcher";
+import type { PaymentIntentRow } from "./db/payments/paymentIntentRepository";
 import { getTransaction } from "./services/explorer";
 import {
   buildEvent,
@@ -119,7 +118,7 @@ export interface Gateway {
  */
 export async function onIntentChange(
   io: SocketServer,
-  intent: HydratedPaymentIntentDoc,
+  intent: PaymentIntentRow,
   safeFetch: SafeFetchFn | undefined,
 ): Promise<void> {
   emitIntentUpdate(io, intent);
@@ -127,31 +126,33 @@ export async function onIntentChange(
   const eventType = WEBHOOK_EVENT_FOR[intent.status];
   if (eventType === undefined) return;
 
-  const merchant = await Merchant.findById(intent.merchantId);
-  if (!merchant || !merchant.webhookUrl || !merchant.webhookSecret) return;
+  const db = getDb();
+  // The webhook URL and its signing secret are loaded together, by the one
+  // read that is allowed to select `webhook_secret` — a protected column. A
+  // merchant with either half missing has no webhook configured.
+  const target = await findWebhookTarget(db, intent.merchantId);
+  if (!target) return;
 
   const event = buildEvent(eventType, toPaymentIntentDTO(intent));
   const outcome = await deliver(
     event,
-    { url: merchant.webhookUrl, secret: merchant.webhookSecret },
+    { url: target.url, secret: target.secret },
     safeFetch ? { safeFetch } : {},
   );
 
   // Persisting the delivery log is best-effort, same as `deliver()` itself —
-  // a transient Mongo write failure here must never abort the settlement
+  // a transient database write failure here must never abort the settlement
   // watcher's poll loop (`SettlementWatcher.check()` awaits `onChange` inline
-  // per intent, with no per-iteration try/catch of its own — see
-  // `settlementWatcher.ts:79-88`).
+  // per intent, with no per-iteration try/catch of its own).
   try {
-    await WebhookDelivery.create({
-      merchantId: merchant.id,
-      intentId: intent.id,
+    await insertWebhookDelivery(db, {
+      merchantId: intent.merchantId,
+      paymentIntentId: intent.id,
       eventId: event.id,
       eventType,
-      url: merchant.webhookUrl,
+      url: target.url,
       attempts: outcome.attempts,
       delivered: outcome.delivered,
-      lastStatus: outcome.delivered ? "delivered" : "failed",
     });
   } catch (error) {
     process.emitWarning(
@@ -266,9 +267,15 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   return { httpServer, io, watcher };
 }
 
-/** Production entry: connect the DB, boot the watcher, and listen. */
+/**
+ * Production entry: open the database, boot the watcher, and listen.
+ *
+ * `connectPostgres` proves the connection with one round trip before anything
+ * listens, so a bad `DATABASE_URL` is a boot failure rather than the 500 of
+ * whichever request first happens to need the database.
+ */
 export async function start(): Promise<void> {
-  await connectDb();
+  await connectPostgres();
   const gateway = createGateway();
   gateway.watcher.start();
   gateway.httpServer.listen(config.port);

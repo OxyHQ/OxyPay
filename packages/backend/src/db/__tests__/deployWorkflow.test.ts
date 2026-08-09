@@ -148,20 +148,34 @@ describe('the deploy workflow and the migrator agree', () => {
   });
 
   /**
-   * Every migration step waits on the same preflight. A step that forgot it
-   * would run a task with no `DATABASE_URL` and fail the deploy with "Refusing
-   * to migrate" — which reads like a broken migration rather than a task
-   * definition that does not inject the secret yet.
+   * No migration step may be gated on a `DATABASE_URL` preflight.
+   *
+   * There WAS one, and retiring it was the point of the route switch rather
+   * than an oversight. It existed while no route read Postgres: a task
+   * definition without the variable served fine, so skipping migrations was
+   * harmless. Now `config.ts` refuses to load without `DATABASE_URL` and
+   * `server.ts` opens the pool before listening, so a task definition missing
+   * it crash-loops — and a probe that answered that by SKIPPING the migrations
+   * and letting the rollout continue would turn a loud configuration error
+   * into a silent one plus an unmigrated database.
+   *
+   * This asserts the absence because the failure it guards against is somebody
+   * reinstating the skip. Gated on `status == 'ACTIVE'` still, which is a
+   * different question: whether there is a service to migrate against at all.
    */
-  it('gates every migration step on the DATABASE_URL preflight', () => {
+  it('runs every migration step with no DATABASE_URL preflight to skip it', () => {
     const migrationSteps = steps.filter((step) => step.name?.startsWith('Migrate ('));
     expect(migrationSteps.length).toBe(3);
     for (const step of migrationSteps) {
-      expect([step.name, step.if?.includes("has_database_url == 'true'")]).toEqual([
+      expect([step.name, step.if?.includes('has_database_url')]).toEqual([step.name, false]);
+      expect([step.name, step.if?.includes("steps.ecs.outputs.status == 'ACTIVE'")]).toEqual([
         step.name,
         true,
       ]);
     }
+    // Nowhere else in the workflow either — the output itself is gone, not
+    // merely unread by these three steps.
+    expect(workflowSource).not.toContain('has_database_url');
   });
 
   /** `post` runs after the rollout; `pre` and the cutover run before it. */

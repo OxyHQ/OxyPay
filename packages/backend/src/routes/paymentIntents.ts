@@ -4,7 +4,6 @@ import type {
   RequestHandler,
   Response,
 } from "express";
-import type { FilterQuery, HydratedDocument } from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
@@ -15,10 +14,16 @@ import {
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
 } from "@oxypay/shared-types";
-import { Merchant } from "../models/Merchant";
-import type { MerchantDoc } from "../models/Merchant";
-import { PaymentIntent } from "../models/PaymentIntent";
-import type { PaymentIntentDoc } from "../models/PaymentIntent";
+import { getDb } from "../db/postgres";
+import { findMerchantByAppEnvironment } from "../db/merchants/merchantRepository";
+import type { MerchantRow } from "../db/merchants/merchantRepository";
+import {
+  findIntentByPublicId,
+  findIntentForMerchant,
+  listIntentsForMerchant,
+  updateIntentState,
+} from "../db/payments/paymentIntentRepository";
+import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
 import { createIntent, NetworkMismatchError } from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
 import { toPaymentIntentDTO } from "../lib/serialize";
@@ -64,8 +69,8 @@ const submitTxBodySchema = z.object({
 function findMerchantByAppEnv(
   oxyAppId: string,
   environment: OxyServiceEnvironment,
-): Promise<HydratedDocument<MerchantDoc> | null> {
-  return Merchant.findOne({ oxyAppId, environment });
+): Promise<MerchantRow | null> {
+  return findMerchantByAppEnvironment(getDb(), oxyAppId, environment);
 }
 
 /**
@@ -81,7 +86,7 @@ function findMerchantByAppEnv(
 export async function resolveMerchant(
   req: Request,
   res: Response,
-): Promise<HydratedDocument<MerchantDoc> | null> {
+): Promise<MerchantRow | null> {
   const serviceApp = requireServiceApp(req, res);
   if (!serviceApp) return null;
   const merchant = await findMerchantByAppEnv(serviceApp.appId, serviceApp.environment);
@@ -107,7 +112,7 @@ export async function resolveMerchantByApp(
   applicationId: string,
   environment: OxyServiceEnvironment,
   res: Response,
-): Promise<HydratedDocument<MerchantDoc> | null> {
+): Promise<MerchantRow | null> {
   const merchant = await findMerchantByAppEnv(applicationId, environment);
   if (!merchant) {
     sendError(
@@ -128,7 +133,7 @@ export interface ListPaymentIntentsQuery {
 }
 
 export type ListPaymentIntentsResult =
-  | { ok: true; data: HydratedDocument<PaymentIntentDoc>[]; hasMore: boolean }
+  | { ok: true; data: PaymentIntentRow[]; hasMore: boolean }
   | { ok: false; status: number; message: string };
 
 /**
@@ -144,12 +149,15 @@ export async function listPaymentIntentsForMerchant(
 ): Promise<ListPaymentIntentsResult> {
   const { status, starting_after } = query;
   const limit = query.limit ?? DEFAULT_LIST_LIMIT;
+  const db = getDb();
 
-  const filter: FilterQuery<PaymentIntentDoc> = { merchantId };
-  if (status) filter.status = status;
-
+  // The cursor arrives as a PUBLIC `pi_…` and the keyset walk runs on the
+  // primary key, so it is resolved here — ownership-scoped, so a cursor
+  // naming another merchant's intent is a 422 exactly like an unknown one and
+  // never confirms that the intent exists.
+  let after: string | undefined;
   if (starting_after) {
-    const cursor = await PaymentIntent.findOne({ id: starting_after, merchantId });
+    const cursor = await findIntentForMerchant(db, starting_after, merchantId);
     if (!cursor) {
       return {
         ok: false,
@@ -157,12 +165,11 @@ export async function listPaymentIntentsForMerchant(
         message: "starting_after references an unknown payment intent",
       };
     }
-    filter._id = { $lt: cursor._id };
+    after = cursor.id;
   }
 
-  const page = await PaymentIntent.find(filter).sort({ _id: -1 }).limit(limit + 1);
-  const hasMore = page.length > limit;
-  return { ok: true, data: hasMore ? page.slice(0, limit) : page, hasMore };
+  const page = await listIntentsForMerchant(db, { merchantId, status, limit, after });
+  return { ok: true, data: page.data, hasMore: page.hasMore };
 }
 
 /**
@@ -280,6 +287,16 @@ export function createPaymentIntentsRouter(deps: {
     wrap(async (req, res) => {
       const { serviceApp } = req as OxyAuthRequest;
 
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here.
+      // Read once, above the branch, because BOTH the merchant path and the
+      // payer path below need it.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
       if (serviceApp?.appId) {
         // Merchant path — same `payments:read` requirement as the list route
         // (F2.0 gateway-review finding: this branch previously enforced no
@@ -296,10 +313,7 @@ export function createPaymentIntentsRouter(deps: {
 
         const merchant = await resolveMerchant(req, res);
         if (!merchant) return;
-        const intent = await PaymentIntent.findOne({
-          id: req.params.id,
-          merchantId: merchant.id,
-        });
+        const intent = await findIntentForMerchant(getDb(), id, merchant.id);
         if (!intent) {
           sendError(res, 404, "invalid_request_error", "payment intent not found");
           return;
@@ -327,7 +341,7 @@ export function createPaymentIntentsRouter(deps: {
         return;
       }
 
-      const intent = await PaymentIntent.findOne({ id: req.params.id });
+      const intent = await findIntentByPublicId(getDb(), id);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
@@ -349,10 +363,17 @@ export function createPaymentIntentsRouter(deps: {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;
 
-      const intent = await PaymentIntent.findOne({
-        id: req.params.id,
-        merchantId: merchant.id,
-      });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const intent = await findIntentForMerchant(getDb(), id, merchant.id);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
@@ -370,9 +391,12 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      intent.status = nextStatus;
-      await intent.save();
-      res.status(200).json(toPaymentIntentDTO(intent));
+      const rejected = await updateIntentState(getDb(), intent.id, { status: nextStatus });
+      if (!rejected) {
+        sendError(res, 404, "invalid_request_error", "payment intent not found");
+        return;
+      }
+      res.status(200).json(toPaymentIntentDTO(rejected));
     }),
   );
 
@@ -392,7 +416,17 @@ export function createPaymentIntentsRouter(deps: {
         return;
       }
 
-      const intent = await PaymentIntent.findOne({ id: req.params.id });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const intent = await findIntentByPublicId(getDb(), id);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
@@ -415,10 +449,18 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      intent.txid = parsed.data.txid;
-      intent.status = nextStatus;
-      await intent.save();
-      res.status(200).json(toPaymentIntentDTO(intent));
+      // Status and txid move in ONE statement: `payment_intents_broadcast_requires_txid_check`
+      // refuses `broadcast` without the txid beside it, so two writes could not
+      // satisfy the constraint in either order.
+      const broadcast = await updateIntentState(getDb(), intent.id, {
+        status: nextStatus,
+        txid: parsed.data.txid,
+      });
+      if (!broadcast) {
+        sendError(res, 404, "invalid_request_error", "payment intent not found");
+        return;
+      }
+      res.status(200).json(toPaymentIntentDTO(broadcast));
     }),
   );
 

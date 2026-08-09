@@ -2,8 +2,10 @@ import { isIP } from "node:net";
 import type { Server, Socket } from "socket.io";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
-import { PaymentIntent } from "../models/PaymentIntent";
-import { toPaymentIntentDTO, type PaymentIntentDocument } from "../lib/serialize";
+import { getDb } from "../db/postgres";
+import { findIntentByPublicId } from "../db/payments/paymentIntentRepository";
+import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
+import { toPaymentIntentDTO } from "../lib/serialize";
 
 /** Realtime room a single intent's updates are broadcast to. */
 export function intentRoom(id: string): string {
@@ -270,7 +272,7 @@ export function initSocket(io: Server, deps: SocketDeps = {}): void {
           return;
         }
 
-        const intent = await PaymentIntent.findOne({ id: request.intentId });
+        const intent = await findIntentByPublicId(getDb(), request.intentId);
         if (
           intent === null ||
           !verifySecret(request.clientSecret, intent.clientSecret)
@@ -286,10 +288,18 @@ export function initSocket(io: Server, deps: SocketDeps = {}): void {
   });
 }
 
-/** Broadcast an intent's current state to every subscriber of its room. */
+/**
+ * Broadcast an intent's current state to every subscriber of its room.
+ *
+ * Keyed by the PUBLIC `pi_…`, because that is the only id a subscriber has:
+ * `subscribe` joins `intentRoom(request.intentId)` with the id the payer was
+ * given. Keying this side by the internal id instead would emit into a room
+ * nobody is ever in — a silent, total loss of realtime updates that no type
+ * error and no unit test of either function alone would show.
+ */
 export function emitIntentUpdate(
   io: Server,
-  intent: PaymentIntentDocument,
+  intent: PaymentIntentRow,
 ): void {
-  io.to(intentRoom(intent.id)).emit("intent.updated", toPaymentIntentDTO(intent));
+  io.to(intentRoom(intent.publicId)).emit("intent.updated", toPaymentIntentDTO(intent));
 }

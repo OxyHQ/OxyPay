@@ -1,17 +1,20 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
-import type { HydratedDocument } from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import type { OxyServiceEnvironment } from "@oxyhq/core/server";
-import { Merchant } from "../models/Merchant";
-import type { MerchantDoc } from "../models/Merchant";
+import { getDb } from "../db/postgres";
+import {
+  insertMerchant,
+  updateMerchantSettings,
+  WatchOnlyViolationError,
+} from "../db/merchants/merchantRepository";
+import type { MerchantRow } from "../db/merchants/merchantRepository";
 import { newId } from "../lib/ids";
 import { toMerchantDTO } from "../lib/serialize";
 import {
   sendError,
   wrap,
-  isDuplicateKeyError,
   requireServiceApp,
   requireAuthenticated,
 } from "../lib/http";
@@ -34,7 +37,7 @@ export const patchMerchantBodySchema = z.object({
 });
 
 export type RegisterMerchantResult =
-  | { ok: true; merchant: HydratedDocument<MerchantDoc> }
+  | { ok: true; merchant: MerchantRow }
   | { ok: false; status: number; message: string };
 
 /**
@@ -42,9 +45,9 @@ export type RegisterMerchantResult =
  * (service-authed) and the dashboard's `POST
  * /v1/dashboard/applications/:applicationId/merchant` (human-authed) run the
  * EXACT same test/live firewall + create-with-whitelist + duplicate-key
- * handling, never two copies to keep in sync. The `Merchant` model's own
- * `pre('validate')` non-custody firewall runs regardless of caller, since it
- * lives on the schema.
+ * handling, never two copies to keep in sync. The non-custody firewall runs
+ * regardless of caller, since it lives inside `insertMerchant` — the single
+ * write point — rather than on any one route.
  */
 export async function registerMerchant(
   oxyAppId: string,
@@ -69,11 +72,12 @@ export async function registerMerchant(
     };
   }
 
+  let merchant: MerchantRow | null;
   try {
     // Explicit field whitelist — never spread caller input. The non-custody
-    // firewall (`Merchant.ts`'s `pre('validate')`) still runs on `xpub`
-    // regardless of this function: it rejects any private extended key.
-    const merchant = await Merchant.create({
+    // firewall runs inside `insertMerchant` on `xpub` regardless of this
+    // function: it refuses any private extended key.
+    merchant = await insertMerchant(getDb(), {
       publicId: newId("merch"),
       oxyAppId,
       environment,
@@ -83,17 +87,29 @@ export async function registerMerchant(
       webhookSecret: params.webhookSecret,
       requiredConfirmations: params.requiredConfirmations,
     });
-    return { ok: true, merchant };
   } catch (err) {
-    if (isDuplicateKeyError(err)) {
-      return {
-        ok: false,
-        status: 409,
-        message: "a merchant is already registered for this application and environment",
-      };
+    // The non-custody firewall refusing a key the caller sent is a bad
+    // REQUEST, not a server fault. Surfacing it as a 422 says which field is
+    // wrong; letting it escape would answer a spend-capable key with a 500 and
+    // no indication that the key itself was the problem.
+    if (err instanceof WatchOnlyViolationError) {
+      return { ok: false, status: 422, message: err.message };
     }
     throw err;
   }
+
+  // `null` is the unique index having refused a second registration for this
+  // application and environment — converged on rather than read first, so two
+  // concurrent registrations cannot both win.
+  if (!merchant) {
+    return {
+      ok: false,
+      status: 409,
+      message: "a merchant is already registered for this application and environment",
+    };
+  }
+
+  return { ok: true, merchant };
 }
 
 /**
@@ -103,19 +119,24 @@ export async function registerMerchant(
  * after intents already derived addresses from it would corrupt address
  * history, and network/environment are the test/live firewall itself.
  */
-export function applyMerchantPatch(
-  merchant: HydratedDocument<MerchantDoc>,
+export async function applyMerchantPatch(
+  merchant: MerchantRow,
   params: {
     webhookUrl?: string | null;
     webhookSecret?: string | null;
     requiredConfirmations?: number;
   },
-): void {
-  if (params.webhookUrl !== undefined) merchant.webhookUrl = params.webhookUrl ?? undefined;
-  if (params.webhookSecret !== undefined) merchant.webhookSecret = params.webhookSecret ?? undefined;
-  if (params.requiredConfirmations !== undefined) {
-    merchant.requiredConfirmations = params.requiredConfirmations;
-  }
+): Promise<MerchantRow | null> {
+  // The patch is applied and re-read in ONE statement, so what the response
+  // serializes is what was stored. An absent key means "leave alone" and an
+  // explicit `null` means "clear"; `updateMerchantSettings` distinguishes them
+  // by `undefined` rather than by falsiness, which is why a `null` webhook URL
+  // clears the column instead of being ignored.
+  return updateMerchantSettings(getDb(), merchant.id, {
+    webhookUrl: params.webhookUrl,
+    webhookSecret: params.webhookSecret,
+    requiredConfirmations: params.requiredConfirmations,
+  });
 }
 
 /**
@@ -191,9 +212,12 @@ export function createMerchantsRouter(deps: {
         );
         return;
       }
-      applyMerchantPatch(merchant, parsed.data);
-      await merchant.save();
-      res.status(200).json(toMerchantDTO(merchant));
+      const updated = await applyMerchantPatch(merchant, parsed.data);
+      if (!updated) {
+        sendError(res, 404, "invalid_request_error", "merchant not found");
+        return;
+      }
+      res.status(200).json(toMerchantDTO(updated));
     }),
   );
 

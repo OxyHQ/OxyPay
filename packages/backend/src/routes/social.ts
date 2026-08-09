@@ -9,7 +9,8 @@ import type {
   SocialReceiveCursorResponse,
 } from "@oxypay/shared-types";
 import { reserveNextSocialAddress, getReservedThrough } from "../services/socialReceive";
-import { SocialSendAttribution } from "../models/SocialSendAttribution";
+import { getDb } from "../db/postgres";
+import { insertSendAttribution } from "../db/social/sendAttribution";
 import { sendError, wrap } from "../lib/http";
 
 const nextAddressBodySchema = z.object({
@@ -154,12 +155,12 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
         return;
       }
 
-      await SocialSendAttribution.create({
+      await insertSendAttribution(getDb(), {
         address: reservation.address,
         network,
         senderUserId,
         recipientUserId: recipient.id,
-        index: reservation.index,
+        derivationIndex: reservation.index,
       });
 
       const body: SocialNextAddressResponse = {

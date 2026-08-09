@@ -1,10 +1,15 @@
-import { test, expect, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { test, expect, beforeEach, mock } from "bun:test";
+import { eq } from "drizzle-orm";
 import { oxyClient as realOxyClient, type User } from "@oxyhq/core";
-import { PaymentIntent } from "../../models/PaymentIntent";
-import { Merchant } from "../../models/Merchant";
-import { SocialSendAttribution } from "../../models/SocialSendAttribution";
+import { merchants } from "../../db/schema";
+import {
+  gatewayDb,
+  resetGatewayTables,
+  seedAttribution,
+  seedIntent,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 
 const XPUB =
   "DRKVrRr8WgU4mARJnCLAp77sKJ5h5K79VH8sredx2qPY8BUKogTYqoAXdTAzzvS5MgBDGGWb2Zoa2AwzoLRsbGGkBm1q2r7QSfRYWCizWfvMfPZn";
@@ -52,25 +57,10 @@ mock.module("@oxyhq/core", () => ({
 
 const { enrichAddresses, ENRICH_MAX_ADDRESSES } = await import("../enrichment");
 
-let mongod: MongoMemoryServer;
-
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await PaymentIntent.init();
-  await Merchant.init();
-  await SocialSendAttribution.init();
-});
-
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
-});
+useGatewayDatabase();
 
 beforeEach(async () => {
-  await PaymentIntent.deleteMany({});
-  await Merchant.deleteMany({});
-  await SocialSendAttribution.deleteMany({});
+  await resetGatewayTables();
   getUsersByIdsMock.mockClear();
 });
 
@@ -84,23 +74,33 @@ test("an address with no PaymentIntent or attribution resolves to unknown", asyn
 });
 
 test("a merchant PaymentIntent address resolves to kind: merchant with the Merchant's display fields", async () => {
-  const merchant = await Merchant.create({
+  const merchant = await seedMerchant({
     publicId: "merch_test0000000000000001",
     oxyAppId: "app_shop",
     environment: "development",
     network: "testnet",
     xpub: XPUB,
-    displayName: "Mercaria",
-    avatarFileId: "file_mercaria",
-    description: "Marketplace",
   });
-  await PaymentIntent.create({
-    id: "pi_merchant_1",
-    status: "settled",
+  // The three identity columns have no writer at all — no route registers
+  // them and `insertMerchant` takes their defaults — so the fixture sets them
+  // directly, exactly as `routes/__tests__/checkoutSessions.test.ts` does for
+  // `display_name`. They are what this case asserts on.
+  await gatewayDb()
+    .update(merchants)
+    .set({
+      displayName: "Mercaria",
+      avatarFileId: "file_mercaria",
+      description: "Marketplace",
+    })
+    .where(eq(merchants.id, merchant.id));
+  // `status` is not a seed parameter and enrichment does not read it: the
+  // address→intent lookup (`findIntentsByAddresses`) is unfiltered, so this
+  // intent resolves from `created` exactly as it did from `settled`.
+  await seedIntent(merchant, {
+    publicId: "pi_merchant_1",
     amount: "1000000",
     network: "testnet",
     address: "TMerchantAddr1",
-    merchantId: merchant.id,
     clientSecret: "pi_merchant_1_secret_x",
     idempotencyKey: "idem_1",
     expiresAt: new Date(Date.now() + 60_000),
@@ -116,12 +116,12 @@ test("a merchant PaymentIntent address resolves to kind: merchant with the Merch
 });
 
 test("an outgoing social send resolves to kind: user with the RECIPIENT's identity, from the sender's view", async () => {
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TSocialAddr1",
     network: "testnet",
     senderUserId: "user_viewer",
     recipientUserId: "user_alice",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(["TSocialAddr1"], "user_viewer");
@@ -134,12 +134,12 @@ test("an outgoing social send resolves to kind: user with the RECIPIENT's identi
 });
 
 test("an incoming social receive resolves to kind: user with the SENDER's identity, from the recipient's view", async () => {
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TSocialAddr2",
     network: "testnet",
     senderUserId: "user_bob",
     recipientUserId: "user_viewer",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(["TSocialAddr2"], "user_viewer");
@@ -152,12 +152,12 @@ test("an incoming social receive resolves to kind: user with the SENDER's identi
 });
 
 test("an attribution the viewer was NOT party to resolves to unknown (no counterparty leak)", async () => {
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TSocialAddr3",
     network: "testnet",
     senderUserId: "user_alice",
     recipientUserId: "user_bob",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(["TSocialAddr3"], "user_viewer");
@@ -165,31 +165,32 @@ test("an attribution the viewer was NOT party to resolves to unknown (no counter
 });
 
 test("a batch mixes merchant, social, and unknown results correctly", async () => {
-  const merchant = await Merchant.create({
+  const merchant = await seedMerchant({
     publicId: "merch_test0000000000000002",
     oxyAppId: "app_mixed",
     environment: "development",
     network: "testnet",
     xpub: XPUB,
-    displayName: "Shop",
   });
-  await PaymentIntent.create({
-    id: "pi_mixed_1",
-    status: "settled",
+  await gatewayDb()
+    .update(merchants)
+    .set({ displayName: "Shop" })
+    .where(eq(merchants.id, merchant.id));
+  await seedIntent(merchant, {
+    publicId: "pi_mixed_1",
     amount: "1000000",
     network: "testnet",
     address: "TMixedMerchant",
-    merchantId: merchant.id,
     clientSecret: "pi_mixed_1_secret_x",
     idempotencyKey: "idem_mixed_1",
     expiresAt: new Date(Date.now() + 60_000),
   });
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TMixedSocial",
     network: "testnet",
     senderUserId: "user_viewer",
     recipientUserId: "user_alice",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(
@@ -202,12 +203,12 @@ test("a batch mixes merchant, social, and unknown results correctly", async () =
 });
 
 test("degrades to unknown when getUsersByIds cannot resolve the counterparty profile", async () => {
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TSocialGone",
     network: "testnet",
     senderUserId: "user_viewer",
     recipientUserId: "user_deleted",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(["TSocialGone"], "user_viewer");
@@ -235,12 +236,12 @@ test("a display name falls back to the normalized handle when the profile has no
           }) as unknown as User,
       ),
   );
-  await SocialSendAttribution.create({
+  await seedAttribution({
     address: "TSocialNoDisplay",
     network: "testnet",
     senderUserId: "user_viewer",
     recipientUserId: "user_nodisplay",
-    index: 1,
+    derivationIndex: 1,
   });
 
   const result = await enrichAddresses(["TSocialNoDisplay"], "user_viewer");

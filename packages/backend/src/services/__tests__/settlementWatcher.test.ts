@@ -1,14 +1,18 @@
-import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
-import { Merchant } from "../../models/Merchant";
-import { PaymentIntent } from "../../models/PaymentIntent";
-import type { ExplorerTx } from "../explorer";
+import { test, expect, afterEach } from "bun:test";
 import {
-  SettlementWatcher,
-  type WatcherDeps,
-  type HydratedPaymentIntentDoc,
-} from "../settlementWatcher";
+  findIntentById,
+  updateIntentState,
+  type PaymentIntentRow,
+} from "../../db/payments/paymentIntentRepository";
+import {
+  gatewayDb,
+  resetGatewayTables,
+  seedIntent,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
+import type { ExplorerTx } from "../explorer";
+import { SettlementWatcher, type WatcherDeps } from "../settlementWatcher";
 
 // Real TESTNET account xpub for the canonical all-"abandon" + "art" mnemonic
 // (m/44'/1'/0' neutered) — public-key-only, cannot spend. Its index-0 external
@@ -20,27 +24,14 @@ const AMOUNT = "100000000";
 const PAID_VALUE = 100_000_000n;
 const REQUIRED_CONFIRMATIONS = 2;
 
-let mongod: MongoMemoryServer;
-
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentIntent.init();
-});
-
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
-});
+useGatewayDatabase();
 
 afterEach(async () => {
-  await PaymentIntent.deleteMany({});
-  await Merchant.deleteMany({});
+  await resetGatewayTables();
 });
 
 test("advances a paid intent broadcast → confirming → settled as confirmations climb", async () => {
-  const merchant = await Merchant.create({
+  const merchant = await seedMerchant({
     publicId: "merch_test0000000000000001",
     oxyAppId: "app_settle",
     environment: "development",
@@ -50,17 +41,23 @@ test("advances a paid intent broadcast → confirming → settled as confirmatio
   });
 
   const now = new Date();
-  const intent = await PaymentIntent.create({
-    id: "pi_0000000000000000000000c1",
-    status: "broadcast",
+  const intent = await seedIntent(merchant, {
+    publicId: "pi_0000000000000000000000c1",
     amount: AMOUNT,
     network: "testnet",
     address: ADDRESS,
-    merchantId: merchant.id,
-    txid: "tx_settle",
     clientSecret: "pi_0000000000000000000000c1_secret_x",
     idempotencyKey: "idem_settle",
     expiresAt: new Date(now.getTime() + 60_000),
+  });
+  // `status` and `txid` are not seed parameters: an intent is MINTED `created`,
+  // and `broadcast` is reached only by recording the payer's txid.
+  // `updateIntentState` is the writer production uses for exactly that, and it
+  // sets both in ONE statement — which is what
+  // `payment_intents_broadcast_requires_txid_check` requires.
+  await updateIntentState(gatewayDb(), intent.id, {
+    status: "broadcast",
+    txid: "tx_settle",
   });
 
   // Stub the Explorer: same output paying the intent address in full, with the
@@ -80,20 +77,20 @@ test("advances a paid intent broadcast → confirming → settled as confirmatio
   };
 
   const changes: string[] = [];
-  const onChange: WatcherDeps["onChange"] = (updated: HydratedPaymentIntentDoc) => {
+  const onChange: WatcherDeps["onChange"] = (updated: PaymentIntentRow) => {
     changes.push(updated.status);
   };
 
   const watcher = new SettlementWatcher({ getTransaction, onChange });
 
   await watcher.check();
-  expect((await PaymentIntent.findById(intent._id))?.status).toBe("confirming");
+  expect((await findIntentById(gatewayDb(), intent.id))?.status).toBe("confirming");
 
   await watcher.check();
-  expect((await PaymentIntent.findById(intent._id))?.status).toBe("confirming");
+  expect((await findIntentById(gatewayDb(), intent.id))?.status).toBe("confirming");
 
   await watcher.check();
-  const settled = await PaymentIntent.findById(intent._id);
+  const settled = await findIntentById(gatewayDb(), intent.id);
   expect(settled?.status).toBe("settled");
   expect(settled?.confirmations).toBe(REQUIRED_CONFIRMATIONS);
 
@@ -103,7 +100,7 @@ test("advances a paid intent broadcast → confirming → settled as confirmatio
 });
 
 test("marks an under-value payment as failed", async () => {
-  const merchant = await Merchant.create({
+  const merchant = await seedMerchant({
     publicId: "merch_test0000000000000002",
     oxyAppId: "app_under",
     environment: "development",
@@ -113,17 +110,18 @@ test("marks an under-value payment as failed", async () => {
   });
 
   const now = new Date();
-  const intent = await PaymentIntent.create({
-    id: "pi_0000000000000000000000c2",
-    status: "broadcast",
+  const intent = await seedIntent(merchant, {
+    publicId: "pi_0000000000000000000000c2",
     amount: AMOUNT,
     network: "testnet",
     address: ADDRESS,
-    merchantId: merchant.id,
-    txid: "tx_under",
     clientSecret: "pi_0000000000000000000000c2_secret_y",
     idempotencyKey: "idem_under",
     expiresAt: new Date(now.getTime() + 60_000),
+  });
+  await updateIntentState(gatewayDb(), intent.id, {
+    status: "broadcast",
+    txid: "tx_under",
   });
 
   // A tx is present for this intent but pays less than the intent amount.
@@ -137,13 +135,13 @@ test("marks an under-value payment as failed", async () => {
   };
 
   const changes: string[] = [];
-  const onChange: WatcherDeps["onChange"] = (updated: HydratedPaymentIntentDoc) => {
+  const onChange: WatcherDeps["onChange"] = (updated: PaymentIntentRow) => {
     changes.push(updated.status);
   };
 
   const watcher = new SettlementWatcher({ getTransaction, onChange });
   await watcher.check();
 
-  expect((await PaymentIntent.findById(intent._id))?.status).toBe("failed");
+  expect((await findIntentById(gatewayDb(), intent.id))?.status).toBe("failed");
   expect(changes).toEqual(["failed"]);
 });

@@ -74,14 +74,16 @@ jobs:
       # Adding a new one means adding it here, or it never reaches SSM.
       - name: Sync GitHub secrets -> SSM (GitHub is the source of truth)
         env:
-          # Read by packages/backend/src/config.ts (`loadConfig`).
-          APP_MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          # The Postgres connection string. Currently read by the migrator and
-          # by `db/postgres.ts`, which nothing calls at boot — the routes are
-          # still on Mongo. It is synced now so the parameter is in place before
-          # the change that makes it required. An unset or placeholder GitHub
-          # secret is SKIPPED by sync_secret below, so adding this line cannot
-          # overwrite a value provisioned directly in SSM.
+          # The Postgres connection string, and the one the service cannot boot
+          # without: `config.ts` refuses to load without it and `server.ts`
+          # opens the pool before listening. An unset or placeholder GitHub
+          # secret is SKIPPED by sync_secret below, so this can never overwrite
+          # a value provisioned directly in SSM.
+          #
+          # MONGODB_URI is deliberately absent: nothing in the image reads it
+          # any more. The live task definition still injects it until oxy-infra
+          # drops it from `secrets[]`, which is harmless — an environment
+          # variable nothing reads — but it must not be re-added here.
           APP_DATABASE_URL: ${{ secrets.DATABASE_URL }}
           APP_OXY_ACCESS_TOKEN_SECRET: ${{ secrets.OXY_ACCESS_TOKEN_SECRET }}
           # Read by @oxyhq/core (request hashing).
@@ -98,7 +100,6 @@ jobs:
             echo "synced -> $path"
           }
 
-          sync_secret MONGODB_URI "$APP_MONGODB_URI" "/oxy/$APP/MONGODB_URI"
           sync_secret DATABASE_URL "$APP_DATABASE_URL" "/oxy/$APP/DATABASE_URL"
           sync_secret OXY_ACCESS_TOKEN_SECRET "$APP_OXY_ACCESS_TOKEN_SECRET" "/oxy/$APP/OXY_ACCESS_TOKEN_SECRET"
           sync_secret IP_HASH_SALT "$APP_IP_HASH_SALT" "/oxy/$APP/IP_HASH_SALT"
@@ -144,7 +145,6 @@ jobs:
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           if [ "$STATUS" != "ACTIVE" ]; then
             echo "ECS service $APP not created yet — nothing to migrate or deploy against"
-            echo "has_database_url=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -156,26 +156,21 @@ jobs:
           # JSON on one line: a GITHUB_OUTPUT value cannot span lines unhelped.
           echo "network=$(echo "$NET" | jq -c .)" >> "$GITHUB_OUTPUT"
 
-          # Does the task definition actually inject DATABASE_URL? Asked of the
-          # LIVE definition rather than assumed, because the answer is owned by
-          # oxy-infra's terraform and not by this repository — and because the
-          # failure it prevents is confusing: a migration task with no
-          # DATABASE_URL exits non-zero with "Refusing to migrate", which reads
-          # like a broken migration rather than a missing secret.
+          # There is deliberately NO `DATABASE_URL` preflight here.
           #
-          # Skipping is correct only while NO route reads Postgres: `config.ts`
-          # keeps `databaseUrl` optional and nothing calls `connectPostgres()` at
-          # boot, so an unapplied migration harms nothing today. This guard
-          # RETIRES with that — once `DATABASE_URL` is required at boot, a task
-          # definition missing it crash-loops the service, so the state this
-          # skips over stops being reachable.
-          SECRETS=$(aws ecs describe-task-definition --task-definition "$TD" --query 'taskDefinition.containerDefinitions[0].secrets[].name' --output text)
-          if echo "$SECRETS" | tr '\t' '\n' | grep -qx DATABASE_URL; then
-            echo "has_database_url=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_database_url=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::$TD does not inject DATABASE_URL, so migrations are SKIPPED. The parameter exists at /oxy/$APP/DATABASE_URL; add it to the task definition's secrets[] in oxy-infra (terraform-uswest2) to turn migrations on."
-          fi
+          # It existed while no route read Postgres: a task definition without
+          # the variable served fine, so skipping migrations was harmless and
+          # better than a confusing "Refusing to migrate" failure. That is no
+          # longer the state of the world — `config.ts` refuses to load without
+          # `DATABASE_URL` and `server.ts` opens the pool before listening, so
+          # a task definition missing it crash-loops instead of serving. The
+          # condition the probe tested for is now unreachable in any deployment
+          # that works at all.
+          #
+          # Keeping it would be worse than useless: it would answer a missing
+          # variable by SKIPPING the migrations and letting the rollout proceed
+          # to a service that cannot boot, turning a loud configuration error
+          # into a silent one plus a crash-loop with no migrations applied.
 
       # Does this release contain a post-rollout migration at all? Grepped with
       # the pattern @oxyhq/db EXPORTS (`POST_PHASE_GREP_PATTERN`), never a copy —
@@ -202,7 +197,7 @@ jobs:
       # serving yet — which is also why it must never be the default. This is the
       # path the from-zero genesis takes.
       - name: Migrate (all) — cutover only, never a normal release
-        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.has_database_url == 'true' && steps.ecs.outputs.phase_mode == 'all'
+        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.phase_mode == 'all'
         run: .github/scripts/run-migration-task.sh all
         env:
           TASK_DEFINITION: ${{ steps.ecs.outputs.task_definition }}
@@ -210,7 +205,7 @@ jobs:
           NETWORK_CONFIGURATION: ${{ steps.ecs.outputs.network }}
 
       - name: Migrate (pre) — before the rollout
-        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.has_database_url == 'true' && steps.ecs.outputs.phase_mode != 'all'
+        if: steps.ecs.outputs.status == 'ACTIVE' && steps.ecs.outputs.phase_mode != 'all'
         run: .github/scripts/run-migration-task.sh pre
         env:
           TASK_DEFINITION: ${{ steps.ecs.outputs.task_definition }}
@@ -279,7 +274,6 @@ jobs:
       - name: Migrate (post) — after the new image is live
         if: >-
           steps.ecs.outputs.status == 'ACTIVE'
-          && steps.ecs.outputs.has_database_url == 'true'
           && steps.ecs.outputs.phase_mode != 'all'
           && steps.phases.outputs.has_post == 'true'
         run: .github/scripts/run-migration-task.sh post

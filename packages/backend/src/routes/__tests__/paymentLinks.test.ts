@@ -7,14 +7,19 @@ import {
 } from "bun:test";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { eq, sql } from "drizzle-orm";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
-import { Merchant } from "../../models/Merchant";
-import { PaymentLink } from "../../models/PaymentLink";
-import { PaymentIntent } from "../../models/PaymentIntent";
+import { merchants, paymentIntents } from "../../db/schema";
+import type { MerchantRow } from "../../db/merchants/merchantRepository";
+import { updatePaymentLink } from "../../db/payments/paymentLinkRepository";
+import {
+  gatewayDb,
+  seedLink,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createPaymentLinksRouter } from "../paymentLinks";
 
 const XPUB =
@@ -70,30 +75,45 @@ interface IntentResponse {
   error?: { type: string; message: string };
 }
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
+let merchant: MerchantRow;
 let merchantId: string;
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentLink.init();
-  await PaymentIntent.init();
+/**
+ * A bare `count(*)` of one merchant's intents. No repository function answers
+ * it — nothing in production needs the number — so the "mints nothing" case
+ * below reads it straight off the table.
+ */
+async function countIntentsForMerchant(id: string): Promise<number> {
+  const rows = await gatewayDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(paymentIntents)
+    .where(eq(paymentIntents.merchantId, id));
+  return rows[0]?.n ?? 0;
+}
 
-  const merchant = await Merchant.create({
+useGatewayDatabase();
+
+beforeAll(async () => {
+  merchant = await seedMerchant({
     publicId: "merch_test_paylinks_1",
     oxyAppId: APP_ID,
     environment: "development",
     network: "testnet",
     xpub: XPUB,
-    displayName: "Paylinks Co",
   });
+  // `displayName` is not an `insertMerchant`/`seedMerchant` parameter — it has
+  // no registration route, only a column — and the public link DTO renders it.
+  // Set directly so the assertion that reads it back stays as it was.
+  await gatewayDb()
+    .update(merchants)
+    .set({ displayName: "Paylinks Co" })
+    .where(eq(merchants.id, merchant.id));
   merchantId = merchant.id;
 
   const app = express();
@@ -113,8 +133,6 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 describe("POST /v1/payment_links", () => {
@@ -270,22 +288,18 @@ describe("GET/PATCH /v1/payment_links (merchant CRUD)", () => {
   });
 
   test("a link belonging to a different merchant -> 404 (never leaks cross-tenant)", async () => {
-    const otherMerchant = await Merchant.create({
+    const otherMerchant = await seedMerchant({
       publicId: "merch_test_paylinks_other",
       oxyAppId: "app_paylinks_other",
       environment: "development",
       network: "testnet",
       xpub: XPUB,
     });
-    const otherLink = await PaymentLink.create({
+    const otherLink = await seedLink(otherMerchant, {
       publicId: "link_other_owner",
-      merchantId: otherMerchant.id,
-      oxyAppId: otherMerchant.oxyAppId,
-      environment: otherMerchant.environment,
       amount: "10000000",
       network: "testnet",
-      active: true,
-      metadata: new Map(),
+      metadata: {},
     });
     const res = await fetch(`${baseUrl}/v1/payment_links/${otherLink.publicId}`);
     expect(res.status).toBe(404);
@@ -294,15 +308,11 @@ describe("GET/PATCH /v1/payment_links (merchant CRUD)", () => {
 
 describe("GET /v1/payment_links/:id/public", () => {
   test("returns merchant display, never metadata/successUrl/internal ids", async () => {
-    const link = await PaymentLink.create({
+    const link = await seedLink(merchant, {
       publicId: "link_public_display",
-      merchantId,
-      oxyAppId: APP_ID,
-      environment: "development",
       amount: "300000000",
       network: "testnet",
-      active: true,
-      metadata: new Map([["secretNote", "should not leak"]]),
+      metadata: { secretNote: "should not leak" },
       successUrl: "https://merchant.example/private-thanks",
     });
 
@@ -326,16 +336,16 @@ describe("GET /v1/payment_links/:id/public", () => {
   });
 
   test("an inactive link still resolves (200, active:false) so the page can show a disabled state", async () => {
-    const link = await PaymentLink.create({
+    const link = await seedLink(merchant, {
       publicId: "link_public_inactive",
-      merchantId,
-      oxyAppId: APP_ID,
-      environment: "development",
       amount: "10000000",
       network: "testnet",
-      active: false,
-      metadata: new Map(),
+      metadata: {},
     });
+    // `active` takes its column default of true on insert — `insertPaymentLink`
+    // deliberately has no parameter for it — so the disabled state is applied
+    // through the same patch a merchant would use.
+    await updatePaymentLink(gatewayDb(), link.publicId, merchant.id, { active: false });
 
     const res = await fetch(`${baseUrl}/v1/payment_links/${link.publicId}/public`);
     expect(res.status).toBe(200);
@@ -351,15 +361,11 @@ describe("GET /v1/payment_links/:id/public", () => {
 
 describe("POST /v1/payment_links/:id/payment_intent", () => {
   test("mints a fresh intent bound to the link's merchant + amount + network, ignoring any caller override", async () => {
-    const link = await PaymentLink.create({
+    const link = await seedLink(merchant, {
       publicId: "link_mint_ok",
-      merchantId,
-      oxyAppId: APP_ID,
-      environment: "development",
       amount: "123000000",
       network: "testnet",
-      active: true,
-      metadata: new Map([["orderId", "o_mint"]]),
+      metadata: { orderId: "o_mint" },
     });
 
     const res = await fetch(`${baseUrl}/v1/payment_links/${link.publicId}/payment_intent`, {
@@ -381,15 +387,11 @@ describe("POST /v1/payment_links/:id/payment_intent", () => {
   });
 
   test("each mint call creates a DISTINCT intent (server always mints fresh; reuse-if-open is a page-layer concern)", async () => {
-    const link = await PaymentLink.create({
+    const link = await seedLink(merchant, {
       publicId: "link_mint_fresh_each_time",
-      merchantId,
-      oxyAppId: APP_ID,
-      environment: "development",
       amount: "5000000",
       network: "testnet",
-      active: true,
-      metadata: new Map(),
+      metadata: {},
     });
 
     const first = await readJson<IntentResponse>(
@@ -402,23 +404,22 @@ describe("POST /v1/payment_links/:id/payment_intent", () => {
   });
 
   test("an inactive link -> 422, mints nothing", async () => {
-    const link = await PaymentLink.create({
+    const link = await seedLink(merchant, {
       publicId: "link_mint_inactive",
-      merchantId,
-      oxyAppId: APP_ID,
-      environment: "development",
       amount: "5000000",
       network: "testnet",
-      active: false,
-      metadata: new Map(),
+      metadata: {},
     });
+    // See `link_public_inactive` above: `active` is a column default on insert,
+    // so the disabled state comes from the patch path.
+    await updatePaymentLink(gatewayDb(), link.publicId, merchant.id, { active: false });
 
-    const before = await PaymentIntent.countDocuments({ merchantId });
+    const before = await countIntentsForMerchant(merchantId);
     const res = await fetch(`${baseUrl}/v1/payment_links/${link.publicId}/payment_intent`, {
       method: "POST",
     });
     expect(res.status).toBe(422);
-    const after = await PaymentIntent.countDocuments({ merchantId });
+    const after = await countIntentsForMerchant(merchantId);
     expect(after).toBe(before);
   });
 

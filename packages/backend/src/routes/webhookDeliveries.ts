@@ -1,19 +1,32 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
-import type { HydratedDocument } from "mongoose";
-import mongoose from "mongoose";
 import { oxyClient } from "@oxyhq/core";
-import type { MerchantDoc } from "../models/Merchant";
-import { PaymentIntent } from "../models/PaymentIntent";
-import { WebhookDelivery } from "../models/WebhookDelivery";
-import type { WebhookDeliveryDoc } from "../models/WebhookDelivery";
+import { getDb } from "../db/postgres";
+import { findWebhookTarget } from "../db/merchants/merchantRepository";
+import type { MerchantRow } from "../db/merchants/merchantRepository";
+import { findIntentByIdForMerchant } from "../db/payments/paymentIntentRepository";
+import {
+  findDeliveryForMerchant,
+  insertWebhookDelivery,
+} from "../db/webhooks/webhookDeliveryRepository";
+import type { WebhookDeliveryRow } from "../db/webhooks/webhookDeliveryRepository";
 import { buildEvent, deliver, type SafeFetchFn } from "../services/webhookDispatcher";
 import { toPaymentIntentDTO, toWebhookDeliveryDTO } from "../lib/serialize";
 import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
 
 export type RedeliverResult =
-  | { ok: true; delivery: HydratedDocument<WebhookDeliveryDoc> }
+  | {
+      ok: true;
+      delivery: WebhookDeliveryRow;
+      /**
+       * The `pi_…` of the intent the redelivery was about. Carried alongside
+       * the row because the row stores the intent's INTERNAL id while
+       * `WebhookDelivery.intentId` on the wire is the public one, and this
+       * path already loaded the intent to build the event.
+       */
+       intentPublicId: string;
+    }
   | { ok: false; status: number; message: string };
 
 /**
@@ -25,20 +38,25 @@ export type RedeliverResult =
  * different auth paths, never two copies to keep in sync.
  */
 export async function redeliverWebhookDelivery(
-  merchant: HydratedDocument<MerchantDoc>,
+  merchant: MerchantRow,
   deliveryId: string,
   deps: { safeFetch?: SafeFetchFn } = {},
 ): Promise<RedeliverResult> {
-  if (!mongoose.isValidObjectId(deliveryId)) {
-    return { ok: false, status: 404, message: "webhook delivery not found" };
-  }
+  const db = getDb();
 
-  const delivery = await WebhookDelivery.findOne({ _id: deliveryId, merchantId: merchant.id });
+  // No id-shape guard before the lookup. The Mongo path needed one because
+  // `_id` had to parse as an ObjectId; these ids are `text`, so an id of any
+  // shape simply matches no row — and the ownership-scoped read answers
+  // "unknown" and "not yours" identically, which is the property that matters.
+  const delivery = await findDeliveryForMerchant(db, deliveryId, merchant.id);
   if (!delivery) {
     return { ok: false, status: 404, message: "webhook delivery not found" };
   }
 
-  const intent = await PaymentIntent.findOne({ id: delivery.intentId, merchantId: merchant.id });
+  // By the INTERNAL id the delivery stores, re-scoped to the merchant: the id
+  // came out of a row rather than out of the request, so the scope is restated
+  // in the WHERE clause rather than compared after the read.
+  const intent = await findIntentByIdForMerchant(db, delivery.paymentIntentId, merchant.id);
   if (!intent) {
     return {
       ok: false,
@@ -47,29 +65,33 @@ export async function redeliverWebhookDelivery(
     };
   }
 
-  if (!merchant.webhookUrl || !merchant.webhookSecret) {
+  // The signing secret is never on `MerchantRow` — it is a protected column,
+  // loaded explicitly and only on a delivery path.
+  const target = await findWebhookTarget(db, merchant.id);
+  if (!target) {
     return { ok: false, status: 422, message: "merchant has no webhook configured" };
   }
 
   const event = buildEvent(delivery.eventType, toPaymentIntentDTO(intent));
   const outcome = await deliver(
     event,
-    { url: merchant.webhookUrl, secret: merchant.webhookSecret },
+    { url: target.url, secret: target.secret },
     deps.safeFetch ? { safeFetch: deps.safeFetch } : {},
   );
 
-  const redelivery = await WebhookDelivery.create({
+  // `lastStatus` is derived from `delivered` inside the repository, so the
+  // pair can never disagree and trip `webhook_deliveries_status_agrees_check`.
+  const redelivery = await insertWebhookDelivery(db, {
     merchantId: merchant.id,
-    intentId: intent.id,
+    paymentIntentId: intent.id,
     eventId: event.id,
     eventType: delivery.eventType,
-    url: merchant.webhookUrl,
+    url: target.url,
     attempts: outcome.attempts,
     delivered: outcome.delivered,
-    lastStatus: outcome.delivered ? "delivered" : "failed",
   });
 
-  return { ok: true, delivery: redelivery };
+  return { ok: true, delivery: redelivery, intentPublicId: intent.publicId };
 }
 
 /**
@@ -108,7 +130,7 @@ export function createWebhookDeliveriesRouter(deps: {
         sendError(res, result.status, "invalid_request_error", result.message);
         return;
       }
-      res.status(200).json(toWebhookDeliveryDTO(result.delivery));
+      res.status(200).json(toWebhookDeliveryDTO(result.delivery, result.intentPublicId));
     }),
   );
 
