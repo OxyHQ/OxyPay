@@ -48,7 +48,16 @@ jobs:
           --health-retries 10
 
     env:
+      # Where the throwaway per-suite databases are CREATED (the `postgres`
+      # maintenance database on the service container).
       TEST_DATABASE_URL: postgres://oxypay:oxypay@localhost:5432/postgres
+      # `config.ts` now REFUSES to load without this, because the service
+      # cannot boot without it — so importing any module that reaches the
+      # config singleton needs it set, including tests that never touch the
+      # database. It is deliberately NOT what the suites connect to: each one
+      # gets its own throwaway database from `TEST_DATABASE_URL` above and
+      # points the pool at it via `setDatabaseForTesting`.
+      DATABASE_URL: postgres://oxypay:oxypay@localhost:5432/oxypay
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

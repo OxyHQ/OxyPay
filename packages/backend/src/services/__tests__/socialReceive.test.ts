@@ -1,9 +1,10 @@
-import { test, expect, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { oxyClient as realOxyClient } from "@oxyhq/core";
 import type { DidDocument } from "@oxyhq/contracts";
-import { SocialReceiveCursor } from "../../models/SocialReceiveCursor";
+import {
+  resetGatewayTables,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 
 const IDENTITY_PUB_A_UNCOMPRESSED_HEX =
   "046a04ab98d9e4774ad806e302dddeb63bea16b5cb5f223ee77478e861bb583eb336b6fbcb60b5b3d4f1551ac45e5ffc4936466e7d98f6c7c0ec736539f74691a6";
@@ -60,21 +61,10 @@ const {
   SOCIAL_RECEIVE_FIRST_FRESH_INDEX,
 } = await import("../socialReceive");
 
-let mongod: MongoMemoryServer;
-
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await SocialReceiveCursor.init();
-});
-
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
-});
+useGatewayDatabase();
 
 beforeEach(async () => {
-  await SocialReceiveCursor.deleteMany({});
+  await resetGatewayTables();
   resolveDidMock.mockClear();
   resolveDidMock.mockImplementation(async (userId: string) => didWithKey(userId, IDENTITY_PUB_A_UNCOMPRESSED_HEX));
 });

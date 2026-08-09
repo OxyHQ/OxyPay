@@ -1,5 +1,5 @@
 // bigint <-> canonical base-unit-string helpers. The domain works in bigint
-// base units (m⊜); Mongo stores the decimal string. No float ever touches a
+// base units (m⊜); the database stores the decimal string. No float ever touches a
 // monetary value on either side of this boundary.
 import { isBaseUnitString } from "@oxypay/shared-types";
 

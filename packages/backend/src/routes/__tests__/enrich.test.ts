@@ -3,10 +3,11 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
-import { SocialSendAttribution } from "../../models/SocialSendAttribution";
+import {
+  resetGatewayTables,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createEnrichRouter } from "../enrich";
 
 const TEST_VIEWER_ID = "user_test_viewer";
@@ -15,7 +16,6 @@ const stubRequireOxyUser: RequestHandler = (req, _res, next) => {
   next();
 };
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
 
@@ -35,11 +35,9 @@ async function postEnrich(
   return { status: res.status, body: (await res.json()) as EnrichHttpResponse };
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await SocialSendAttribution.init();
+useGatewayDatabase();
 
+beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(createEnrichRouter({ requireOxyUser: stubRequireOxyUser }));
@@ -53,12 +51,10 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 beforeEach(async () => {
-  await SocialSendAttribution.deleteMany({});
+  await resetGatewayTables();
 });
 
 describe("POST /v1/enrich", () => {

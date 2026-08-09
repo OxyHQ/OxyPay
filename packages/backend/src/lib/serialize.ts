@@ -1,4 +1,3 @@
-import type { HydratedDocument } from "mongoose";
 import type {
   CheckoutSession,
   CheckoutSessionPublic,
@@ -10,156 +9,169 @@ import type {
   WebhookDelivery,
 } from "@oxypay/shared-types";
 import { config } from "../config";
-import type { MerchantDoc } from "../models/Merchant";
-import type { PaymentIntentDoc } from "../models/PaymentIntent";
-import type { PaymentLinkDoc } from "../models/PaymentLink";
-import type { CheckoutSessionDoc } from "../models/CheckoutSession";
-import type { WebhookDeliveryDoc } from "../models/WebhookDelivery";
-
-/** A persisted PaymentIntent document (includes the timestamp fields). */
-export type PaymentIntentDocument = HydratedDocument<PaymentIntentDoc>;
+import type { MerchantRow } from "../db/merchants/merchantRepository";
+import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
+import type { PaymentLinkRow } from "../db/payments/paymentLinkRepository";
+import type { CheckoutSessionRow } from "../db/payments/checkoutSessionRepository";
+import type { WebhookDeliveryRow } from "../db/webhooks/webhookDeliveryRepository";
 
 /**
- * Serialize a persisted PaymentIntent document to its public `PaymentIntent`
- * DTO (the wire/contract shape shared with the SDK, webhooks, and the wallet).
- * The internal-only `idempotencyKey` is deliberately omitted; `metadata` is
- * flattened from a Mongo `Map` to a plain record; dates become ISO strings.
+ * Serialize a persisted PaymentIntent row to its public `PaymentIntent` DTO
+ * (the wire/contract shape shared with the SDK, webhooks, and the wallet).
+ * The internal-only `idempotencyKey` is deliberately omitted — the repository
+ * never selects it — and dates become ISO strings.
+ *
+ * `id` is the PUBLIC `pi_…`, which is what the wire contract has always
+ * carried: the Mongo schema field was itself called `id`, and here the same
+ * value lives in `public_id` beside the internal primary key. Emitting
+ * `row.id` would put a uuid on a shipped contract.
  */
-export function toPaymentIntentDTO(doc: PaymentIntentDocument): PaymentIntent {
+export function toPaymentIntentDTO(row: PaymentIntentRow): PaymentIntent {
   return {
-    id: doc.id,
+    id: row.publicId,
     object: "payment_intent",
-    status: doc.status,
-    amount: doc.amount,
+    status: row.status,
+    amount: row.amount,
     currency: "FAIR",
-    network: doc.network,
-    address: doc.address,
-    merchantId: doc.merchantId,
-    txid: doc.txid,
-    confirmations: doc.confirmations,
-    clientSecret: doc.clientSecret,
-    metadata: Object.fromEntries(doc.metadata),
-    expiresAt: doc.expiresAt.toISOString(),
-    createdAt: doc.createdAt.toISOString(),
-    updatedAt: doc.updatedAt.toISOString(),
+    network: row.network,
+    address: row.address,
+    merchantId: row.merchantId,
+    txid: row.txid,
+    confirmations: row.confirmations,
+    clientSecret: row.clientSecret,
+    metadata: row.metadata,
+    expiresAt: row.expiresAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 /**
- * Serialize a persisted Merchant document to its public `Merchant` DTO.
+ * Serialize a persisted Merchant row to its public `Merchant` DTO.
  * `webhookSecret` and `nextDerivationIndex` are deliberately omitted (see
- * `@oxypay/shared-types`'s `Merchant` doc comment).
+ * `@oxypay/shared-types`'s `Merchant` doc comment); the repository does not
+ * select the secret at all.
  */
-export function toMerchantDTO(doc: HydratedDocument<MerchantDoc>): Merchant {
+export function toMerchantDTO(row: MerchantRow): Merchant {
   return {
-    id: doc.publicId,
+    id: row.publicId,
     object: "merchant",
-    oxyAppId: doc.oxyAppId,
-    environment: doc.environment,
-    network: doc.network,
-    xpub: doc.xpub,
-    webhookUrl: doc.webhookUrl,
-    requiredConfirmations: doc.requiredConfirmations,
-    createdAt: doc.createdAt.toISOString(),
-    updatedAt: doc.updatedAt.toISOString(),
+    oxyAppId: row.oxyAppId,
+    environment: row.environment,
+    network: row.network,
+    xpub: row.xpub,
+    webhookUrl: row.webhookUrl ?? undefined,
+    requiredConfirmations: row.requiredConfirmations,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 /**
- * Serialize a persisted WebhookDelivery document to its public
- * `WebhookDelivery` DTO. `WebhookDelivery` has no schema field named `id`, so
- * its Mongoose virtual `.id` is used directly here — unlike `Merchant`, there
- * is no collision to avoid.
+ * Serialize a persisted WebhookDelivery row to its public `WebhookDelivery`
+ * DTO.
+ *
+ * `intentPublicId` is a SEPARATE parameter rather than a field of the row,
+ * because the delivery stores the intent's internal primary key while
+ * `WebhookDelivery.intentId` on the wire carries the public `pi_…`. The two
+ * callers get it two different ways — the list path joins it in
+ * (`listDeliveriesForMerchant` returns `intentPublicId` per row) and the
+ * redelivery path already holds the intent row it loaded — so requiring it
+ * explicitly is what stops a caller silently emitting a uuid on a shipped
+ * contract.
  */
 export function toWebhookDeliveryDTO(
-  doc: HydratedDocument<WebhookDeliveryDoc>,
+  row: WebhookDeliveryRow,
+  intentPublicId: string,
 ): WebhookDelivery {
   return {
-    id: doc.id,
+    id: row.id,
     object: "webhook_delivery",
-    merchantId: doc.merchantId,
-    intentId: doc.intentId,
-    eventId: doc.eventId,
-    eventType: doc.eventType,
-    url: doc.url,
-    attempts: doc.attempts,
-    delivered: doc.delivered,
-    lastStatus: doc.lastStatus,
-    createdAt: doc.createdAt.toISOString(),
-    updatedAt: doc.updatedAt.toISOString(),
+    merchantId: row.merchantId,
+    intentId: intentPublicId,
+    eventId: row.eventId,
+    eventType: row.eventType,
+    url: row.url,
+    attempts: row.attempts,
+    delivered: row.delivered,
+    lastStatus: row.lastStatus,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 /**
- * Serialize a persisted PaymentLink document to its merchant-facing DTO
+ * Serialize a persisted PaymentLink row to its merchant-facing DTO
  * (the SDK/dashboard CRUD shape). `url` is built from `config.checkoutBaseUrl`
  * so it always points at the hosted checkout page for the CURRENT deploy.
  */
-export function toPaymentLinkDTO(doc: HydratedDocument<PaymentLinkDoc>): PaymentLink {
+export function toPaymentLinkDTO(row: PaymentLinkRow): PaymentLink {
   return {
-    id: doc.publicId,
+    id: row.publicId,
     object: "payment_link",
-    amount: doc.amount,
-    network: doc.network,
-    active: doc.active,
-    metadata: Object.fromEntries(doc.metadata),
-    successUrl: doc.successUrl,
-    url: `${config.checkoutBaseUrl}/l/${doc.publicId}`,
-    createdAt: doc.createdAt.toISOString(),
-    updatedAt: doc.updatedAt.toISOString(),
+    amount: row.amount,
+    network: row.network,
+    active: row.active,
+    metadata: row.metadata,
+    successUrl: row.successUrl ?? undefined,
+    url: `${config.checkoutBaseUrl}/l/${row.publicId}`,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 /**
- * Serialize a persisted PaymentLink document to what an UNAUTHENTICATED
+ * Serialize a persisted PaymentLink row to what an UNAUTHENTICATED
  * checkout-page visitor may see: no `metadata`, no `successUrl`, no internal
  * ids beyond the public one. `merchant` is resolved separately by
  * `services/merchantDisplay.ts` and passed in — this function never touches
  * the network to build it.
  */
 export function toPublicPaymentLinkDTO(
-  doc: HydratedDocument<PaymentLinkDoc>,
+  row: PaymentLinkRow,
   merchant: MerchantDisplay,
 ): PublicPaymentLink {
   return {
-    id: doc.publicId,
+    id: row.publicId,
     object: "payment_link",
-    amount: doc.amount,
-    network: doc.network,
-    active: doc.active,
+    amount: row.amount,
+    network: row.network,
+    active: row.active,
     merchant,
   };
 }
 
 /**
- * Serialize a persisted CheckoutSession document to its merchant/SDK-facing
- * DTO. The wrapped intent is passed in rather than re-fetched here, and
- * supplies both `paymentIntentId` and `clientSecret` — the session doc itself
- * deliberately never stores a copy of the secret (see `CheckoutSessionDoc`'s
- * doc comment).
+ * Serialize a persisted CheckoutSession row to its merchant/SDK-facing DTO.
+ * The wrapped intent is passed in rather than re-fetched here, and supplies
+ * both `paymentIntentId` and `clientSecret` — the session row itself
+ * deliberately never stores a copy of the secret.
+ *
+ * `paymentIntentId` is the intent's PUBLIC `pi_…`, not the internal reference
+ * the session stores, because that is what the shipped contract carries.
  */
 export function toCheckoutSessionDTO(
-  doc: HydratedDocument<CheckoutSessionDoc>,
-  intent: PaymentIntentDocument,
+  row: CheckoutSessionRow,
+  intent: PaymentIntentRow,
 ): CheckoutSession {
   return {
-    id: doc.publicId,
+    id: row.publicId,
     object: "checkout_session",
-    paymentIntentId: intent.id,
+    paymentIntentId: intent.publicId,
     clientSecret: intent.clientSecret,
-    amount: doc.amount,
-    network: doc.network,
-    metadata: Object.fromEntries(doc.metadata),
-    successUrl: doc.successUrl,
-    cancelUrl: doc.cancelUrl,
-    url: `${config.checkoutBaseUrl}/c/${doc.publicId}`,
-    createdAt: doc.createdAt.toISOString(),
-    updatedAt: doc.updatedAt.toISOString(),
+    amount: row.amount,
+    network: row.network,
+    metadata: row.metadata,
+    successUrl: row.successUrl ?? undefined,
+    cancelUrl: row.cancelUrl ?? undefined,
+    url: `${config.checkoutBaseUrl}/c/${row.publicId}`,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 /**
- * Serialize a persisted CheckoutSession document to what the checkout page
+ * Serialize a persisted CheckoutSession row to what the checkout page
  * loads at `/c/:id`, authorized by possession of the wrapped intent's
  * `client_secret` (see `routes/checkoutSessions.ts`'s public GET). Reuses
  * `toPaymentIntentDTO`'s output unchanged for `paymentIntent` — it already
@@ -167,15 +179,15 @@ export function toCheckoutSessionDTO(
  * `submit_tx`.
  */
 export function toCheckoutSessionPublicDTO(
-  doc: HydratedDocument<CheckoutSessionDoc>,
+  row: CheckoutSessionRow,
   merchant: MerchantDisplay,
-  intent: PaymentIntentDocument,
+  intent: PaymentIntentRow,
 ): CheckoutSessionPublic {
   return {
-    id: doc.publicId,
+    id: row.publicId,
     object: "checkout_session",
-    successUrl: doc.successUrl,
-    cancelUrl: doc.cancelUrl,
+    successUrl: row.successUrl ?? undefined,
+    cancelUrl: row.cancelUrl ?? undefined,
     merchant,
     paymentIntent: toPaymentIntentDTO(intent),
   };

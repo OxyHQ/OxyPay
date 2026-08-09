@@ -1,8 +1,6 @@
 import type { NextFunction, Request, Response, RequestHandler } from "express";
 import type { OxyAuthRequest, OxyServiceEnvironment } from "@oxyhq/core/server";
 
-const MONGO_DUPLICATE_KEY = 11000;
-
 /** Stripe-ish error envelope: `{ error: { type, message } }`. */
 export function sendError(
   res: Response,
@@ -20,15 +18,6 @@ export function wrap(handler: AsyncHandler): RequestHandler {
   return (req: Request, res: Response, next: NextFunction): void => {
     handler(req, res).catch(next);
   };
-}
-
-export function isDuplicateKeyError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    err.code === MONGO_DUPLICATE_KEY
-  );
 }
 
 export interface ResolvedServiceApp {

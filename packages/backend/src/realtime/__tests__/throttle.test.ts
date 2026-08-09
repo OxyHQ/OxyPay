@@ -3,7 +3,7 @@
  * `initSocket` (sec-realtime MINOR — see `socket.ts`'s throttling doc block
  * above `FixedWindowLimiter`): a per-IP cap on new connections and a
  * per-socket cap on `subscribe` calls. Runs a real `SocketServer` +
- * `socket.io-client` against an isolated `MongoMemoryServer` — a SEPARATE
+ * `socket.io-client` against its own throwaway Postgres database — a SEPARATE
  * server/gateway from `__tests__/e2e.test.ts`'s, so neither file's
  * connection/subscribe volume can exhaust the other's limiter budget.
  * `optionalSocketAuth` itself (the identity-optional connection gate) is
@@ -11,11 +11,15 @@
  */
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer, type Server as HttpServer } from "node:http";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { Server as SocketServer } from "socket.io";
 import { io as ioClient } from "socket.io-client";
-import { PaymentIntent } from "../../models/PaymentIntent";
+import { findIntentByPublicId } from "../../db/payments/paymentIntentRepository";
+import {
+  gatewayDb,
+  seedIntent,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import {
   initSocket,
   emitIntentUpdate,
@@ -25,7 +29,6 @@ import {
 
 const INTENT_ID = "pi_throttle_test_0000000001";
 const CLIENT_SECRET = "pi_throttle_test_0000000001_secret_abcdef";
-const MERCHANT_ID = "merch_throttle_test";
 
 // Identity verifier for a handshake that DOES present a token — trivially
 // accepts, mirroring `__tests__/e2e.test.ts`'s `stubSocketAuth`.
@@ -34,23 +37,28 @@ const stubSocketAuth = (socket: unknown, next: (err?: Error) => void): void => {
   next();
 };
 
-let mongod: MongoMemoryServer;
 let httpServer: HttpServer;
 let io: SocketServer;
 let baseUrl: string;
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await PaymentIntent.init();
+useGatewayDatabase();
 
-  await PaymentIntent.create({
-    id: INTENT_ID,
-    status: "created",
+beforeAll(async () => {
+  // The intent now REFERENCES its merchant (`payment_intents_merchant_id_network_fkey`),
+  // so the free-form `merch_throttle_test` string the Mongo fixture used is not
+  // a value the database accepts — the fixture registers a real merchant first.
+  const merchant = await seedMerchant({
+    publicId: "merch_throttle_test",
+    oxyAppId: "app_throttle_test",
+    environment: "development",
+    network: "testnet",
+  });
+
+  await seedIntent(merchant, {
+    publicId: INTENT_ID,
     amount: "100000000",
     network: "testnet",
     address: "TThrottleTestAddress00000000000001",
-    merchantId: MERCHANT_ID,
     clientSecret: CLIENT_SECRET,
     idempotencyKey: "idem_throttle_test",
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
@@ -70,11 +78,9 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+afterAll(() => {
   io.close();
   httpServer.close();
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -230,7 +236,7 @@ test("per-socket subscribe throttle: exceeding the cap rejects further subscribe
 
   // The room join from the first (within-budget) subscribe still holds —
   // the throttled call rejected only ITSELF, nothing already granted.
-  const intent = await PaymentIntent.findOne({ id: INTENT_ID });
+  const intent = await findIntentByPublicId(gatewayDb(), INTENT_ID);
   if (!intent) throw new Error("fixture intent missing");
 
   const updatePromise = withTimeout(

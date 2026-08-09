@@ -1,7 +1,5 @@
 import { Router } from "express";
 import type { Request, RequestHandler, Response } from "express";
-import type { FilterQuery } from "mongoose";
-import mongoose from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import {
@@ -10,9 +8,12 @@ import {
   OXY_SERVICE_ENVIRONMENTS,
 } from "@oxyhq/core/server";
 import type { OxyAuthRequest, OxyServiceEnvironment } from "@oxyhq/core/server";
-import { PaymentIntent } from "../models/PaymentIntent";
-import { WebhookDelivery } from "../models/WebhookDelivery";
-import type { WebhookDeliveryDoc } from "../models/WebhookDelivery";
+import { getDb } from "../db/postgres";
+import { findIntentForMerchant } from "../db/payments/paymentIntentRepository";
+import {
+  findDeliveryForMerchant,
+  listDeliveriesForMerchant,
+} from "../db/webhooks/webhookDeliveryRepository";
 import {
   assertAppMembership as realAssertAppMembership,
   type AppMembershipResult,
@@ -203,9 +204,12 @@ export function createDashboardRouter(deps?: {
         );
         return;
       }
-      applyMerchantPatch(merchant, parsed.data);
-      await merchant.save();
-      res.status(200).json(toMerchantDTO(merchant));
+      const updated = await applyMerchantPatch(merchant, parsed.data);
+      if (!updated) {
+        sendError(res, 404, "invalid_request_error", "merchant not found");
+        return;
+      }
+      res.status(200).json(toMerchantDTO(updated));
     }),
   );
 
@@ -250,7 +254,17 @@ export function createDashboardRouter(deps?: {
       const merchant = await resolveMerchantByApp(access.applicationId, access.environment, res);
       if (!merchant) return;
 
-      const intent = await PaymentIntent.findOne({ id: req.params.id, merchantId: merchant.id });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const intent = await findIntentForMerchant(getDb(), id, merchant.id);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
@@ -282,21 +296,14 @@ export function createDashboardRouter(deps?: {
       const { starting_after } = parsed.data;
       const limit = parsed.data.limit ?? DEFAULT_LIST_LIMIT;
 
-      const filter: FilterQuery<WebhookDeliveryDoc> = { merchantId: merchant.id };
+      const db = getDb();
+
+      // The id-shape guard is gone with the ObjectId it existed for: delivery
+      // ids are `text`, so a cursor of any shape simply matches no row, and
+      // the ownership-scoped lookup below produces the SAME 422 it always did.
+      let after: string | undefined;
       if (starting_after) {
-        if (!mongoose.isValidObjectId(starting_after)) {
-          sendError(
-            res,
-            422,
-            "invalid_request_error",
-            "starting_after references an unknown webhook delivery",
-          );
-          return;
-        }
-        const cursor = await WebhookDelivery.findOne({
-          _id: starting_after,
-          merchantId: merchant.id,
-        });
+        const cursor = await findDeliveryForMerchant(db, starting_after, merchant.id);
         if (!cursor) {
           sendError(
             res,
@@ -306,15 +313,22 @@ export function createDashboardRouter(deps?: {
           );
           return;
         }
-        filter._id = { $lt: cursor._id };
+        after = cursor.id;
       }
 
-      const page = await WebhookDelivery.find(filter).sort({ _id: -1 }).limit(limit + 1);
-      const hasMore = page.length > limit;
-      const data = (hasMore ? page.slice(0, limit) : page).map((delivery) =>
-        toWebhookDeliveryDTO(delivery),
+      // Each row carries its intent's PUBLIC id, joined in by the repository.
+      // `WebhookDelivery.intentId` is a shipped wire field holding the `pi_…`,
+      // and resolving it per row here would be an N+1 whose size the client
+      // chooses through `limit`.
+      const page = await listDeliveriesForMerchant(db, {
+        merchantId: merchant.id,
+        limit,
+        after,
+      });
+      const data = page.data.map((delivery) =>
+        toWebhookDeliveryDTO(delivery, delivery.intentPublicId),
       );
-      res.status(200).json({ object: "list", data, has_more: hasMore });
+      res.status(200).json({ object: "list", data, has_more: page.hasMore });
     }),
   );
 
@@ -339,7 +353,7 @@ export function createDashboardRouter(deps?: {
         sendError(res, result.status, "invalid_request_error", result.message);
         return;
       }
-      res.status(200).json(toWebhookDeliveryDTO(result.delivery));
+      res.status(200).json(toWebhookDeliveryDTO(result.delivery, result.intentPublicId));
     }),
   );
 

@@ -12,8 +12,6 @@ import type { NetworkType } from "@fairco.in/core";
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_NETWORK: NetworkType = "mainnet";
-// Conventional local dev target; overridden by MONGODB_URI in every real env.
-const DEFAULT_MONGODB_URI = "mongodb://localhost:27017/oxypay";
 // The hosted checkout page's host (F2.2/F2.3) — see `2026-07-19-fase2-checkout-links.md`.
 const DEFAULT_CHECKOUT_BASE_URL = "https://checkout.oxy.so";
 // The SAME literal fallback the shared `oxyClient` singleton itself is built
@@ -28,21 +26,19 @@ export interface AppConfig {
   explorerBaseUrl: string;
   /** Network the gateway operates on (`mainnet` | `testnet`). */
   network: NetworkType;
-  /** MongoDB connection string. */
-  mongodbUri: string;
   /**
-   * PostgreSQL connection string, or `undefined` where none is configured.
+   * PostgreSQL connection string. REQUIRED — there is no default and no
+   * `undefined` case.
    *
-   * Optional for exactly as long as no route reads Postgres. `db/postgres.ts`
-   * refuses to open a pool without it, with a named error rather than a `!`, so
-   * an unconfigured deployment fails at the call that needed the database
-   * instead of at boot — which is what keeps this change safe to deploy ahead
-   * of the task definition carrying `DATABASE_URL`. The change that moves the
-   * first route to Postgres makes it REQUIRED here and calls
-   * `connectPostgres()` from `server.ts`, so a misconfigured task crash-loops
-   * rather than serving half a service.
+   * Every route reads Postgres and `server.ts` opens the pool at boot, so a
+   * deployment without this variable cannot serve a single request. Refusing
+   * it here means a task definition missing `DATABASE_URL` crash-loops with a
+   * message naming the variable, instead of starting and answering every
+   * request with a 500. It is also why `deploy-aws.yml` no longer probes the
+   * task definition before running migrations: the state that probe skipped
+   * over — a live service with no database — is no longer reachable.
    */
-  databaseUrl: string | undefined;
+  databaseUrl: string;
   /** HTTP port the API listens on. */
   port: number;
   /**
@@ -123,6 +119,28 @@ function readOptional(raw: string | undefined): string | undefined {
   return value === "" ? undefined : value;
 }
 
+/**
+ * Read a variable the service cannot run without.
+ *
+ * Throws at load time rather than returning `undefined` for a caller to check:
+ * the whole point of a required variable is that no downstream code should
+ * have to handle its absence. An empty or whitespace-only value is treated as
+ * absent, because `DATABASE_URL=""` in a task definition is a misconfiguration
+ * that would otherwise reach postgres.js as a connection string.
+ */
+function readRequired(raw: string | undefined, name: string): string {
+  const value = raw?.trim();
+  if (!value) {
+    throw new Error(
+      `${name} is required and was not set. The backend is Postgres-native: ` +
+        "every route reads it and the pool is opened at boot. For local " +
+        "development start the server with " +
+        "`docker compose -f docker-compose.postgres.yml up -d`.",
+    );
+  }
+  return value;
+}
+
 export function loadConfig(
   env: Record<string, string | undefined> = process.env,
 ): AppConfig {
@@ -132,8 +150,7 @@ export function loadConfig(
       DEFAULT_EXPLORER_BASE_URL,
     ),
     network: readNetwork(env.OXYPAY_NETWORK),
-    mongodbUri: readNonEmpty(env.MONGODB_URI, DEFAULT_MONGODB_URI),
-    databaseUrl: readOptional(env.DATABASE_URL),
+    databaseUrl: readRequired(env.DATABASE_URL, "DATABASE_URL"),
     port: readPort(env.PORT),
     allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),

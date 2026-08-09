@@ -4,9 +4,14 @@ import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
 import { isBaseUnitString, type CreateCheckoutSessionParams } from "@oxypay/shared-types";
-import { Merchant } from "../models/Merchant";
-import { PaymentIntent } from "../models/PaymentIntent";
-import { CheckoutSession } from "../models/CheckoutSession";
+import { getDb } from "../db/postgres";
+import { findMerchantById } from "../db/merchants/merchantRepository";
+import { findIntentById } from "../db/payments/paymentIntentRepository";
+import {
+  findSessionByPublicId,
+  findSessionForMerchant,
+  insertCheckoutSession,
+} from "../db/payments/checkoutSessionRepository";
 import { createIntent, NetworkMismatchError } from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
@@ -71,7 +76,14 @@ export function createCheckoutSessionsRouter(deps: {
         });
 
         // Explicit field whitelist — never spread `req.body`.
-        const session = await CheckoutSession.create({
+        //
+        // `paymentIntentId` is the intent's INTERNAL id, which is what
+        // `checkout_sessions.payment_intent_id` references. The Mongo document
+        // stored the public `pi_…` in this position, because `PaymentIntent`'s
+        // schema field was itself called `id` — the expression is unchanged and
+        // its meaning is not. The public id still reaches the wire, from
+        // `toCheckoutSessionDTO`, which reads it off the intent.
+        const session = await insertCheckoutSession(getDb(), {
           publicId: newId("cs"),
           merchantId: merchant.id,
           oxyAppId: merchant.oxyAppId,
@@ -79,12 +91,17 @@ export function createCheckoutSessionsRouter(deps: {
           paymentIntentId: intent.id,
           amount: params.amount,
           network: params.network,
-          metadata: params.metadata
-            ? new Map(Object.entries(params.metadata))
-            : new Map<string, string>(),
+          metadata: params.metadata ?? {},
           successUrl: params.successUrl,
           cancelUrl: params.cancelUrl,
         });
+        if (!session) {
+          // Unreachable: the intent was minted by the `createIntent` call
+          // directly above, so nothing else can have wrapped it. Stated rather
+          // than asserted away, so a future change that reuses an intent here
+          // fails loudly instead of serializing `null`.
+          throw new Error(`checkout session insert found intent ${intent.id} already wrapped`);
+        }
 
         res.status(201).json(toCheckoutSessionDTO(session, intent));
       } catch (err) {
@@ -106,15 +123,26 @@ export function createCheckoutSessionsRouter(deps: {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;
 
-      const session = await CheckoutSession.findOne({
-        publicId: req.params.id,
-        merchantId: merchant.id,
-      });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const db = getDb();
+      const session = await findSessionForMerchant(db, id, merchant.id);
       if (!session) {
         sendError(res, 404, "invalid_request_error", "checkout session not found");
         return;
       }
-      const intent = await PaymentIntent.findOne({ id: session.paymentIntentId });
+      // By PRIMARY KEY, and deliberately unscoped: the session that names it
+      // was already ownership-checked, so a second merchant predicate here
+      // would be a second authority for a decision already made.
+      const intent = await findIntentById(db, session.paymentIntentId);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "checkout session not found");
         return;
@@ -131,12 +159,25 @@ export function createCheckoutSessionsRouter(deps: {
     "/v1/checkout_sessions/:id/public",
     publicRateLimit,
     wrap(async (req, res) => {
-      const session = await CheckoutSession.findOne({ publicId: req.params.id });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const db = getDb();
+      const session = await findSessionByPublicId(db, id);
       if (!session) {
         sendError(res, 404, "invalid_request_error", "checkout session not found");
         return;
       }
-      const intent = await PaymentIntent.findOne({ id: session.paymentIntentId });
+      // Unscoped by primary key: this path proves its right to the row by
+      // presenting the wrapped intent's `client_secret`, verified below.
+      const intent = await findIntentById(db, session.paymentIntentId);
       if (!intent) {
         sendError(res, 404, "invalid_request_error", "checkout session not found");
         return;
@@ -156,7 +197,7 @@ export function createCheckoutSessionsRouter(deps: {
         return;
       }
 
-      const merchant = await Merchant.findById(session.merchantId);
+      const merchant = await findMerchantById(db, session.merchantId);
       if (!merchant) {
         sendError(res, 404, "invalid_request_error", "checkout session not found");
         return;

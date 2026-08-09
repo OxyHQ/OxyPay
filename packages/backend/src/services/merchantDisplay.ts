@@ -1,7 +1,6 @@
-import type { HydratedDocument } from "mongoose";
 import { oxyClient } from "@oxyhq/core";
 import type { MerchantDisplay } from "@oxypay/shared-types";
-import type { MerchantDoc } from "../models/Merchant";
+import type { MerchantRow } from "../db/merchants/merchantRepository";
 
 /** Neutral fallback shown when a merchant hasn't set a `displayName`. */
 const DEFAULT_MERCHANT_NAME = "Oxy Pay merchant";
@@ -22,7 +21,7 @@ const DEFAULT_MERCHANT_NAME = "Oxy Pay merchant";
  * `MerchantDisplay`'s doc comment: "resolved server-side").
  */
 export async function resolveMerchantDisplay(
-  merchant: HydratedDocument<MerchantDoc>,
+  merchant: MerchantRow,
 ): Promise<MerchantDisplay> {
   return {
     name: merchant.displayName ?? DEFAULT_MERCHANT_NAME,

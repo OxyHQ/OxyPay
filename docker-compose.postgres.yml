@@ -2,6 +2,14 @@
 #
 #   docker compose -f docker-compose.postgres.yml up -d
 #   export TEST_DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/postgres
+#   export DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/oxypay
+#
+# BOTH are needed. The first is where throwaway per-file databases are created.
+# The second is there because `config.ts` refuses to load without it — the
+# service cannot boot without a database — so even a test that never touches
+# Postgres needs it set to import anything that reaches the config singleton.
+# It is deliberately NOT what the suites connect to: `useGatewayDatabase()`
+# points the pool at that file's own throwaway database.
 #
 # Plain `postgres:17-alpine`, not `postgis/postgis`: this schema needs NO
 # extensions (see `REQUIRED_EXTENSIONS` in `packages/backend/src/db/migrate.ts`),

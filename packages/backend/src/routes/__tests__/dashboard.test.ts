@@ -9,16 +9,22 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
+import { and, eq, sql } from "drizzle-orm";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { MAINNET, deriveKeyFromSeed, mnemonicToSeed } from "@fairco.in/core";
+import { uuidv7 } from "@oxyhq/db";
 import type { OxyAuthRequest, SafeFetchResult } from "@oxyhq/core/server";
-import { Merchant } from "../../models/Merchant";
-import { PaymentIntent } from "../../models/PaymentIntent";
-import { WebhookDelivery } from "../../models/WebhookDelivery";
+import { merchants } from "../../db/schema";
+import { findMerchantByAppEnvironment } from "../../db/merchants/merchantRepository";
 import type { AppMembershipResult } from "../../services/appMembership";
+import {
+  gatewayDb,
+  seedDelivery,
+  seedIntent,
+  seedMerchant,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createDashboardRouter } from "../dashboard";
 
 // Real TESTNET account xpub for the canonical all-"abandon" + "art" mnemonic
@@ -72,9 +78,24 @@ const fakeSafeFetch = async (url: string): Promise<SafeFetchResult> => {
   return { response, status: 200, headers: {}, finalUrl: url };
 };
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
+
+/**
+ * A bare `count(*)` of the merchants registered for one application, optionally
+ * narrowed to one environment. No repository function answers it — nothing in
+ * production counts merchants — so the two "registered nothing" cases below
+ * read it straight off the table.
+ */
+async function countMerchantsForApp(appId: string, environment?: string): Promise<number> {
+  const conditions = [eq(merchants.oxyAppId, appId)];
+  if (environment !== undefined) conditions.push(eq(merchants.environment, environment));
+  const rows = await gatewayDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(merchants)
+    .where(and(...conditions));
+  return rows[0]?.n ?? 0;
+}
 
 function authedFetch(
   path: string,
@@ -91,14 +112,10 @@ function authedFetch(
   });
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await PaymentIntent.init();
-  await WebhookDelivery.init();
+useGatewayDatabase();
 
-  await Merchant.create({
+beforeAll(async () => {
+  await seedMerchant({
     publicId: "merch_dash_dev",
     oxyAppId: APP_ID,
     environment: "development",
@@ -107,7 +124,7 @@ beforeAll(async () => {
     webhookUrl: "https://merchant.example/hook",
     webhookSecret: "whsec_dash_test",
   });
-  await Merchant.create({
+  await seedMerchant({
     publicId: "merch_dash_prod",
     oxyAppId: APP_ID,
     environment: "production",
@@ -133,8 +150,6 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 describe("GET /v1/dashboard/applications/:applicationId/merchant", () => {
@@ -209,7 +224,7 @@ describe("POST /v1/dashboard/applications/:applicationId/merchant", () => {
       { method: "POST", body: JSON.stringify({ network: "mainnet", xpub: MAINNET_XPUB }) },
     );
     expect(res.status).toBe(422);
-    const count = await Merchant.countDocuments({ oxyAppId: appId });
+    const count = await countMerchantsForApp(appId);
     expect(count).toBe(0);
   });
 
@@ -247,7 +262,7 @@ describe("POST /v1/dashboard/applications/:applicationId/merchant", () => {
       { method: "POST", body: JSON.stringify({ network: "testnet", xpub: XPUB }), userId: OUTSIDER_USER_ID },
     );
     expect(res.status).toBe(403);
-    const count = await Merchant.countDocuments({ oxyAppId: appId, environment: "staging" });
+    const count = await countMerchantsForApp(appId, "staging");
     expect(count).toBe(0);
   });
 });
@@ -278,15 +293,20 @@ describe("PATCH /v1/dashboard/applications/:applicationId/merchant", () => {
 
 describe("GET /v1/dashboard/applications/:applicationId/payment_intents", () => {
   test("lists only the environment-scoped merchant's intents", async () => {
-    const devMerchant = await Merchant.findOne({ oxyAppId: APP_ID, environment: "development" });
+    const devMerchant = await findMerchantByAppEnvironment(
+      gatewayDb(),
+      APP_ID,
+      "development",
+    );
     expect(devMerchant).toBeTruthy();
-    await PaymentIntent.create({
-      id: "pi_dash_list_1",
-      status: "created",
+    // Unreachable once the assertion above has passed; it is what narrows the
+    // type for the seed call, which `expect(...).toBeTruthy()` does not do.
+    if (!devMerchant) throw new Error("no development merchant");
+    await seedIntent(devMerchant, {
+      publicId: "pi_dash_list_1",
       amount: "1000000",
       network: "testnet",
       address: "TC8KNvRhFUJUepcCSjBBeLa5HYo4Na11w3",
-      merchantId: devMerchant?.id,
       clientSecret: "pi_dash_list_1_secret",
       idempotencyKey: "idem_dash_list_1",
       expiresAt: new Date(Date.now() + 60_000),
@@ -322,15 +342,20 @@ describe("GET /v1/dashboard/applications/:applicationId/payment_intents/:id", ()
     // A dedicated intent, NOT the sibling `payment_intents` list describe
     // block's fixture — each describe block owns its own data so outcomes
     // never depend on which block ran first (`bun test --randomize`).
-    const devMerchant = await Merchant.findOne({ oxyAppId: APP_ID, environment: "development" });
+    const devMerchant = await findMerchantByAppEnvironment(
+      gatewayDb(),
+      APP_ID,
+      "development",
+    );
     expect(devMerchant).toBeTruthy();
-    await PaymentIntent.create({
-      id: "pi_dash_detail_1",
-      status: "created",
+    // Unreachable once the assertion above has passed; it is what narrows the
+    // type for the seed call, which `expect(...).toBeTruthy()` does not do.
+    if (!devMerchant) throw new Error("no development merchant");
+    await seedIntent(devMerchant, {
+      publicId: "pi_dash_detail_1",
       amount: "2000000",
       network: "testnet",
       address: "TVdQEadb9Yurh3QCBf1vwjZxNySQvHxFmk",
-      merchantId: devMerchant?.id,
       clientSecret: "pi_dash_detail_1_secret",
       idempotencyKey: "idem_dash_detail_1",
       expiresAt: new Date(Date.now() + 60_000),
@@ -356,29 +381,31 @@ describe("GET /v1/dashboard/applications/:applicationId/webhook_deliveries + red
   test("lists deliveries and redelivers one", async () => {
     // A dedicated intent, NOT a sibling describe block's fixture — see the
     // order-independence note above.
-    const devMerchant = await Merchant.findOne({ oxyAppId: APP_ID, environment: "development" });
+    const devMerchant = await findMerchantByAppEnvironment(
+      gatewayDb(),
+      APP_ID,
+      "development",
+    );
     expect(devMerchant).toBeTruthy();
-    const intent = await PaymentIntent.create({
-      id: "pi_dash_webhook_1",
-      status: "settled",
+    // Unreachable once the assertion above has passed; it is what narrows the
+    // type for the seed calls, which `expect(...).toBeTruthy()` does not do.
+    if (!devMerchant) throw new Error("no development merchant");
+    const intent = await seedIntent(devMerchant, {
+      publicId: "pi_dash_webhook_1",
       amount: "3000000",
       network: "testnet",
       address: "TC8KNvRhFUJUepcCSjBBeLa5HYo4Na11w3",
-      merchantId: devMerchant?.id,
       clientSecret: "pi_dash_webhook_1_secret",
       idempotencyKey: "idem_dash_webhook_1",
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    const delivery = await WebhookDelivery.create({
-      merchantId: devMerchant?.id,
-      intentId: intent?.id,
+    const delivery = await seedDelivery(devMerchant, intent, {
       eventId: "evt_dash_0000000000000001",
       eventType: "payment_intent.settled",
       url: "https://merchant.example/hook",
       attempts: 2,
       delivered: false,
-      lastStatus: "failed",
     });
 
     const listRes = await authedFetch(
@@ -399,13 +426,23 @@ describe("GET /v1/dashboard/applications/:applicationId/webhook_deliveries + red
     // fixture set it to initially) — read it fresh rather than asserting a
     // literal, since an earlier PATCH test in this file may have rotated it
     // (order-independence: this must pass regardless of sibling test order).
-    const currentMerchant = await Merchant.findOne({ oxyAppId: APP_ID, environment: "development" });
-    expect(capturedRedeliverFetches.at(-1)).toBe(currentMerchant?.webhookUrl);
+    const currentMerchant = await findMerchantByAppEnvironment(
+      gatewayDb(),
+      APP_ID,
+      "development",
+    );
+    // `?? undefined`: `webhook_url` is a nullable COLUMN where the Mongoose
+    // field was an optional one, so the expected value's TYPE widened by `null`
+    // while its value did not — an unset webhook compares unequal to the
+    // captured URL exactly as it did before.
+    expect(capturedRedeliverFetches.at(-1)).toBe(currentMerchant?.webhookUrl ?? undefined);
   });
 
   test("redelivering an unknown delivery id -> 404", async () => {
+    // A well-formed id of the shape the table actually mints, so this stays the
+    // "exists nowhere" case rather than a malformed-input one.
     const res = await authedFetch(
-      `/v1/dashboard/applications/${APP_ID}/webhook_deliveries/${new mongoose.Types.ObjectId().toString()}/redeliver?environment=development`,
+      `/v1/dashboard/applications/${APP_ID}/webhook_deliveries/${uuidv7()}/redeliver?environment=development`,
       { method: "POST" },
     );
     expect(res.status).toBe(404);

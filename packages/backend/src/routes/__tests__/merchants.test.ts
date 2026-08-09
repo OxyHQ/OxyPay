@@ -1,8 +1,6 @@
 import {
   test,
   expect,
-  beforeAll,
-  afterAll,
   afterEach,
   describe,
 } from "bun:test";
@@ -10,11 +8,15 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { eq, sql } from "drizzle-orm";
 import { MAINNET, deriveKeyFromSeed, mnemonicToSeed } from "@fairco.in/core";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
-import { Merchant } from "../../models/Merchant";
+import { merchants } from "../../db/schema";
+import {
+  gatewayDb,
+  resetGatewayTables,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createMerchantsRouter } from "../merchants";
 
 // Real TESTNET account xpub for the canonical all-"abandon" + "art" mnemonic
@@ -23,8 +25,8 @@ const XPUB =
   "DRKVrRr8WgU4mARJnCLAp77sKJ5h5K79VH8sredx2qPY8BUKogTYqoAXdTAzzvS5MgBDGGWb2Zoa2AwzoLRsbGGkBm1q2r7QSfRYWCizWfvMfPZn";
 
 // The same mnemonic's MAINNET-network account xpub (distinct BIP32 version
-// bytes from XPUB above) — the non-custody derivation firewall in Merchant's
-// pre-validate hook enforces that `xpub`'s encoded network matches `network`,
+// bytes from XPUB above) — the non-custody derivation firewall inside
+// `insertMerchant` enforces that `xpub`'s encoded network matches `network`,
 // so the "production on mainnet" registration test needs a real mainnet xpub.
 const MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -64,25 +66,30 @@ interface MerchantResponse {
   error?: { type: string; message: string };
 }
 
-let mongod: MongoMemoryServer;
-
 async function readJson(res: Response): Promise<MerchantResponse> {
   return (await res.json()) as MerchantResponse;
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-});
+/**
+ * `Merchant.countDocuments({ oxyAppId })`'s port. A bare count has no
+ * repository function — `findMerchantByAppEnvironment` answers a different
+ * question — so this goes through drizzle directly. It throws rather than
+ * defaulting when the aggregate returns nothing, so a broken query can never
+ * read as "zero merchants persisted", which is the fact both callers assert.
+ */
+async function countMerchants(oxyAppId: string): Promise<number> {
+  const [row] = await gatewayDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(merchants)
+    .where(eq(merchants.oxyAppId, oxyAppId));
+  if (!row) throw new Error("count(*) returned no row");
+  return row.n;
+}
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
-});
+useGatewayDatabase();
 
 afterEach(async () => {
-  await Merchant.deleteMany({});
+  await resetGatewayTables();
 });
 
 function createApp(appId: string, environment: string): { app: ReturnType<typeof express>; requireMerchant: RequestHandler } {
@@ -134,7 +141,7 @@ describe("POST /v1/merchants", () => {
       expect(res.status).toBe(422);
       const body = await readJson(res);
       expect(body.error?.type).toBe("invalid_request_error");
-      const count = await Merchant.countDocuments({ oxyAppId: DEV_APP_ID });
+      const count = await countMerchants(DEV_APP_ID);
       expect(count).toBe(0);
     } finally {
       s.close();
@@ -168,14 +175,15 @@ describe("POST /v1/merchants", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           network: "testnet",
-          // Malformed extended key — the model's pre('validate') firewall
-          // must reject this before persisting, regardless of exact string;
-          // asserting NOT-201 + NOT-persisted is the load-bearing check.
+          // Malformed extended key — the non-custody firewall inside
+          // `insertMerchant` must reject this before persisting, regardless of
+          // exact string; asserting NOT-201 + NOT-persisted is the load-bearing
+          // check.
           xpub: "not-a-real-extended-key",
         }),
       });
       expect(res.status).not.toBe(201);
-      const count = await Merchant.countDocuments({ oxyAppId: DEV_APP_ID });
+      const count = await countMerchants(DEV_APP_ID);
       expect(count).toBe(0);
     } finally {
       s.close();

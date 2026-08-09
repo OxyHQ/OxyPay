@@ -1,12 +1,17 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
-import type { FilterQuery } from "mongoose";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { isBaseUnitString, type CreatePaymentLinkParams } from "@oxypay/shared-types";
-import { Merchant } from "../models/Merchant";
-import { PaymentLink } from "../models/PaymentLink";
-import type { PaymentLinkDoc } from "../models/PaymentLink";
+import { getDb } from "../db/postgres";
+import { findMerchantById } from "../db/merchants/merchantRepository";
+import {
+  findLinkByPublicId,
+  findLinkForMerchant,
+  insertPaymentLink,
+  listLinksForMerchant,
+  updatePaymentLink,
+} from "../db/payments/paymentLinkRepository";
 import { createIntent, NetworkMismatchError } from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
@@ -88,18 +93,17 @@ export function createPaymentLinksRouter(deps: {
         return;
       }
 
-      // Explicit field whitelist — never spread `req.body`.
-      const link = await PaymentLink.create({
+      // Explicit field whitelist — never spread `req.body`. `active` takes its
+      // column default of true rather than being passed: a caller does not get
+      // to mint a link that is already disabled.
+      const link = await insertPaymentLink(getDb(), {
         publicId: newId("link"),
         merchantId: merchant.id,
         oxyAppId: merchant.oxyAppId,
         environment: merchant.environment,
         amount: params.amount,
         network: params.network,
-        active: true,
-        metadata: params.metadata
-          ? new Map(Object.entries(params.metadata))
-          : new Map<string, string>(),
+        metadata: params.metadata ?? {},
         successUrl: params.successUrl,
       });
 
@@ -129,12 +133,14 @@ export function createPaymentLinksRouter(deps: {
       const { starting_after } = parsed.data;
       const limit = parsed.data.limit ?? DEFAULT_LIST_LIMIT;
 
-      const filter: FilterQuery<PaymentLinkDoc> = { merchantId: merchant.id };
+      const db = getDb();
+
+      // The cursor arrives as a public `link_…`; the keyset walk runs on the
+      // primary key, so it is resolved here, ownership-scoped — a cursor
+      // naming another merchant's link is a 422 exactly like an unknown one.
+      let after: string | undefined;
       if (starting_after) {
-        const cursor = await PaymentLink.findOne({
-          publicId: starting_after,
-          merchantId: merchant.id,
-        });
+        const cursor = await findLinkForMerchant(db, starting_after, merchant.id);
         if (!cursor) {
           sendError(
             res,
@@ -144,14 +150,13 @@ export function createPaymentLinksRouter(deps: {
           );
           return;
         }
-        filter._id = { $lt: cursor._id };
+        after = cursor.id;
       }
 
-      const page = await PaymentLink.find(filter).sort({ _id: -1 }).limit(limit + 1);
-      const hasMore = page.length > limit;
-      const data = (hasMore ? page.slice(0, limit) : page).map((link) => toPaymentLinkDTO(link));
+      const page = await listLinksForMerchant(db, { merchantId: merchant.id, limit, after });
+      const data = page.data.map((link) => toPaymentLinkDTO(link));
 
-      res.status(200).json({ object: "list", data, has_more: hasMore });
+      res.status(200).json({ object: "list", data, has_more: page.hasMore });
     }),
   );
 
@@ -164,10 +169,17 @@ export function createPaymentLinksRouter(deps: {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;
 
-      const link = await PaymentLink.findOne({
-        publicId: req.params.id,
-        merchantId: merchant.id,
-      });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const link = await findLinkForMerchant(getDb(), id, merchant.id);
       if (!link) {
         sendError(res, 404, "invalid_request_error", "payment link not found");
         return;
@@ -185,15 +197,6 @@ export function createPaymentLinksRouter(deps: {
       const merchant = await resolveMerchant(req, res);
       if (!merchant) return;
 
-      const link = await PaymentLink.findOne({
-        publicId: req.params.id,
-        merchantId: merchant.id,
-      });
-      if (!link) {
-        sendError(res, 404, "invalid_request_error", "payment link not found");
-        return;
-      }
-
       const parsed = patchBodySchema.safeParse(req.body);
       if (!parsed.success) {
         sendError(
@@ -206,11 +209,25 @@ export function createPaymentLinksRouter(deps: {
       }
       const params = parsed.data;
 
-      if (params.active !== undefined) link.active = params.active;
-      if (params.metadata !== undefined) link.metadata = new Map(Object.entries(params.metadata));
-      if (params.successUrl !== undefined) link.successUrl = params.successUrl ?? undefined;
+      // The patch is scoped to the merchant in the SAME statement that applies
+      // it, so a link the caller does not own is never read and never written;
+      // `null` covers both "no such link" and "not yours", which is why both
+      // answer 404.
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
 
-      await link.save();
+      const link = await updatePaymentLink(getDb(), id, merchant.id, params);
+      if (!link) {
+        sendError(res, 404, "invalid_request_error", "payment link not found");
+        return;
+      }
       res.status(200).json(toPaymentLinkDTO(link));
     }),
   );
@@ -223,12 +240,23 @@ export function createPaymentLinksRouter(deps: {
     "/v1/payment_links/:id/public",
     publicRateLimit,
     wrap(async (req, res) => {
-      const link = await PaymentLink.findOne({ publicId: req.params.id });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const db = getDb();
+      const link = await findLinkByPublicId(db, id);
       if (!link) {
         sendError(res, 404, "invalid_request_error", "payment link not found");
         return;
       }
-      const merchant = await Merchant.findById(link.merchantId);
+      const merchant = await findMerchantById(db, link.merchantId);
       if (!merchant) {
         sendError(res, 404, "invalid_request_error", "payment link not found");
         return;
@@ -246,7 +274,18 @@ export function createPaymentLinksRouter(deps: {
     "/v1/payment_links/:id/payment_intent",
     publicRateLimit,
     wrap(async (req, res) => {
-      const link = await PaymentLink.findOne({ publicId: req.params.id });
+      // `noUncheckedIndexedAccess` types `req.params.id` as possibly
+      // `undefined` even though Express guarantees `:id` is present here. The
+      // repositories take a `string`, so the guard is explicit rather than a
+      // non-null assertion.
+      const { id } = req.params;
+      if (!id) {
+        sendError(res, 422, "invalid_request_error", "id is required");
+        return;
+      }
+
+      const db = getDb();
+      const link = await findLinkByPublicId(db, id);
       if (!link) {
         sendError(res, 404, "invalid_request_error", "payment link not found");
         return;
@@ -255,7 +294,7 @@ export function createPaymentLinksRouter(deps: {
         sendError(res, 422, "invalid_request_error", "payment link is no longer active");
         return;
       }
-      const merchant = await Merchant.findById(link.merchantId);
+      const merchant = await findMerchantById(db, link.merchantId);
       if (!merchant) {
         sendError(res, 404, "invalid_request_error", "payment link not found");
         return;
@@ -266,7 +305,7 @@ export function createPaymentLinksRouter(deps: {
           merchant,
           amount: link.amount,
           network: link.network,
-          metadata: Object.fromEntries(link.metadata),
+          metadata: link.metadata,
         });
         res
           .status(201)

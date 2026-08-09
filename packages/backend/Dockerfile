@@ -14,8 +14,9 @@
 #
 #   docker build -f packages/backend/Dockerfile -t oxypay-backend .
 #
-# Runtime configuration comes from the environment. ECS injects MONGODB_URI and
-# the Oxy service secrets (OXY_ACCESS_TOKEN_SECRET, IP_HASH_SALT,
+# Runtime configuration comes from the environment. ECS injects DATABASE_URL —
+# which the service cannot boot without — and the Oxy service secrets
+# (OXY_ACCESS_TOKEN_SECRET, IP_HASH_SALT,
 # DEVICE_ID_SALT) from SSM `/oxy/oxypay/*` (+ `/oxy/_shared/*`); non-secret
 # config (PORT, OXYPAY_NETWORK, EXPLORER_BASE_URL, OXY_PAY_ALLOWED_ORIGINS,
 # OXY_API_URL) is set as plain task-definition env.

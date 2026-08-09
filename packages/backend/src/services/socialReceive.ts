@@ -1,26 +1,26 @@
 import { getNetwork, hexToBytes, deriveSocialReceiveAddress } from "@fairco.in/core";
 import type { NetworkType } from "@fairco.in/core";
 import { oxyClient } from "@oxyhq/core";
-import { SocialReceiveCursor } from "../models/SocialReceiveCursor";
+import { getDb } from "../db/postgres";
+import {
+  readReservedThrough,
+  reserveNextSocialReceiveIndex,
+} from "../db/social/receiveCursor";
 
 /**
  * First index this reservation flow ever hands out. Index 0 is the
  * recipient's stable default/favourite address — computed on-device from the
  * identity key, never reserved through the backend (spec §4.3).
+ *
+ * Stated here as well as in `db/schema/social.ts`, which is where the CHECK
+ * constraints are derived from. The two are pinned equal by
+ * `db/__tests__/socialReceiveCursor.realdb.test.ts` — a service that disagreed
+ * with the constraint would be refused by the database rather than silently
+ * handing out index 0.
  */
 export const SOCIAL_RECEIVE_FIRST_FRESH_INDEX = 1;
 
 const SECP256K1_VERIFICATION_METHOD_TYPE = "EcdsaSecp256k1VerificationKey2019";
-const MONGO_DUPLICATE_KEY = 11000;
-
-function isDuplicateKeyError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    err.code === MONGO_DUPLICATE_KEY
-  );
-}
 
 /**
  * Resolve `oxyUserId`'s identity secp256k1 public key from their DID document
@@ -54,14 +54,12 @@ export async function resolveIdentityPublicKey(
  * §4.5) instead of a send.
  *
  * Lazily creates the per-user cursor on first use (no merchant-style
- * pre-registration exists for an ordinary user): the cursor is first
- * `create`d starting at {@link SOCIAL_RECEIVE_FIRST_FRESH_INDEX}, tolerating
- * the race where two concurrent first-payments both attempt the insert (the
- * unique index on `(oxyUserId, network)` lets exactly one win; the loser's
- * duplicate-key error is expected and ignored). Only AFTER the cursor is
- * guaranteed to exist does the atomic `$inc`/`new:false` claim run, so the
- * returned index is always the exact value THIS call reserved — the same
- * pre-increment-read contract `reserveNextAddress` relies on.
+ * pre-registration exists for an ordinary user). The create and the claim are
+ * ONE statement — `INSERT … ON CONFLICT DO UPDATE`, in
+ * `db/social/receiveCursor.ts` — so two concurrent first payments converge on
+ * the unique index rather than racing between a create and a separate
+ * increment. There is no "the cursor vanished" branch to get wrong any more,
+ * because there is no window in which it could vanish.
  */
 export async function reserveNextSocialAddress(
   oxyUserId: string,
@@ -72,32 +70,7 @@ export async function reserveNextSocialAddress(
     return null;
   }
 
-  try {
-    await SocialReceiveCursor.create({
-      oxyUserId,
-      network,
-      nextDerivationIndex: SOCIAL_RECEIVE_FIRST_FRESH_INDEX,
-    });
-  } catch (err) {
-    if (!isDuplicateKeyError(err)) {
-      throw err;
-    }
-    // Another concurrent first-payment already created the cursor — proceed
-    // to the atomic increment below, which now finds it.
-  }
-
-  const cursor = await SocialReceiveCursor.findOneAndUpdate(
-    { oxyUserId, network },
-    { $inc: { nextDerivationIndex: 1 } },
-    { new: false },
-  );
-  if (!cursor) {
-    throw new Error(
-      `social receive cursor vanished unexpectedly for user ${oxyUserId}`,
-    );
-  }
-
-  const index = cursor.nextDerivationIndex;
+  const index = await reserveNextSocialReceiveIndex(getDb(), oxyUserId, network);
   const address = deriveSocialReceiveAddress(identityPublicKey, index, getNetwork(network));
   return { index, address };
 }
@@ -108,19 +81,15 @@ export async function reserveNextSocialAddress(
  * reserving another one. Backs `GET /v1/social/me/cursor` (cursor-sync fix
  * for the silent-desync finding — see `SocialReceiveCursorResponse`).
  *
- * `SocialReceiveCursor.nextDerivationIndex` always holds the NEXT index this
- * user's cursor will hand out (post-increment value, per
- * `reserveNextSocialAddress`'s `$inc`/`new:false` claim above), so the
- * highest index already reserved is one less than that. `0` when no cursor
- * exists yet (the user has never had an address reserved on this network).
+ * `social_receive_cursors.next_derivation_index` always holds the NEXT index
+ * this user's cursor will hand out (post-increment value, per
+ * `reserveNextSocialAddress`'s claim above), so the highest index already
+ * reserved is one less than that. `0` when no cursor exists yet (the user has
+ * never had an address reserved on this network).
  */
 export async function getReservedThrough(
   oxyUserId: string,
   network: NetworkType,
 ): Promise<number> {
-  const cursor = await SocialReceiveCursor.findOne({ oxyUserId, network });
-  if (!cursor) {
-    return SOCIAL_RECEIVE_FIRST_FRESH_INDEX - 1;
-  }
-  return cursor.nextDerivationIndex - 1;
+  return readReservedThrough(getDb(), oxyUserId, network);
 }

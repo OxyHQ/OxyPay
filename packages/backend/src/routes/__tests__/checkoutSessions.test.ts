@@ -7,14 +7,19 @@ import {
 } from "bun:test";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { eq, sql } from "drizzle-orm";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
-import { Merchant } from "../../models/Merchant";
-import { CheckoutSession } from "../../models/CheckoutSession";
-import { PaymentIntent } from "../../models/PaymentIntent";
+import { merchants, paymentIntents } from "../../db/schema";
+import { findIntentByPublicId } from "../../db/payments/paymentIntentRepository";
+import {
+  gatewayDb,
+  seedIntent,
+  seedMerchant,
+  seedSession,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 import { createCheckoutSessionsRouter } from "../checkoutSessions";
 
 const XPUB =
@@ -58,7 +63,6 @@ interface CheckoutSessionPublicResponse {
   error?: { type: string; message: string };
 }
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
 let merchantId: string;
@@ -67,21 +71,36 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await Merchant.init();
-  await CheckoutSession.init();
-  await PaymentIntent.init();
+/**
+ * A bare `count(*)` of one merchant's intents. No repository function answers
+ * it — nothing in production needs the number — so the two "minted nothing"
+ * cases below read it straight off the table.
+ */
+async function countIntentsForMerchant(id: string): Promise<number> {
+  const rows = await gatewayDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(paymentIntents)
+    .where(eq(paymentIntents.merchantId, id));
+  return rows[0]?.n ?? 0;
+}
 
-  const merchant = await Merchant.create({
+useGatewayDatabase();
+
+beforeAll(async () => {
+  const merchant = await seedMerchant({
     publicId: "merch_test_cs_1",
     oxyAppId: APP_ID,
     environment: "development",
     network: "testnet",
     xpub: XPUB,
-    displayName: "Sessions Co",
   });
+  // `displayName` is not an `insertMerchant`/`seedMerchant` parameter — it has
+  // no registration route, only a column — and the public session DTO renders
+  // it. Set directly so the assertion that reads it back stays as it was.
+  await gatewayDb()
+    .update(merchants)
+    .set({ displayName: "Sessions Co" })
+    .where(eq(merchants.id, merchant.id));
   merchantId = merchant.id;
 
   const app = express();
@@ -101,8 +120,6 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 describe("POST /v1/checkout_sessions", () => {
@@ -128,13 +145,13 @@ describe("POST /v1/checkout_sessions", () => {
     expect(body.metadata).toEqual({ orderId: "o_cs_1" });
     expect(body.url).toBe(`https://checkout.oxy.so/c/${body.id}`);
 
-    const intent = await PaymentIntent.findOne({ id: body.paymentIntentId });
+    const intent = await findIntentByPublicId(gatewayDb(), body.paymentIntentId);
     expect(intent).not.toBeNull();
     expect(intent?.clientSecret).toBe(body.clientSecret);
   });
 
   test("a network that doesn't match the merchant's configured network -> 422, no intent minted", async () => {
-    const before = await PaymentIntent.countDocuments({ merchantId });
+    const before = await countIntentsForMerchant(merchantId);
     const res = await fetch(`${baseUrl}/v1/checkout_sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -143,7 +160,7 @@ describe("POST /v1/checkout_sessions", () => {
     expect(res.status).toBe(422);
     const body = await readJson<CheckoutSessionResponse>(res);
     expect(body.error?.type).toBe("invalid_request_error");
-    const after = await PaymentIntent.countDocuments({ merchantId });
+    const after = await countIntentsForMerchant(merchantId);
     expect(after).toBe(before);
   });
 
@@ -195,33 +212,26 @@ describe("GET /v1/checkout_sessions/:id (merchant retrieve)", () => {
   });
 
   test("a session belonging to a different merchant -> 404 (never leaks cross-tenant)", async () => {
-    const otherMerchant = await Merchant.create({
+    const otherMerchant = await seedMerchant({
       publicId: "merch_test_cs_other",
       oxyAppId: "app_cs_other",
       environment: "development",
       network: "testnet",
       xpub: XPUB,
     });
-    const otherIntent = await PaymentIntent.create({
-      id: "pi_0000000000000000000000c1",
-      status: "created",
+    const otherIntent = await seedIntent(otherMerchant, {
+      publicId: "pi_0000000000000000000000c1",
       amount: "10000000",
       network: "testnet",
       address: "TC8KNvRhFUJUepcCSjBBeLa5HYo4Na11w3",
-      merchantId: otherMerchant.id,
       clientSecret: "pi_0000000000000000000000c1_secret_z",
       idempotencyKey: "idem_cs_other",
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const otherSession = await CheckoutSession.create({
+    const otherSession = await seedSession(otherMerchant, otherIntent, {
       publicId: "cs_other_owner",
-      merchantId: otherMerchant.id,
-      oxyAppId: otherMerchant.oxyAppId,
-      environment: otherMerchant.environment,
-      paymentIntentId: otherIntent.id,
       amount: "10000000",
-      network: "testnet",
-      metadata: new Map(),
+      metadata: {},
     });
 
     const res = await fetch(`${baseUrl}/v1/checkout_sessions/${otherSession.publicId}`);

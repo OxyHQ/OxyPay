@@ -1,8 +1,11 @@
-import type { HydratedDocument } from "mongoose";
 import type { PaymentIntentStatus } from "@oxypay/shared-types";
-import { PaymentIntent } from "../models/PaymentIntent";
-import type { PaymentIntentDoc } from "../models/PaymentIntent";
-import { Merchant } from "../models/Merchant";
+import { getDb } from "../db/postgres";
+import {
+  findWatchableIntents,
+  updateIntentState,
+} from "../db/payments/paymentIntentRepository";
+import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
+import { findMerchantById } from "../db/merchants/merchantRepository";
 import { toBaseUnits } from "../lib/money";
 import { applyEvent } from "./intentState";
 import { verifyPayment } from "./explorer";
@@ -21,13 +24,16 @@ const POLL_INTERVAL_MS = 5_000;
  */
 const WATCHABLE_STATUSES: readonly PaymentIntentStatus[] = ["broadcast", "confirming"];
 
-/** A hydrated `PaymentIntent` Mongoose document (the persisted intent). */
-export type HydratedPaymentIntentDoc = HydratedDocument<PaymentIntentDoc>;
-
 export interface WatcherDeps {
   getTransaction: typeof import("./explorer").getTransaction;
-  /** Invoked once per actual status change; the transport (socket/webhook). */
-  onChange: (intent: HydratedPaymentIntentDoc) => void | Promise<void>;
+  /**
+   * Invoked once per actual status change, with the intent AS PERSISTED by
+   * that change — the row `updateIntentState` returned, never the pre-update
+   * one. The Mongo path mutated the document in place and saved it, so the
+   * handed-over object carried the new state implicitly; here the new state
+   * exists only in the returned row.
+   */
+  onChange: (intent: PaymentIntentRow) => void | Promise<void>;
 }
 
 /**
@@ -77,17 +83,14 @@ export class SettlementWatcher {
 
   /** Reconcile every in-flight intent against its on-chain transaction. */
   async check(): Promise<void> {
-    const intents = await PaymentIntent.find({
-      status: { $in: WATCHABLE_STATUSES },
-      txid: { $ne: null },
-    });
+    const intents = await findWatchableIntents(getDb(), WATCHABLE_STATUSES);
 
     for (const intent of intents) {
       await this.reconcile(intent);
     }
   }
 
-  private async reconcile(intent: HydratedPaymentIntentDoc): Promise<void> {
+  private async reconcile(intent: PaymentIntentRow): Promise<void> {
     const { txid } = intent;
     if (txid === null) return;
 
@@ -99,7 +102,8 @@ export class SettlementWatcher {
     // and re-check next tick. Only a returned tx can move the intent to failed.
     if (tx === null) return;
 
-    const merchant = await Merchant.findById(intent.merchantId);
+    const db = getDb();
+    const merchant = await findMerchantById(db, intent.merchantId);
     const requiredConfirmations = merchant?.requiredConfirmations ?? 1;
 
     const { paid, confirmations } = verifyPayment(
@@ -111,10 +115,17 @@ export class SettlementWatcher {
     const next = nextStatusFor(current, paid, confirmations, requiredConfirmations);
     if (next === current) return;
 
-    intent.status = next;
-    intent.confirmations = confirmations;
-    await intent.save();
-    await this.deps.onChange(intent);
+    // The status and the confirmation count move in ONE statement, and
+    // `onChange` receives what the database actually stored. A row that
+    // vanished between the poll and the update is not an error: there is
+    // simply nothing to announce.
+    const updated = await updateIntentState(db, intent.id, {
+      status: next,
+      confirmations,
+    });
+    if (!updated) return;
+
+    await this.deps.onChange(updated);
   }
 
   start(): void {

@@ -3,13 +3,16 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
 import type { RequestHandler } from "express";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { eq } from "drizzle-orm";
 import type { OxyAuthRequest } from "@oxyhq/core/server";
 import { oxyClient as realOxyClient, type User } from "@oxyhq/core";
 import type { DidDocument } from "@oxyhq/contracts";
-import { SocialReceiveCursor } from "../../models/SocialReceiveCursor";
-import { SocialSendAttribution } from "../../models/SocialSendAttribution";
+import { socialSendAttributions } from "../../db/schema";
+import {
+  gatewayDb,
+  resetGatewayTables,
+  useGatewayDatabase,
+} from "../../__tests__/helpers/gatewayTestDatabase";
 
 const IDENTITY_PUB_A_UNCOMPRESSED_HEX =
   "046a04ab98d9e4774ad806e302dddeb63bea16b5cb5f223ee77478e861bb583eb336b6fbcb60b5b3d4f1551ac45e5ffc4936466e7d98f6c7c0ec736539f74691a6";
@@ -91,13 +94,12 @@ const TEST_SENDER_ID = "user_test_sender";
 // /v1/social/me/cursor` (authenticated as the RECIPIENT, not the sender) and
 // for the per-(sender,recipient) rate-limit tests (a fresh sender id per
 // test keeps them independent of the shared in-memory limiter state, which
-// — unlike the Mongo collections — `beforeEach` below does not reset).
+// — unlike the database tables — `beforeEach` below does not reset).
 const stubRequireOxyUser: RequestHandler = (req, _res, next) => {
   (req as OxyAuthRequest).userId = req.header("X-Test-User-Id") ?? TEST_SENDER_ID;
   next();
 };
 
-let mongod: MongoMemoryServer;
 let server: Server;
 let baseUrl: string;
 
@@ -139,12 +141,9 @@ async function getCursor(
   return { status: res.status, body: (await res.json()) as CursorResponse };
 }
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  await SocialReceiveCursor.init();
-  await SocialSendAttribution.init();
+useGatewayDatabase();
 
+beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(createSocialRouter({ requireOxyUser: stubRequireOxyUser }));
@@ -158,13 +157,10 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
-  await mongoose.disconnect();
-  await mongod.stop();
 });
 
 beforeEach(async () => {
-  await SocialReceiveCursor.deleteMany({});
-  await SocialSendAttribution.deleteMany({});
+  await resetGatewayTables();
 });
 
 describe("POST /v1/social/:username/next_address", () => {
@@ -175,10 +171,18 @@ describe("POST /v1/social/:username/next_address", () => {
     expect(body.index).toBe(1);
     expect(body.address).toBe("TERWsvgi5BFcdDKgpM1PsHMqenLuGggZqQ");
 
-    const attribution = await SocialSendAttribution.findOne({ address: body.address });
+    // `findAttributionsForViewer` is the only repository read over this table
+    // and it scopes to a viewer, which this assertion deliberately does not —
+    // so the address lookup goes through drizzle directly, as the Mongo read it
+    // replaces did. The stored column is `derivation_index`, spelled `index` in
+    // the Mongo document.
+    const [attribution] = await gatewayDb()
+      .select()
+      .from(socialSendAttributions)
+      .where(eq(socialSendAttributions.address, body.address ?? ""));
     expect(attribution?.senderUserId).toBe(TEST_SENDER_ID);
     expect(attribution?.recipientUserId).toBe("user_alice");
-    expect(attribution?.index).toBe(1);
+    expect(attribution?.derivationIndex).toBe(1);
   });
 
   test("second call for the same recipient reserves the next index", async () => {

@@ -15,7 +15,7 @@ There are **five**, not three. Two of them are published to npm, so a change in
 
 | Path | Name | What it is |
 |---|---|---|
-| `packages/backend/` | `@oxypay/backend` | Express + Socket.IO gateway API. Mid-port from Mongoose to PostgreSQL — see below |
+| `packages/backend/` | `@oxypay/backend` | Express + Socket.IO gateway API. PostgreSQL-native — see below |
 | `packages/frontend/` | `@oxypay/frontend` | Expo / expo-router self-custodial FairCoin wallet, forked from FAIRWallet, with Oxy identity. Also packages as an Electron desktop app |
 | `packages/checkout/` | `@oxypay/checkout` | Vite + React + react-router-dom SPA. The **anonymous** payer-facing hosted checkout at checkout.oxy.so. Not Expo, not React Native |
 | `packages/sdk/` | **`@oxyhq/pay`** | Published client. Server entry mints Oxy service tokens from an `ApplicationCredential` and exposes `paymentIntents` / `paymentLinks` / `checkout.sessions` / `webhooks`; the `@oxyhq/pay/checkout` browser entry is the payer-side core |
@@ -50,20 +50,37 @@ Root `postinstall` builds `shared-types`, so a fresh `bun install` leaves its
 `dist/` present. Both published packages build cjs + esm + types separately;
 `shared-types` also runs `scripts/fix-esm-imports.mjs` after the esm pass.
 
-## PostgreSQL: the schema has landed, the routes have not
+## PostgreSQL is the only store
 
-The backend is mid-port from Mongoose to PostgreSQL. **Both are present, and
-that is not a dual-write** — Postgres carries the schema, the migrator, the test
-harness and the two derivation-index reservations; every ROUTE still reads and
-writes Mongo. Nothing in the request path touches Postgres yet, and
-`DATABASE_URL` is optional for exactly that reason: `db/postgres.ts` refuses to
-open a pool without it, with a named error, and nothing calls it at boot. The
-change that moves the first route makes it required in `config.ts` and calls
-`connectPostgres()` from `server.ts`.
+The port is COMPLETE. There is no Mongoose, no `mongodb-memory-server`, no
+`src/models/`, no `src/db.ts` and no `MONGODB_URI` — every route, service and
+test reads and writes Postgres through the repositories in `src/db/**`, and
+nothing reaches a driver directly.
+
+**`DATABASE_URL` is REQUIRED to boot.** `config.ts` refuses to load without it
+and `server.ts` calls `connectPostgres()` — which proves the connection with one
+round trip — before anything listens. A task definition missing it crash-loops
+with a message naming the variable, instead of serving requests that all 500.
+That is also why `deploy-aws.yml` no longer probes the live task definition for
+the secret before migrating: the state that probe skipped over is unreachable.
 
 Database `oxypay` on the shared `oxy-postgres` RDS instance, owned by role
 `oxypay`. **No extensions** — measured, and stated as an explicit empty list in
 `src/db/migrate.ts`.
+
+- **Every id is two ids, and confusing them is silent.** A public `pi_…` /
+  `merch_…` / `link_…` / `cs_…` lives in `public_id` and is what the wire
+  contracts call `id`; `id` itself is the internal primary key that other tables
+  reference. The Mongo documents stored the PUBLIC id in their foreign-key
+  positions, because `PaymentIntent`'s schema field was itself called `id`, so
+  the same expression means different things before and after the port. Both ids
+  are on shipped contracts (`CheckoutSession.paymentIntentId` and
+  `WebhookDelivery.intentId` carry the `pi_…`), which is why
+  `listDeliveriesForMerchant` joins the public id in rather than the DTO
+  emitting the internal one, and why `findIntentById` (by primary key) is a
+  DIFFERENT function from `findIntentByPublicId`. The socket room is keyed by
+  the PUBLIC id — keying `emitIntentUpdate` by the internal one would emit into
+  a room nobody is in and lose every realtime update silently.
 
 - **Schema decisions live in `packages/backend/src/db/schema/CONVENTIONS.md`**
   and that file is binding. Read it before touching a table; it records what
@@ -80,9 +97,17 @@ Database `oxypay` on the shared `oxy-postgres` RDS instance, owned by role
   in `src/`. Do not move them to a package-root `drizzle/` folder without
   changing the Dockerfile.
 - **Tests need a real server.** `docker compose -f docker-compose.postgres.yml
-  up -d`, then `TEST_DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/postgres`.
-  They skip without it, and `db/__tests__/schemaGates.realdb.test.ts` turns that
-  skip into a red build when `CI` is set.
+  up -d`, then `TEST_DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/postgres`
+  AND `DATABASE_URL=postgres://oxypay:oxypay@localhost:5439/oxypay`. The second
+  is needed because `config.ts` refuses to load without it — including in tests
+  that never touch the database — and is NOT what the suites connect to: each
+  test FILE gets its own throwaway, fully-migrated database via
+  `useGatewayDatabase()` (`src/__tests__/helpers/gatewayTestDatabase.ts`), which
+  also points `getDb()` at it so production code works unchanged. Seed state
+  with the `seedX()` helpers rather than raw inserts — they go through the real
+  repositories, so the non-custody firewall runs on every seeded merchant.
+  `db/__tests__/schemaGates.realdb.test.ts` turns a missing `TEST_DATABASE_URL`
+  into a red build when `CI` is set.
 
 ### The reservation is the highest-risk thing in this repo
 
