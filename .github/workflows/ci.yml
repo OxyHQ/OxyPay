@@ -71,6 +71,13 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Reads the tracked file listing, so it needs no build and costs seconds. It
+      # answers the one question a green build cannot: Mongo returns as a hoisted
+      # dependency or a workflow variable, and every other step here passes while it
+      # does. The port completed in #20/#36 and `oxypay` was dropped on 2026-08-09.
+      - name: Guard against MongoDB returning
+        run: bun run validate:no-mongo
+
       - name: Lockfile is in sync with the manifests
         # `--frozen-lockfile` above fails only when a range resolves to nothing;
         # it exits 0 on a dependency added without regenerating the lockfile. A
