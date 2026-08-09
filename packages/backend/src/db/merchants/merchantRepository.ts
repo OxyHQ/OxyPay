@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getNetwork, type NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
@@ -168,6 +168,46 @@ export async function findMerchantById(
 ): Promise<MerchantRow | null> {
   const [row] = await db.select(MERCHANT_COLUMNS).from(merchants).where(eq(merchants.id, id));
   return row ? toMerchantRow(row) : null;
+}
+
+/**
+ * Several merchants in ONE round trip — address enrichment's second lookup.
+ *
+ * `services/enrichment.ts` resolves up to `ENRICH_MAX_ADDRESSES` (50) addresses
+ * to their intents and then to the merchants behind them, and it batches on
+ * purpose: the loop that would call {@link findMerchantById} once per address is
+ * a 50-query N+1 on a path a wallet calls to render a transaction list.
+ *
+ * `inArray`, not a `sql` template holding the array — for the reason
+ * `findIntentsByAddresses` states: a bare `${array}` inside a `sql` template
+ * renders as a ROW CONSTRUCTOR, which Postgres rejects outright, and `tsc`
+ * cannot see it.
+ *
+ * The empty input short-circuits to save a round trip, and NOT to avoid an
+ * error — measured on drizzle-orm 0.45.2, against a real server:
+ * `inArray(col, [])` renders `where false` and returns no rows. It does not
+ * emit `in ()` and does not throw. The three sibling batch reads say otherwise
+ * in their own comments; they were written from the older drizzle behaviour and
+ * are corrected alongside this one. What the guard buys is one fewer query on a
+ * path called once per enrichment batch — worth keeping, worth describing
+ * honestly, and not something a mutation test can kill, because removing it
+ * changes no observable answer.
+ *
+ * Returns the merchants that exist, in no promised order, and says nothing about
+ * the ids that matched nothing. The caller indexes the result by id — every
+ * consumer of a batch read has to handle a missing member anyway, and returning
+ * a padded array of nulls would only move that check without removing it.
+ */
+export async function findMerchantsByIds(
+  db: DatabaseOrTransaction,
+  ids: readonly string[]
+): Promise<MerchantRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select(MERCHANT_COLUMNS)
+    .from(merchants)
+    .where(inArray(merchants.id, [...ids]));
+  return rows.map(toMerchantRow);
 }
 
 /**

@@ -194,6 +194,63 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
     expect(legacyShaped.data).toEqual([]);
   });
 
+  /**
+   * `WebhookDelivery.intentId` is a shipped wire field holding the public
+   * `pi_…`, and the row stores the intent's primary key — so the list read
+   * joins, rather than the route resolving one intent per row on a page whose
+   * size the client chooses.
+   *
+   * TWO intents, and a third owned by another merchant, on purpose. With every
+   * delivery pointing at one intent, a join on the wrong column — or one whose
+   * predicate was dropped into a cross join — yields the same public id for
+   * every row and passes. The page LENGTH is what catches the cross join: 3
+   * deliveries against 3 intents would come back as 9 rows.
+   */
+  it('yields each delivery\'s own intent public id', async () => {
+    const merchant = await makeMerchant();
+    const stranger = await makeMerchant();
+    const first = await makeIntent(merchant);
+    const second = await makeIntent(merchant);
+    const strangerIntent = await makeIntent(stranger);
+
+    const expectedPublicId = new Map<string, string>();
+    for (const intent of [first, second, first]) {
+      const row = await insertWebhookDelivery(suite!.db, {
+        merchantId: merchant.id,
+        paymentIntentId: intent.id,
+        eventId: `evt_${uuidv7()}`,
+        eventType: 'payment_intent.settled',
+        url: 'https://merchant.example/hook',
+        attempts: 1,
+        delivered: true,
+      });
+      expectedPublicId.set(row.id, intent.publicId);
+    }
+    const strangerDelivery = await insertWebhookDelivery(suite!.db, {
+      merchantId: stranger.id,
+      paymentIntentId: strangerIntent.id,
+      eventId: `evt_${uuidv7()}`,
+      eventType: 'payment_intent.settled',
+      url: 'https://stranger.example/hook',
+      attempts: 1,
+      delivered: true,
+    });
+
+    const page = await listDeliveriesForMerchant(suite!.db, {
+      merchantId: merchant.id,
+      limit: 10,
+    });
+
+    // The join is 1:1 by construction — `payment_intent_id` is NOT NULL and
+    // references a primary key — so it can neither drop a delivery nor
+    // duplicate one, and the page size is exactly what it was without it.
+    expect(page.data).toHaveLength(3);
+    expect(page.data.map((row) => row.id)).not.toContain(strangerDelivery.id);
+    for (const row of page.data) {
+      expect([row.id, row.intentPublicId]).toEqual([row.id, expectedPublicId.get(row.id)!]);
+    }
+  });
+
   it('attributes an address to one payment relationship, once', async () => {
     const address = `T${uuidv7()}`;
     const sender = uuidv7();

@@ -6,6 +6,7 @@ import {
   WatchOnlyViolationError,
   findMerchantByAppEnvironment,
   findMerchantById,
+  findMerchantsByIds,
   findWebhookTarget,
   insertMerchant,
   updateMerchantSettings,
@@ -203,6 +204,38 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('merchant repository', () => {
 
     const secretOnly = await insertMerchant(suite!.db, registration({ webhookSecret: 'shh' }));
     expect(await findWebhookTarget(suite!.db, secretOnly!.id)).toBeNull();
+  });
+
+  /**
+   * The batch read address enrichment uses. It resolves up to 50 addresses to
+   * their intents and then to the merchants behind them; one query per address
+   * would be an N+1 on a path a wallet calls to render a transaction list.
+   *
+   * The fixture that discriminates is `uninvolved` — a merchant nobody asked
+   * for. Without it, a read whose WHERE clause was dropped altogether returns a
+   * superset containing both requested merchants and passes every other
+   * assertion here.
+   */
+  it('reads several merchants in one query, and no others', async () => {
+    const one = (await insertMerchant(suite!.db, registration()))!;
+    const two = (await insertMerchant(suite!.db, registration()))!;
+    const uninvolved = (await insertMerchant(suite!.db, registration()))!;
+
+    const found = await findMerchantsByIds(suite!.db, [one.id, two.id, uuidv7()]);
+    expect(found.map((row) => row.id).sort()).toEqual([one.id, two.id].sort());
+    expect(found.map((row) => row.id)).not.toContain(uninvolved.id);
+    // The signing key must not ride along on a read that feeds a public
+    // enrichment DTO — `MERCHANT_COLUMNS` is the guard, and this is the assertion
+    // that would notice a batch read assembling its own column list.
+    expect(found.every((row) => !('webhookSecret' in row))).toBe(true);
+
+    // The empty input answers empty. This pins the BEHAVIOUR, not the guard
+    // that produces it: on drizzle-orm 0.45.2 `inArray(col, [])` renders
+    // `where false`, so removing the short-circuit changes nothing observable
+    // and this assertion holds either way. Verified by a mutation that removed
+    // it and left the suite green — reported here rather than dressed up as a
+    // check it is not.
+    expect(await findMerchantsByIds(suite!.db, [])).toEqual([]);
   });
 
   it('returns null for an unknown merchant rather than throwing', async () => {

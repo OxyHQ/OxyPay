@@ -178,6 +178,75 @@ export async function findIntentForMerchant(
   return row ? toIntentRow(row) : null;
 }
 
+/**
+ * Resolve an intent by its PRIMARY KEY — the reference another row holds.
+ *
+ * ## Why this exists, and why it is not `findIntentByPublicId`
+ *
+ * Mongo and Postgres disagree about what an intent REFERENCE is. The Mongo
+ * documents stored the public `pi_…` in their foreign-key positions, because
+ * `PaymentIntent`'s schema field was itself called `id`; here
+ * `checkout_sessions.payment_intent_id` and `webhook_deliveries.payment_intent_id`
+ * are real references to `payment_intents.id`, the internal uuid. Both ids are
+ * on shipped wire contracts (`CheckoutSession.paymentIntentId`,
+ * `WebhookDelivery.intentId` both carry the `pi_…`), so this cannot be settled
+ * by changing which id is stored — the two lookups are genuinely different
+ * questions and each needs its own function.
+ *
+ * UNSCOPED, deliberately: both callers have already proved their right to the
+ * row through the SESSION that points at it. The merchant path reads the
+ * session with `findSessionForMerchant` and the payer path proves possession of
+ * the wrapped intent's `client_secret`. Adding a merchant predicate here would
+ * be a second authority for a decision the session already made — and the
+ * ownership-scoped read that genuinely needs one is
+ * {@link findIntentByIdForMerchant}, which is a separate function for exactly
+ * that reason.
+ */
+export async function findIntentById(
+  db: DatabaseOrTransaction,
+  id: string
+): Promise<PaymentIntentRow | null> {
+  const [row] = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(eq(paymentIntents.id, id));
+  return row ? toIntentRow(row) : null;
+}
+
+/**
+ * By PRIMARY KEY, scoped to the owner — the webhook redelivery path's lookup.
+ *
+ * Redelivery starts from a `webhook_deliveries` row and must load the intent it
+ * names, under merchant authentication. The delivery was ownership-checked, but
+ * the intent it points at is loaded by an id that came out of a row rather than
+ * out of the request — so the scope is re-stated here, in the WHERE clause,
+ * rather than compared after the read. A foreign id and an unknown id are
+ * therefore indistinguishable to the caller: both are `null`, both 404, and
+ * neither confirms that the row exists.
+ *
+ * Separate from {@link findIntentById} rather than an optional `merchantId`,
+ * for the reason {@link findIntentForMerchant} is separate from
+ * {@link findIntentByPublicId}: the difference is who may see the row, and an
+ * optional parameter invites the call that omits it.
+ *
+ * Note the sibling it is easiest to confuse this with. {@link findIntentForMerchant}
+ * takes the PUBLIC `pi_…` and this one takes the internal uuid; the signatures
+ * are identical, so the compiler cannot tell them apart. What it costs to mix
+ * them up is bounded — the two id spaces are disjoint, so a swapped call matches
+ * no row and 404s. It never returns a different intent.
+ */
+export async function findIntentByIdForMerchant(
+  db: DatabaseOrTransaction,
+  id: string,
+  merchantId: string
+): Promise<PaymentIntentRow | null> {
+  const [row] = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(and(eq(paymentIntents.id, id), eq(paymentIntents.merchantId, merchantId)));
+  return row ? toIntentRow(row) : null;
+}
+
 export interface ListIntentsParams {
   readonly merchantId: string;
   readonly status?: PaymentIntentStatus | undefined;
@@ -239,9 +308,12 @@ export async function listIntentsForMerchant(
  *
  * `inArray`, not a `sql` template holding the array. A bare `${array}` inside a
  * `sql` template renders as a ROW CONSTRUCTOR, which Postgres rejects outright —
- * a runtime error `tsc` cannot see. An empty input short-circuits, because
- * `inArray` with no values builds `in ()`, which is a syntax error rather than
- * the empty result the caller means.
+ * a runtime error `tsc` cannot see.
+ *
+ * The empty input short-circuits to save a round trip. It was written here as
+ * avoiding a syntax error, and that is NOT true on the drizzle this repository
+ * pins: measured on drizzle-orm 0.45.2 against a real server, `inArray(col, [])`
+ * renders `where false` and returns no rows.
  */
 export async function findIntentsByAddresses(
   db: DatabaseOrTransaction,
