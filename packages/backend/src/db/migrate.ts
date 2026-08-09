@@ -38,7 +38,13 @@ import {
  */
 const REQUIRED_EXTENSIONS: readonly RequiredExtension[] = [];
 
-const MIGRATIONS_FOLDER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+/**
+ * Where the generated SQL lives. Exported so the deploy-workflow gate can check
+ * the path the workflow greps against the path this entrypoint actually reads —
+ * two copies of a directory name, one of which is in YAML where nothing checks
+ * it.
+ */
+export const MIGRATIONS_FOLDER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
 function readRun(argv: readonly string[]): MigrationRun {
   const flag = argv.find((argument) => argument.startsWith('--phase='));
