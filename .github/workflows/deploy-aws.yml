@@ -271,6 +271,33 @@ jobs:
       # Skipped entirely on the cutover path: the `all` run above already applied
       # these, so a `post` here would find nothing — and running it would only
       # add a way for a green cutover to end on a red step.
+      #
+      # ── READ THIS BEFORE UNIFYING THIS WORKFLOW WITH THE SHARED SCRIPT ──
+      #
+      # The condition below gates on the SERVICE'S STATUS and `has_post`. It
+      # deliberately does NOT gate on the rollout having actually moved, and that
+      # distinction is load-bearing rather than incidental.
+      #
+      # Six sibling repos — Alia, Allo, CrowdSource, Homiio, Mention and Syra —
+      # share `deploy-ecs-image.sh`, which returned early at `desiredCount=0` and
+      # exited 0 ABOVE its post-migration step. OxyPay has never carried it. Here,
+      # at zero capacity the polling loop above reads `rolloutState=COMPLETED
+      # running=0 desired=0`, matches `RUNNING == DESIRED`, exits 0 — and `post`
+      # still runs. So the phase is never stranded.
+      #
+      # Why stranding is not merely a delay: `@oxyhq/db`'s migration ledger is a
+      # HIGH-WATER MARK. An unapplied `post` is not deferred, it DEADLOCKS — every
+      # later `pre` is refused, so every subsequent deploy fails at its migration
+      # step. Measured in Alia as four consecutive merges deploying red while
+      # every PR was green.
+      #
+      # The same fact has a second edge, and both must survive together. That
+      # polling loop treats a zero-task steady state as a HEALTHY rollout, which
+      # also means a deploy at zero capacity reports success without releasing
+      # anything to users. That is a real wart. But it is the same line that keeps
+      # `post` reachable, so "fixing" the loop to reject zero-task steady states
+      # would reintroduce the deadlock above. If you change either, change both,
+      # and say what replaces this property.
       - name: Migrate (post) — after the new image is live
         if: >-
           steps.ecs.outputs.status == 'ACTIVE'
