@@ -5,8 +5,8 @@
  *
  * ## What it guards, and why a guard rather than a memory
  *
- * Mongoose was removed wholesale after the Postgres cutover (PR #136): the models,
- * every Mongoose model, the driver dependencies, the connection config. What
+ * Mongoose was removed wholesale after the Postgres cutover (PR #20, task #36):
+ * the models, the driver dependencies, the connection config. What
  * makes that removal fragile is not the code — it is that Mongo comes back in
  * SMALL pieces, each individually reasonable and none of them alarming in a
  * diff. A `mongodb` dependency arrives as a transitive of something else and
@@ -126,10 +126,9 @@ const MONGO_PROSE = /\bmongo(?:db|ose)?\b/i;
  * matched text contains `pattern`.
  *
  * The list must only SHRINK: an entry that stops matching anything FAILS the
- * run, so a workaround cannot outlive the thing it worked around. Same
- * discipline as `ACCEPTED_OVERRIDE_RANGE_VIOLATIONS` in `validate-lockfile.mjs`,
- * for the same reason — a stale exception is indistinguishable from a real one
- * until somebody audits the list, and nobody audits the list.
+ * run, so a workaround cannot outlive the thing it worked around. A stale
+ * exception is otherwise indistinguishable from a real one until somebody audits
+ * the list, and nobody audits the list.
  */
 const KNOWN_EXCEPTIONS = [
   {

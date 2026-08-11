@@ -4,6 +4,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "description": "Oxy Pay monorepo — backend, mobile/web app, and shared types.",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "workspaces": [
     "packages/*"
   ],
@@ -18,6 +19,8 @@
     "test": "bun run --filter '*' test",
     "lint": "bun run --filter '*' lint",
     "validate:no-mongo": "bun ./scripts/validate-no-mongo.mjs && bun ./scripts/test-validate-no-mongo.mjs",
+    "validate:lockfile": "bun ./scripts/check-lockfile-sync.mjs",
+    "test:validate-lockfile": "bun ./scripts/test-check-lockfile-sync.mjs",
     "clean": "bun run --filter '*' clean && rm -rf node_modules",
     "install:all": "bun install",
     "start:frontend": "bun run --filter @oxypay/frontend start",
