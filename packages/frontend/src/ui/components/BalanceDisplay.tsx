@@ -45,12 +45,6 @@ const SIZE_PRIMARY: Record<BalanceSize, number> = {
   lg: 64,
 };
 
-const SIZE_SYMBOL: Record<BalanceSize, number> = {
-  sm: 18,
-  md: 24,
-  lg: 42,
-};
-
 const SIZE_SECONDARY: Record<BalanceSize, number> = {
   sm: 12,
   md: 14,
@@ -86,7 +80,6 @@ export function BalanceDisplay({
   }, [change24h]);
 
   const primary = SIZE_PRIMARY[size];
-  const symbol = SIZE_SYMBOL[size];
   const secondary = SIZE_SECONDARY[size];
 
   // Fiat-primary mode

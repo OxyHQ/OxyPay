@@ -33,9 +33,7 @@ const SYNC_NOTIFICATION_ID = "fairwallet-sync-progress";
  * - `sync`: ongoing sync-progress, LOW importance so it sits silently in the
  *   tray (no heads-up, no sound) while the wallet is syncing.
  */
-const ANDROID_CHANNELS: ReadonlyArray<
-  readonly [string, Notifications.NotificationChannelInput]
-> = [
+const ANDROID_CHANNELS: readonly (readonly [string, Notifications.NotificationChannelInput])[] = [
   [
     TRANSACTIONS_CHANNEL_ID,
     {

@@ -22,7 +22,7 @@ interface PinPadProps {
   disabledColor?: string;
 }
 
-const ROWS: ReadonlyArray<ReadonlyArray<string>> = [
+const ROWS: readonly (readonly string[])[] = [
   ["1", "2", "3"],
   ["4", "5", "6"],
   ["7", "8", "9"],

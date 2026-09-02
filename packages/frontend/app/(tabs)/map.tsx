@@ -136,7 +136,7 @@ const MARKER_HITBOX = { width: 50, height: 50 } as const;
 // fills the screen all the way up behind the notch, sliding under the
 // floating search pill. Magnetic snapping pulls a flick past mid
 // straight to the top.
-const SHEET_SNAP_POINTS: Array<string | number> = ["15%", "62%", "100%"];
+const SHEET_SNAP_POINTS: (string | number)[] = ["15%", "62%", "100%"];
 const SHEET_INDEX_MID = 1;
 const SHEET_INDEX_TOP = 2;
 
@@ -179,7 +179,7 @@ const CATEGORY_COLOR: Record<PlaceCategory, string> = {
 const CATEGORY_COLOR_EXPRESSION = [
   "match",
   ["get", "category"],
-  ...(Object.entries(CATEGORY_COLOR) as Array<[PlaceCategory, string]>).flatMap(
+  ...(Object.entries(CATEGORY_COLOR) as [PlaceCategory, string][]).flatMap(
     ([cat, color]) => [cat, color],
   ),
   CATEGORY_COLOR.other,

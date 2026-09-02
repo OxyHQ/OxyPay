@@ -35,7 +35,7 @@ export interface SelectInputsParams {
    * these outpoints (and nothing else). When empty/undefined, automatic
    * largest-first selection runs instead.
    */
-  readonly coinControl?: ReadonlyArray<{ txid: string; vout: number }>;
+  readonly coinControl?: readonly { txid: string; vout: number }[];
   /**
    * Dust threshold (network `minRelayFee`). When provided, the returned
    * fee/change are computed with the EXACT rule `buildTransaction` uses (drop

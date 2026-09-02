@@ -26,15 +26,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { KeyboardProvider as NativeKeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-
-// react-native-keyboard-controller ships no web build — its KeyboardControllerView
-// is a native-only component that breaks the flex height chain on web and leaves
-// all scrollables with 0 bounded height. Web has no virtual keyboard anyway, so
-// we pass children straight through.
-const KeyboardProvider =
-  Platform.OS === "web"
-    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
-    : NativeKeyboardProvider;
 import { OxyProvider } from "@oxyhq/services";
 import { BloomThemeProvider, useBloomTheme } from "@oxyhq/bloom/theme";
 import type { ThemeMode } from "@oxyhq/bloom/theme";
@@ -57,6 +48,15 @@ import { startSyncNotifier } from "../src/services/sync-notifier";
 import { startPushRegistration } from "../src/services/push-registration";
 import { handleIncomingPush } from "../src/services/push-handler";
 import { registerBackgroundSync } from "../src/services/background-sync";
+
+// react-native-keyboard-controller ships no web build — its KeyboardControllerView
+// is a native-only component that breaks the flex height chain on web and leaves
+// all scrollables with 0 bounded height. Web has no virtual keyboard anyway, so
+// we pass children straight through.
+const KeyboardProvider =
+  Platform.OS === "web"
+    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
+    : NativeKeyboardProvider;
 
 // Module-level initialization. Resolves the persisted or device language,
 // then syncs the reactive store so React components see the correct value.
@@ -267,19 +267,22 @@ export default function RootLayout() {
   const [languageReady, setLanguageReady] = useState(false);
   const language = useLanguageStore((s) => s.language);
 
-  const hydrated = useRef(false);
-  if (!hydrated.current) {
-    hydrated.current = true;
+  useEffect(() => {
+    let cancelled = false;
     getItemAsync(THEME_MODE_KEY).then((stored) => {
+      if (cancelled) return;
       if (stored === "light" || stored === "dark" || stored === "system") {
         setMode(stored);
       }
       setThemeReady(true);
     });
     languageInitPromise.then(() => {
-      setLanguageReady(true);
+      if (!cancelled) setLanguageReady(true);
     });
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleModeChange = useCallback((next: ThemeMode) => {
     setMode(next);
@@ -329,11 +332,9 @@ function AppContent({ ready }: { ready: boolean }) {
   useExplorerRealtime();
 
   // Hide splash screen once fonts and theme are loaded
-  const splashHidden = useRef(false);
-  if (ready && !splashHidden.current) {
-    splashHidden.current = true;
-    SplashScreen.hideAsync();
-  }
+  useEffect(() => {
+    if (ready) void SplashScreen.hideAsync();
+  }, [ready]);
 
   return (
     <View style={{ flex: 1 }}>

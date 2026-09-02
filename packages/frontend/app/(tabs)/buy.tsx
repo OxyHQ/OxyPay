@@ -122,6 +122,8 @@ export default function BuyScreen() {
   // Re-derive the payment method list whenever language changes so labels
   // and descriptions stay localised at runtime (N-8).
   const language = useLanguageStore((s) => s.language);
+  // The translation function reads the store-backed locale outside React.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const paymentOptions = useMemo(() => buildPaymentOptions(), [language]);
 
   const amountSats = useMemo(() => parseFairToUnits(amount), [amount]);

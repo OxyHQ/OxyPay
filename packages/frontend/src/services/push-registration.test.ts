@@ -33,7 +33,7 @@ interface Harness {
   wallet: RegistrationWallet | null;
   deviceToken: { token: string; platform: "android" | "ios" } | null;
   registerCalls: RegisterInput[];
-  unregisterCalls: Array<{ serverUrl: string; subscriptionId: string }>;
+  unregisterCalls: { serverUrl: string; subscriptionId: string }[];
   subscriptions: Map<string, StoredSubscription>;
   notifyPrefs: () => void;
   notifyWallet: () => void;
@@ -55,7 +55,7 @@ function makeHarness(overrides?: Partial<NotificationPrefs>): Harness {
       platform: "android" | "ios";
     } | null,
     registerCalls: [] as RegisterInput[],
-    unregisterCalls: [] as Array<{ serverUrl: string; subscriptionId: string }>,
+    unregisterCalls: [] as { serverUrl: string; subscriptionId: string }[],
     subscriptions: new Map<string, StoredSubscription>(),
     prefsListeners: new Set<() => void>(),
     walletListeners: new Set<() => void>(),

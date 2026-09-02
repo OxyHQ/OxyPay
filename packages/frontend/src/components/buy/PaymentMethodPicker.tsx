@@ -27,7 +27,7 @@ export interface PaymentMethodOption {
 }
 
 interface PaymentMethodPickerProps {
-  options: ReadonlyArray<PaymentMethodOption>;
+  options: readonly PaymentMethodOption[];
   value: PaymentCurrency;
   onChange: (next: PaymentCurrency) => void;
 }

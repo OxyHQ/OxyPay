@@ -79,6 +79,7 @@ export function MovePocketSheet({
   // changes, not just when `estimateSend` itself is re-bound.
   const maxSendable = useMemo(
     () => estimateSend(0n, FEE_RATES.medium).maxSendable,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [estimateSend, confirmedBalance],
   );
 

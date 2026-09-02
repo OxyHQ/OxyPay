@@ -37,7 +37,7 @@ interface BuyAmountInputProps {
   value: string;
   onValueChange: (next: string) => void;
   /** Optional preset chips ("10", "50", "100"). */
-  presets?: ReadonlyArray<string>;
+  presets?: readonly string[];
 }
 
 export function BuyAmountInput({

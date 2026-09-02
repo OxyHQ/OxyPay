@@ -48,7 +48,7 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const lockoutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isLockedOut = lockedUntil !== null && Date.now() < lockedUntil;
+  const isLockedOut = lockedUntil !== null && lockoutRemaining > 0;
 
   const handleUnlocked = useCallback(() => {
     // N-3: a successful unlock clears the persisted attempts counter so the
@@ -110,8 +110,8 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
       if (result.success) {
         handleUnlocked();
       }
-    } catch (_biometricError: unknown) {
-      // Biometric auth failed or unavailable — fall through to PIN entry
+    } catch (error: unknown) {
+      console.debug("Biometric unlock was unavailable", error);
     }
   }, [handleUnlocked]);
 
@@ -172,8 +172,8 @@ export function LockScreenContent({ onUnlock }: LockScreenContentProps) {
           if (result.success && !cancelled) {
             handleUnlocked();
           }
-        } catch (_e: unknown) {
-          // Biometric failed — user falls through to PIN
+        } catch (error: unknown) {
+          console.debug("Biometric unlock did not complete", error);
         }
       }
     };

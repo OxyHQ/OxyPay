@@ -1660,8 +1660,8 @@ export async function initLanguage(): Promise<Language> {
       currentLanguage = stored;
       return currentLanguage;
     }
-  } catch (_error: unknown) {
-    // Storage read failed (e.g. private browsing) — fall through to locale.
+  } catch (error: unknown) {
+    console.warn("Could not read the saved language; using the device locale", error);
   }
 
   const deviceLang = locales[0]?.languageCode ?? "en";
@@ -1705,9 +1705,8 @@ export async function setLanguage(lang: Language): Promise<void> {
   currentLanguage = next;
   try {
     await setItemAsync(STORAGE_KEY, next);
-  } catch (_error: unknown) {
-    // Persisting failed — keep the in-memory value so the current session
-    // still honours the user's choice.
+  } catch (error: unknown) {
+    console.warn("Could not persist the selected language", error);
   }
 }
 

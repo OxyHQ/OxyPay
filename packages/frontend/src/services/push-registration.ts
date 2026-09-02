@@ -119,7 +119,7 @@ export function createPushRegistration(
   let current: Promise<void> | null = null;
   let rerun = false;
   let started = false;
-  const unsubscribers: Array<() => void> = [];
+  const unsubscribers: (() => void)[] = [];
 
   async function reconcileOnce(): Promise<void> {
     const prefs = await deps.getPrefs();
