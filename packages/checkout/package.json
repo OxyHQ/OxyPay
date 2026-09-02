@@ -12,7 +12,7 @@
     "test": "bun test src"
   },
   "dependencies": {
-    "@fairco.in/core": "^0.3.0",
+    "@fairco.in/core": "0.5.0",
     "@oxyhq/pay": "*",
     "@oxypay/shared-types": "*",
     "qr-creator": "^1.0.0",

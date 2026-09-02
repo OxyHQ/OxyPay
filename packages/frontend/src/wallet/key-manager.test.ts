@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { getNetwork } from "@fairco.in/core";
+import { deriveAddress, getNetwork } from "@fairco.in/core";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync } from "@scure/bip39";
 import { KeyManager } from "./key-manager";
@@ -261,8 +261,6 @@ describe("KeyManager.wipe (M1 zeroization)", () => {
 // BIP44 account index (Pockets). Each account is an isolated subtree; account 0
 // must remain byte-for-byte identical to the pre-Pockets single-account wallet.
 // ---------------------------------------------------------------------------
-
-import { deriveAddress } from "@fairco.in/core";
 
 describe("KeyManager account index (Pockets)", () => {
   test("defaults to account 0 and reports it via getAccount()", () => {

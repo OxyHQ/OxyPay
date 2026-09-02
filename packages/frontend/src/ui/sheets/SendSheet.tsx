@@ -206,6 +206,7 @@ export function SendSheet({
   // dependency list so the estimate updates when coin control changes.
   const sendEstimate = useMemo(
     () => estimateSend(amountSats ?? 0n, feeRate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [estimateSend, amountSats, feeRate, selectedUTXOs],
   );
 

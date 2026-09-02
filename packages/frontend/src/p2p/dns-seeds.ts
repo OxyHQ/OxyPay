@@ -35,7 +35,7 @@ interface DoHResponse {
 // peer without it. Verified reachable on 187.33.154.215:46372
 // (/faircoin Core:3.0.5/, NODE_BLOOM). The fcnode1..3 hosts are included so the
 // wallet picks them up automatically once their P2P port is opened.
-const FALLBACK_PEERS: ReadonlyArray<string> = [
+const FALLBACK_PEERS: readonly string[] = [
   "187.33.154.215", // fcexplorer — verified live, serves filtered blocks
   "80.240.127.240", // fcnode1
   "187.33.155.242", // fcnode2
@@ -46,7 +46,7 @@ const FALLBACK_PEERS: ReadonlyArray<string> = [
 // DNS-over-HTTPS resolvers
 // ---------------------------------------------------------------------------
 
-const DOH_ENDPOINTS: ReadonlyArray<string> = [
+const DOH_ENDPOINTS: readonly string[] = [
   "https://cloudflare-dns.com/dns-query",
   "https://dns.google/resolve",
 ];

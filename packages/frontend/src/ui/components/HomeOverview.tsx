@@ -11,7 +11,7 @@
  * or "unavailable" state, never crashing.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { View, Text } from "react-native";
 import { AmountText } from "./AmountText";
 import { PriceSparkline } from "./PriceSparkline";
@@ -38,6 +38,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
 }
 
 export function HomeOverview(): React.JSX.Element {
+  const [mountedAt] = useState(() => Date.now());
   const network = useWalletStore((s) => s.network);
   const transactions = useWalletStore((s) => s.transactions);
 
@@ -69,7 +70,7 @@ export function HomeOverview(): React.JSX.Element {
   }, [history]);
 
   const rewards = useMemo(() => {
-    const cutoff = Math.floor(Date.now() / 1000) - THIRTY_DAYS_SECONDS;
+    const cutoff = Math.floor(mountedAt / 1000) - THIRTY_DAYS_SECONDS;
     let total = 0n;
     let last30 = 0n;
     let count = 0;
@@ -81,7 +82,7 @@ export function HomeOverview(): React.JSX.Element {
       if (tx.timestamp >= cutoff) last30 += abs;
     }
     return { total, last30, count };
-  }, [transactions]);
+  }, [mountedAt, transactions]);
 
   return (
     <View className="pt-3 pb-2">

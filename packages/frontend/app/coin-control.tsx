@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "../src/ui/safe-area-view";
 import { useRouter } from "expo-router";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -17,7 +17,6 @@ import {
   EmptyState,
   ScreenHeader,
 } from "../src/ui/components";
-import { ScrollView } from "react-native";
 import { useTheme } from "@oxyhq/bloom/theme";
 import { t } from "../src/i18n";
 
@@ -133,7 +132,7 @@ export default function CoinControlScreen() {
   }, [utxos, selected]);
 
   const handleApply = useCallback(() => {
-    const selectedUtxos: Array<{ txid: string; vout: number }> = [];
+    const selectedUtxos: { txid: string; vout: number }[] = [];
     for (const utxo of utxos) {
       const key = `${utxo.txid}:${utxo.vout}`;
       if (selected.has(key)) {

@@ -207,7 +207,7 @@ export interface WalletState {
   masternodeUTXOs: MasternodeUTXO[];
 
   // Coin control
-  selectedUTXOs: Array<{ txid: string; vout: number }>;
+  selectedUTXOs: { txid: string; vout: number }[];
 
   // Actions
   /**
@@ -305,7 +305,7 @@ export interface WalletState {
   importBackup: (json: string) => Promise<void>;
 
   // Coin control
-  setSelectedUTXOs: (utxos: Array<{ txid: string; vout: number }>) => void;
+  setSelectedUTXOs: (utxos: { txid: string; vout: number }[]) => void;
   clearSelectedUTXOs: () => void;
 }
 
@@ -1190,7 +1190,7 @@ const DEFAULT_WALLET_STATE = {
   activeAccount: 0,
   pockets: [] as PocketInfo[],
   pocketBalances: {} as Record<number, bigint>,
-  selectedUTXOs: [] as Array<{ txid: string; vout: number }>,
+  selectedUTXOs: [] as { txid: string; vout: number }[],
 } as const;
 
 /**
@@ -2801,7 +2801,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       const addresses = await database.getAddresses();
 
       // Collect address labels and tx notes
-      const addressLabels: Array<{ address: string; label: string }> = [];
+      const addressLabels: { address: string; label: string }[] = [];
       for (const addr of addresses) {
         const label = await database.getAddressLabel(addr.address);
         if (label) {
@@ -2836,12 +2836,12 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     try {
       const backup = JSON.parse(json) as {
         version?: number;
-        contacts?: Array<{
+        contacts?: {
           name: string;
           address: string;
           notes: string;
-        }>;
-        addressLabels?: Array<{ address: string; label: string }>;
+        }[];
+        addressLabels?: { address: string; label: string }[];
       };
 
       if (typeof backup.version !== "number") {
@@ -2878,7 +2878,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   // Coin control
   // -------------------------------------------------------------------
 
-  setSelectedUTXOs: (utxos: Array<{ txid: string; vout: number }>): void => {
+  setSelectedUTXOs: (utxos: { txid: string; vout: number }[]): void => {
     set({ selectedUTXOs: utxos });
   },
 

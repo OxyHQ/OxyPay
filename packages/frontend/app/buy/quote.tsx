@@ -43,7 +43,7 @@ import { t } from "../../src/i18n";
 
 const CONTENT_MAX_WIDTH = 600;
 const POLL_INTERVAL_MS = 5000;
-const TERMINAL_STATUSES: ReadonlyArray<BuyOrderStatus> = [
+const TERMINAL_STATUSES: readonly BuyOrderStatus[] = [
   "DELIVERED",
   "FAILED",
   "EXPIRED",
@@ -115,7 +115,7 @@ export default function BuyQuoteScreen() {
   const [status, setStatus] = useState<BuyStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState<number>(Date.now());
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const cancelControl = useDialogControl();
 

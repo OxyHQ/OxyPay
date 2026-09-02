@@ -34,7 +34,6 @@ import {
   useWindowDimensions,
   type StyleProp,
   type ViewStyle,
-  type TextStyle,
 } from "react-native";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { t } from "../../src/i18n";

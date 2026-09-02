@@ -209,7 +209,7 @@ function RecoveryModal({ control, mnemonic, onDismiss }: RecoveryModalProps) {
 function AppearancePicker() {
   const { theme, mode, setMode } = useBloomTheme();
 
-  const modes: Array<{ value: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"] }> = [
+  const modes: { value: ThemeMode; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"] }[] = [
     { value: "light", label: t("settings.appearance.light"), icon: "white-balance-sunny" },
     { value: "dark", label: t("settings.appearance.dark"), icon: "moon-waning-crescent" },
     { value: "system", label: t("settings.appearance.system"), icon: "cellphone" },
@@ -328,8 +328,8 @@ export default function SettingsScreen() {
           setBiometricsEnabled(enabled && hardwareAvailable && enrolled);
           setAutoLockMinutes(lockTimeout);
           setDisplayCurrency(currency);
-        } catch (_settingsError: unknown) {
-          // Settings load failed — defaults from useState initializers are safe.
+        } catch (error: unknown) {
+          console.warn("Could not load persisted wallet settings; using defaults", error);
         }
       };
       loadSettings();
