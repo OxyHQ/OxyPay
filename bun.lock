@@ -16,7 +16,7 @@
       "name": "@oxypay/backend",
       "version": "0.1.0",
       "dependencies": {
-        "@fairco.in/core": "^0.3.0",
+        "@fairco.in/core": "0.4.0",
         "@oxyhq/core": "^12.8.0",
         "@oxypay/shared-types": "*",
         "@scure/bip32": "^1.7.0",
@@ -40,7 +40,7 @@
       "name": "@oxypay/checkout",
       "version": "0.1.0",
       "dependencies": {
-        "@fairco.in/core": "^0.3.0",
+        "@fairco.in/core": "0.4.0",
         "@oxyhq/pay": "*",
         "@oxypay/shared-types": "*",
         "qr-creator": "^1.0.0",
@@ -64,7 +64,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@expo/vector-icons": "^15.1.1",
-        "@fairco.in/core": "0.3.0",
+        "@fairco.in/core": "0.4.0",
         "@gorhom/bottom-sheet": "^5.2.9",
         "@maplibre/maplibre-react-native": "^10.4.2",
         "@noble/hashes": "1.8.0",
@@ -153,9 +153,9 @@
     },
     "packages/sdk": {
       "name": "@oxyhq/pay",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
-        "@oxypay/shared-types": "*",
+        "@oxypay/shared-types": "workspace:^",
         "qrcode-generator": "^2.0.4",
         "socket.io-client": "^4.8.3",
       },
@@ -414,7 +414,7 @@
 
     "@expo/xcpretty": ["@expo/xcpretty@4.4.4", "", { "dependencies": { "@babel/code-frame": "^7.20.0", "chalk": "^4.1.0", "js-yaml": "^4.1.0" }, "bin": { "excpretty": "build/cli.js" } }, "sha512-4aQzz9vgxcNXFfo/iyNgDDYfsU5XGKKxWxZopw0cVotHiW+U8IJbIxMaxsINs6bHhtkG3StKNPcOrn3eBuxKPw=="],
 
-    "@fairco.in/core": ["@fairco.in/core@0.3.0", "", { "dependencies": { "@noble/hashes": "^1.8.0", "@noble/secp256k1": "^2.2.3", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "bs58": "^6.0.0" } }, "sha512-Mkex+Ie9rPVue++CPZo0/I58EoU2OgT459VKgxn3POWayQPsLRwQ44B537UeKQh0I+X5nwYyML6xEyCvCyO27g=="],
+    "@fairco.in/core": ["@fairco.in/core@0.4.0", "", { "dependencies": { "@noble/hashes": "^1.8.0", "@noble/secp256k1": "^2.2.3", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "bs58": "^6.0.0" } }, "sha512-+K1cBBg/eF+jpSsirbYrTZs2B1HPzjqhwgLjqbyvY5KkY61bRnOmkG0khw1zUADzVcAMeHYB2x5cirxIjaJUfw=="],
 
     "@gorhom/bottom-sheet": ["@gorhom/bottom-sheet@5.2.14", "", { "dependencies": { "@gorhom/portal": "1.0.14", "invariant": "^2.2.4" }, "peerDependencies": { "@types/react": "*", "@types/react-native": "*", "react": "*", "react-native": "*", "react-native-gesture-handler": ">=2.16.1", "react-native-reanimated": ">=3.16.0 || >=4.0.0-" }, "optionalPeers": ["@types/react", "@types/react-native"] }, "sha512-uLQFlDjp9z+jrOFcMSEldPqL5JdaXL3vXOh+juhwoNvXgTsEorJLjHTugXu+YccAG/0KJnShzKCrb71MHBsvJg=="],
 
@@ -1382,7 +1382,7 @@
 
     "multitars": ["multitars@1.0.0", "", {}, "sha512-H/J4fMLedtudftaYMOg7ajzLYgT3/rwbWVJbqr/iUgB8DQztn38ys5HOqI1CzSxx8QhXXwOOnnBvd4v3jG5+Mg=="],
 
-    "nanoid": ["nanoid@5.1.11", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-v+KEsUv2ps74PaSKv0gHTxTCgMXOIfBEbaqa6w6ISIGC7ZsvHN4N9oJ8d4cmf0n5oTzQz2SLmThbQWhjd/8eKg=="],
+    "nanoid": ["nanoid@5.1.16", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=="],
 
     "nativewind": ["nativewind@5.0.0-preview.4", "", { "dependencies": { "tailwindcss-safe-area": "^1.1.0" }, "peerDependencies": { "react-native-css": "^3.0.1", "tailwindcss": ">4.1.11" } }, "sha512-eLsFGczxIsWADoD18EbEyt01aWgw4uP1/t/O7JIsp/OEbSgVYVobW97e2DDTOxxiiqSu0RexC1KSo5d7tes9uQ=="],
 
@@ -1877,8 +1877,6 @@
     "@gorhom/portal/nanoid": ["nanoid@3.3.12", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
 
     "@happy-dom/global-registrator/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
-
-    "@oxyhq/bloom/nativewind": ["nativewind@5.0.0-preview.3", "", { "dependencies": { "tailwindcss-safe-area": "^1.1.0" }, "peerDependencies": { "react-native-css": "^3.0.1", "tailwindcss": ">4.1.11" } }, "sha512-cbl1GzzY55NL2IG35AaAVfrL4+bCh77sa39aST5/o7xy3TLPthAtzhNPstnrCn+DtIglTnXOlOJGFrX2WdhI6w=="],
 
     "@oxyhq/protocol/@oxyhq/contracts": ["@oxyhq/contracts@0.13.2", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-Olam4nIN399tCryyq/NKCE/oXwS5zdli3qcXI/SjZ2Frdqg+li6BcsapwWc/oawpeELKPwtPfcNjsmKEyIUibg=="],
 

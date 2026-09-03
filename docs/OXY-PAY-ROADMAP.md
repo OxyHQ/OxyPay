@@ -86,12 +86,12 @@
 >
 > **Pendiente (features de plataforma Fase 2, aún sin empezar):**
 
-- [ ] SDK `@oxyhq/pay` (`OxyPaySDK`): checkout / pay-button embebibles (`oxypay.paymentIntents.create()`)
-- [ ] Payment links + hosted checkout
-- [ ] Invoices
+- [~] SDK `@oxyhq/pay` (`OxyPaySDK`): checkout / pay-button embebibles — 🟡 **server-side DONE** (`351f05a`, 56 tests, reviewed) + frozen browser interface; embed (browser) pending anonymous-realtime decision; npm publish held. Plan: `2026-07-19-fase2-sdk.md`.
+- [~] Payment links + hosted checkout — 🟡 **backend DONE** (`dc81018`+`c69decc`, PaymentLink+CheckoutSession models/routes + public payer routes, 214/214, reviewed); frontend (`packages/checkout`) pending (live-status needs anonymous-realtime decision). Plan: `2026-07-19-fase2-checkout-links.md`.
+- [x] ~~Invoices~~ — **DEFERRED de v1** por decisión de spec (no se implementa en Fase 2).
 - [ ] Integración en **Mercaria** (`~/Mercaria`)
 - [ ] **Plugin WordPress/WooCommerce** (tiendas en sus webs) + equivalentes (Shopify/PrestaShop)
-- [ ] Dashboard developer estilo Stripe (UI Oxy Pay + backend de keys/tokens en **Oxy Console**)
+- [~] Dashboard developer estilo Stripe — 🟡 **backend `/v1/dashboard/*` DONE** (`a303191`, human-auth + oxy-api RBAC delegation, 214/214, reviewed); app (`packages/dashboard` Vite, mirrors Console) BLOCKED on owner-registered Console clientId. Plan: `2026-07-19-fase2-dashboard.md`.
 - [ ] Webhooks configurables + logs en dashboard
 
 ## Fase 3 — Presencial / POS (Oxy Pay Terminal)

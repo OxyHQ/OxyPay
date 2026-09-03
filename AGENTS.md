@@ -1,5 +1,7 @@
 # OxyPay
 
+> Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
+
 Payment platform integrating the Oxy identity platform with the FairCoin payment network. Bun monorepo following the canonical `packages/` layout.
 
 ## Layout

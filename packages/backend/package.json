@@ -14,9 +14,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@oxypay/shared-types": "*",
+    "@fairco.in/core": "0.4.0",
     "@oxyhq/core": "^12.8.0",
-    "@fairco.in/core": "^0.3.0",
+    "@oxypay/shared-types": "*",
     "@scure/bip32": "^1.7.0",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
