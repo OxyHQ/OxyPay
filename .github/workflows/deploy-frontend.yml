@@ -1,0 +1,66 @@
+# Deploy the wallet's web export (@peable.to/frontend) to Cloudflare Pages.
+#
+# This serves the APEX, peable.to — which is what makes `peable.to/@username`
+# work at all, since that profile page is a route of this app. It follows the
+# shape every other Oxy product apex uses: homiio.com -> homiio-frontend.pages.dev
+# and clarity.surf -> clarity-7nu.pages.dev are the same arrangement, proxied,
+# with api.* left DNS-only to the ALB.
+#
+# Separate from deploy-checkout.yml on purpose. They are two different apps in
+# two different Pages projects on two different hostnames, and one's build
+# breaking must not withhold the other's release.
+name: Deploy frontend to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/frontend/**'
+      - 'packages/shared-types/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'bunfig.toml'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+
+      # shared-types is consumed through its compiled output. Root `postinstall`
+      # already builds it, but stating it here means this job does not depend on
+      # a side effect of installing — the same reason `ci.yml` repeats it.
+      - run: bun run build:shared-types
+
+      - run: bun run build:frontend
+        env:
+          # Every one of these has a correct production default in
+          # `src/config.ts`, and they are injected anyway. A default that
+          # happens to be right in production is indistinguishable from a
+          # variable that silently stopped being injected: nothing is empty and
+          # nothing errors, the bundle just quietly points somewhere else. The
+          # website's deploy carries the same note about its Oxy client id.
+          EXPO_PUBLIC_OXY_BASE_URL: https://api.oxy.so
+          EXPO_PUBLIC_GATEWAY_API_URL: https://api.peable.to
+          EXPO_PUBLIC_GATEWAY_SOCKET_URL: wss://api.peable.to
+          # Must stay EXACTLY equal to a redirect URI registered on the Oxy
+          # OAuth client, or sign-in fails at the redirect with no clue on this
+          # side of the exchange.
+          EXPO_PUBLIC_OXY_AUTH_REDIRECT_URI: https://peable.to
+
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/frontend/dist --project-name=peable-frontend --branch=main
