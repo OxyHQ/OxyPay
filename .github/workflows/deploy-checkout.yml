@@ -42,10 +42,18 @@ jobs:
           # mismatch across lockfile consumers fails `--frozen-lockfile`.
           bun-version-file: package.json
 
-      # Root `postinstall` builds shared-types, which the checkout imports
-      # through its `dist`. Without it the build fails with a TS2307 that says
-      # nothing about the change under review.
       - run: bun install --frozen-lockfile
+
+      # The checkout resolves BOTH published packages through their `dist`, and
+      # only one of them is built for you. Root `postinstall` builds
+      # shared-types; the SDK is not built by anything an install runs, so
+      # `@peable/sdk/checkout` has no `dist` here and rolldown fails to resolve
+      # it. It resolves fine on a developer's machine, where some earlier
+      # `bun run --filter @peable/sdk build` left the output behind — which is
+      # exactly why this cannot be left to chance in CI. `ci.yml` builds the
+      # same pair before its typecheck for the same reason.
+      - run: bun run build:shared-types
+      - run: bun run --filter @peable/sdk build
 
       - run: bun run --filter @peable/checkout build
         env:
