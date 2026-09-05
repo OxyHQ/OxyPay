@@ -124,8 +124,8 @@ const webhookDeliveriesListQuerySchema = z.object({
 
 /**
  * Build the `/v1/dashboard/*` router (F2.5 Phase 0 Task 2) — a human Oxy
- * user managing a merchant's Oxy Pay integration through
- * `dashboard.pay.oxy.so`. Kept as a SEPARATE route family from
+ * user managing a merchant's Peable integration through
+ * `dashboard.peable.to`. Kept as a SEPARATE route family from
  * `/v1/payment_intents/*`/`/v1/merchants/*`/etc (service-auth/payer only) —
  * a single handler never accepts both auth strategies (plan's global
  * constraint). Every route: `requireOxyUser` (human bearer) →

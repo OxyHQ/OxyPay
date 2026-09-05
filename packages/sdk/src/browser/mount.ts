@@ -1,18 +1,18 @@
-// `OxyPayCheckout.mount(...)` — the embeddable "Pay with Oxy Pay" button
+// `PeableCheckout.mount(...)` — the embeddable "Pay with Peable" button
 // (Fase 2 SDK plan, Task 6). Plain DOM, no framework, so it embeds on any
 // site. Renders a button into the host element, fetches + subscribes to the
 // payment intent via the Task 5 payer client, drives a typed
 // `settled`/`confirming`/`failed`/`error` event emitter, and on click either
-// opens the `oxypay://pay` deep link (mobile) or shows a QR of it (desktop).
+// opens the `peable://pay` deep link (mobile) or shows a QR of it (desktop).
 //
 // Same `./core/*` boundary as `payerClient.ts`: the only import from `./core`
 // is `core/errors.ts`, a pure status-mapper with no service-token/secret
 // machinery, so it carries none of the merchant-authed code out of bounds for
 // this browser bundle.
 import createQrCode from 'qrcode-generator';
-import type { PaymentIntent, PaymentIntentStatus } from '@oxypay/shared-types';
-import { createOxyPayCheckout } from './payerClient';
-import { OxyPayApiError, OxyPayError, OxyPayInvalidRequestError } from '../core/errors';
+import type { PaymentIntent, PaymentIntentStatus } from '@peable/shared-types';
+import { createPeableCheckout } from './payerClient';
+import { PeableApiError, PeableError, PeableInvalidRequestError } from '../core/errors';
 
 // ---------------------------------------------------------------------------
 // Intent id derivation (pure, unit-tested independently of the DOM).
@@ -40,14 +40,14 @@ const INTENT_ID_PATTERN = /^pi_[0-9a-f]{24,}$/;
 export function deriveIntentId(clientSecret: string, intentId?: string): string {
   const id = intentId ?? clientSecret.split('_secret_')[0] ?? '';
   if (!INTENT_ID_PATTERN.test(id)) {
-    throw new OxyPayInvalidRequestError(
-      `OxyPayCheckout.mount: invalid or missing payment intent id ("${id}") — ` +
+    throw new PeableInvalidRequestError(
+      `PeableCheckout.mount: invalid or missing payment intent id ("${id}") — ` +
         'pass `intentId` explicitly or a well-formed `clientSecret`',
     );
   }
   if (!clientSecret.startsWith(`${id}_secret_`)) {
-    throw new OxyPayInvalidRequestError(
-      'OxyPayCheckout.mount: clientSecret does not belong to the given intentId',
+    throw new PeableInvalidRequestError(
+      'PeableCheckout.mount: clientSecret does not belong to the given intentId',
     );
   }
   return id;
@@ -57,9 +57,9 @@ export function deriveIntentId(clientSecret: string, intentId?: string): string 
 // Deep link (pure, unit-tested independently of the DOM).
 // ---------------------------------------------------------------------------
 
-/** The `oxypay://pay` deep-link scheme + host — mirrors `PAYMENT_REQUEST_PREFIX`
+/** The `peable://pay` deep-link scheme + host — mirrors `PAYMENT_REQUEST_PREFIX`
  * in the wallet's `packages/frontend/src/pay/payment-request.ts`. */
-const PAYMENT_REQUEST_PREFIX = 'oxypay://pay';
+const PAYMENT_REQUEST_PREFIX = 'peable://pay';
 
 export interface PayDeepLinkParams {
   intentId: string;
@@ -71,7 +71,7 @@ export interface PayDeepLinkParams {
 }
 
 /**
- * Build an `oxypay://pay?...` deep link. Param names AND percent-encoding
+ * Build an `peable://pay?...` deep link. Param names AND percent-encoding
  * must match the wallet's parser byte-for-byte
  * (`packages/frontend/src/pay/payment-request.ts`'s `parseQuery`, which
  * splits on `&` then `=` and `decodeURIComponent`s each side raw) —
@@ -94,8 +94,8 @@ export function buildPayDeepLink(params: PayDeepLinkParams): string {
   return `${PAYMENT_REQUEST_PREFIX}?${query}`;
 }
 
-/** Only a phone can plausibly have the Oxy Pay wallet app installed to catch
- * the `oxypay://` deep link — desktop gets a QR to scan with it instead. */
+/** Only a phone can plausibly have the Peable wallet app installed to catch
+ * the `peable://` deep link — desktop gets a QR to scan with it instead. */
 const MOBILE_USER_AGENT_PATTERN = /Android|iPhone|iPad|iPod/i;
 
 export function isMobileUserAgent(userAgent: string): boolean {
@@ -106,21 +106,21 @@ export function isMobileUserAgent(userAgent: string): boolean {
 // Typed event emitter (pure, unit-tested independently of the DOM).
 // ---------------------------------------------------------------------------
 
-export interface OxyPayCheckoutEventMap {
+export interface PeableCheckoutEventMap {
   settled: PaymentIntent;
   confirming: PaymentIntent;
   failed: PaymentIntent;
-  error: OxyPayError;
+  error: PeableError;
 }
 
-type CheckoutEventName = keyof OxyPayCheckoutEventMap;
+type CheckoutEventName = keyof PeableCheckoutEventMap;
 type CheckoutEventHandler<K extends CheckoutEventName> = (
-  payload: OxyPayCheckoutEventMap[K],
+  payload: PeableCheckoutEventMap[K],
 ) => void;
 
 interface CheckoutEmitter {
   on<K extends CheckoutEventName>(event: K, handler: CheckoutEventHandler<K>): void;
-  emit<K extends CheckoutEventName>(event: K, payload: OxyPayCheckoutEventMap[K]): void;
+  emit<K extends CheckoutEventName>(event: K, payload: PeableCheckoutEventMap[K]): void;
   removeAll(): void;
 }
 
@@ -158,8 +158,8 @@ export function createEmitter(): CheckoutEmitter {
 // see the Task 6 report), not by the headless unit suite.
 // ---------------------------------------------------------------------------
 
-const BUTTON_CLASS = 'oxypay-checkout-button';
-const OVERLAY_CLASS = 'oxypay-checkout-qr-overlay';
+const BUTTON_CLASS = 'peable-checkout-button';
+const OVERLAY_CLASS = 'peable-checkout-qr-overlay';
 
 /** Statuses that still accept a payment — everything else disables the button. */
 const PAYABLE_STATUSES: ReadonlySet<PaymentIntentStatus> = new Set([
@@ -171,10 +171,10 @@ const PAYABLE_STATUSES: ReadonlySet<PaymentIntentStatus> = new Set([
 function resolveTarget(target: string | Element): Element {
   const element = typeof target === 'string' ? document.querySelector(target) : target;
   if (!(element instanceof Element)) {
-    throw new OxyPayInvalidRequestError(
+    throw new PeableInvalidRequestError(
       typeof target === 'string'
-        ? `OxyPayCheckout.mount: no element matches selector "${target}"`
-        : 'OxyPayCheckout.mount: target is not a DOM Element',
+        ? `PeableCheckout.mount: no element matches selector "${target}"`
+        : 'PeableCheckout.mount: target is not a DOM Element',
     );
   }
   return element;
@@ -184,7 +184,7 @@ function renderButton(container: Element): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = BUTTON_CLASS;
-  button.textContent = 'Pay with Oxy Pay';
+  button.textContent = 'Pay with Peable';
   button.disabled = true; // enabled once the initial snapshot loads
   button.style.cssText =
     'padding:12px 24px;border-radius:8px;border:none;background:#5b21b6;' +
@@ -211,7 +211,7 @@ function updateButton(button: HTMLButtonElement, intent: PaymentIntent): void {
       button.textContent = 'Payment unavailable';
       break;
     default:
-      button.textContent = 'Pay with Oxy Pay';
+      button.textContent = 'Pay with Peable';
   }
 }
 
@@ -243,7 +243,7 @@ function showQrOverlay(deepLink: string): void {
   card.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
 
   const caption = document.createElement('p');
-  caption.textContent = 'Scan with the Oxy Pay app';
+  caption.textContent = 'Scan with the Peable app';
   caption.style.cssText = 'margin:0;font:500 14px system-ui,sans-serif;color:#111;';
 
   const closeButton = document.createElement('button');
@@ -263,28 +263,28 @@ function showQrOverlay(deepLink: string): void {
 // Public API.
 // ---------------------------------------------------------------------------
 
-export interface OxyPayCheckoutMountOptions {
+export interface PeableCheckoutMountOptions {
   /** The payment intent's `client_secret` — the payer's proof of possession. */
   clientSecret: string;
   /** Payment intent id. Derived from `clientSecret` when omitted — see {@link deriveIntentId}. */
   intentId?: string;
-  /** Gateway base URL, forwarded to {@link createOxyPayCheckout}. Default `https://api.pay.oxy.so`. */
+  /** Gateway base URL, forwarded to {@link createPeableCheckout}. Default `https://api.peable.to`. */
   gatewayUrl?: string;
 }
 
-export interface OxyPayCheckoutInstance {
+export interface PeableCheckoutInstance {
   on<K extends CheckoutEventName>(event: K, handler: CheckoutEventHandler<K>): void;
   /** Unsubscribes from realtime updates and removes the button from the DOM. */
   destroy(): void;
 }
 
-function toOxyPayError(error: unknown): OxyPayError {
-  if (error instanceof OxyPayError) return error;
-  return new OxyPayApiError(error instanceof Error ? error.message : String(error));
+function toPeableError(error: unknown): PeableError {
+  if (error instanceof PeableError) return error;
+  return new PeableApiError(error instanceof Error ? error.message : String(error));
 }
 
 /**
- * Render the "Pay with Oxy Pay" button into `target` and start tracking the
+ * Render the "Pay with Peable" button into `target` and start tracking the
  * payment intent. Returns synchronously — before any network call resolves —
  * so a caller's `.on(...)` registrations (called immediately after `mount()`
  * returns, in the same synchronous tick) are always in place before the
@@ -293,14 +293,14 @@ function toOxyPayError(error: unknown): OxyPayError {
  */
 function mount(
   target: string | Element,
-  opts: OxyPayCheckoutMountOptions,
-): OxyPayCheckoutInstance {
+  opts: PeableCheckoutMountOptions,
+): PeableCheckoutInstance {
   const element = resolveTarget(target);
   const intentId = deriveIntentId(opts.clientSecret, opts.intentId);
   const clientSecret = opts.clientSecret;
 
   const emitter = createEmitter();
-  const payerClient = createOxyPayCheckout({ gatewayUrl: opts.gatewayUrl });
+  const payerClient = createPeableCheckout({ gatewayUrl: opts.gatewayUrl });
   const button = renderButton(element);
 
   let latestIntent: PaymentIntent | null = null;
@@ -362,7 +362,7 @@ function mount(
     })
     .catch((error: unknown) => {
       if (destroyed) return;
-      emitter.emit('error', toOxyPayError(error));
+      emitter.emit('error', toPeableError(error));
     });
 
   return {
@@ -378,4 +378,4 @@ function mount(
   };
 }
 
-export const OxyPayCheckout = { mount };
+export const PeableCheckout = { mount };

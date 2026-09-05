@@ -7,15 +7,15 @@ let scopedResult: Uint8Array | null = new Uint8Array(32).fill(7);
 const deriveScopedSeed = mock(async (_info: string) => scopedResult);
 mock.module("@oxyhq/core", () => ({ KeyManager: { deriveScopedSeed } }));
 
-const { deriveIdentitySeed, buildSeedSecret, OXYPAY_SEED_INFO, SEED_SECRET_PREFIX } =
+const { deriveIdentitySeed, buildSeedSecret, PEABLE_SEED_INFO, SEED_SECRET_PREFIX } =
   await import("./identity-wallet");
 
 describe("deriveIdentitySeed", () => {
-  test("passes the Oxy Pay FairCoin domain info and returns the seed", async () => {
+  test("passes the Peable FairCoin domain info and returns the seed", async () => {
     scopedResult = new Uint8Array(32).fill(7);
     const seed = await deriveIdentitySeed();
-    expect(deriveScopedSeed).toHaveBeenCalledWith("oxypay/faircoin/v1");
-    expect(OXYPAY_SEED_INFO).toBe("oxypay/faircoin/v1");
+    expect(deriveScopedSeed).toHaveBeenCalledWith("peable/faircoin/v1");
+    expect(PEABLE_SEED_INFO).toBe("peable/faircoin/v1");
     expect(seed).toEqual(new Uint8Array(32).fill(7));
   });
 

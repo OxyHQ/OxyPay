@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 #
-# Oxy Pay Gateway — backend image (@oxypay/backend).
+# Peable Gateway — backend image (@peable/backend).
 #
 # Bun-native: the gateway runs its TypeScript ENTRYPOINT directly under Bun
 # (`bun packages/backend/src/server.ts`, matching the package `start` script and
-# `main` field) — there is no compiled JS entrypoint. Only `@oxypay/shared-types`
+# `main` field) — there is no compiled JS entrypoint. Only `@peable/shared-types`
 # is compiled, because the backend imports it as its published `dist/index.js`.
 #
 # Built for AWS Graviton (linux/arm64); the deploy workflow runs on an arm64
@@ -12,13 +12,13 @@
 # MUST be the monorepo ROOT so the workspace packages (shared-types + backend)
 # and the hoisted node_modules resolve:
 #
-#   docker build -f packages/backend/Dockerfile -t oxypay-backend .
+#   docker build -f packages/backend/Dockerfile -t peable-backend .
 #
 # Runtime configuration comes from the environment. ECS injects DATABASE_URL —
 # which the service cannot boot without — and the Oxy service secrets
 # (OXY_ACCESS_TOKEN_SECRET, IP_HASH_SALT,
-# DEVICE_ID_SALT) from SSM `/oxy/oxypay/*` (+ `/oxy/_shared/*`); non-secret
-# config (PORT, OXYPAY_NETWORK, EXPLORER_BASE_URL, OXY_PAY_ALLOWED_ORIGINS,
+# DEVICE_ID_SALT) from SSM `/oxy/peable/*` (+ `/oxy/_shared/*`); non-secret
+# config (PORT, PEABLE_NETWORK, EXPLORER_BASE_URL, PEABLE_ALLOWED_ORIGINS,
 # OXY_API_URL) is set as plain task-definition env.
 # See .github/workflows/deploy-aws.yml.
 
@@ -27,7 +27,7 @@ FROM oven/bun:1.3.14-alpine AS builder
 WORKDIR /app
 
 # Workspace root files. bunfig.toml pins `linker = "hoisted"` (REQUIRED so the
-# workspace `@oxypay/shared-types` dependency and the hoisted node_modules
+# workspace `@peable/shared-types` dependency and the hoisted node_modules
 # resolve the same way they do in local dev and at ECS runtime). The root
 # tsconfig.json is carried for parity with the monorepo's TypeScript tooling.
 COPY package.json bun.lock bunfig.toml tsconfig.json ./

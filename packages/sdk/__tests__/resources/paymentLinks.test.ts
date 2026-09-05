@@ -13,7 +13,7 @@ describe('PaymentLinksResource', () => {
       if (req.url.includes('/auth/service-token')) return serviceTokenMintResponse();
       return {
         status: 201,
-        json: { id: 'link_1', object: 'payment_link', amount: '100000', network: 'testnet', active: true, metadata: {}, url: 'https://checkout.oxy.so/l/link_1' },
+        json: { id: 'link_1', object: 'payment_link', amount: '100000', network: 'testnet', active: true, metadata: {}, url: 'https://checkout.peable.to/l/link_1' },
       };
     });
     const resource = new PaymentLinksResource(buildTestClient(fetchImpl));

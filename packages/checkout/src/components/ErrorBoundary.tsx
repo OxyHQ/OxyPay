@@ -9,7 +9,7 @@ interface ErrorBoundaryState {
 }
 
 // Wraps the whole app (main.tsx) so a render-time throw — e.g. `BigInt(amount)`
-// on a malformed amount (PayWithOxyPay.tsx, LinkRoute.tsx) — shows a
+// on a malformed amount (PayWithPeable.tsx, LinkRoute.tsx) — shows a
 // user-facing fallback instead of a blank white SPA. The amount is already
 // server-validated, so this isn't attacker-reachable today; it's a defensive
 // floor against whatever throws next.

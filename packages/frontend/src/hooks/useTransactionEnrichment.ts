@@ -5,7 +5,7 @@
  * address + amount for whichever entries are missing from the returned map.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { EnrichmentResult } from "@oxypay/shared-types";
+import type { EnrichmentResult } from "@peable/shared-types";
 import { enrichAddresses } from "../services/gateway-client";
 
 /** Mirrors the backend's `ENRICH_MAX_ADDRESSES` cap. */

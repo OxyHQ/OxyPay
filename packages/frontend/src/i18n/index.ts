@@ -105,7 +105,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.transactionCount.one": "{count} transaction",
     "wallet.transactionCount.other": "{count} transactions",
     "wallet.syncAccessibility": "Sync status: {label}",
-    "wallet.defaultName": "Oxy Pay",
+    "wallet.defaultName": "Peable",
     "wallet.sync.offline": "Offline",
     "wallet.sync.syncing": "Syncing {progress}%",
     "wallet.sync.synced": "Synced",
@@ -144,7 +144,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.recipientMode.address": "Address",
     "send.recipientMode.choosePlaceholder": "Choose who to pay",
     "send.recipientMode.reserving": "Getting their address…",
-    "send.recipientMode.keyless": "@{username} hasn't set up Oxy Pay yet. Invite them to get paid instantly next time.",
+    "send.recipientMode.keyless": "@{username} hasn't set up Peable yet. Invite them to get paid instantly next time.",
     "send.recent": "Recent",
     "send.networkFee": "Network fee",
     "send.fee.low": "Low",
@@ -335,7 +335,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.importBackup": "Import Backup",
     "settings.coinControl": "Coin Control",
     "settings.masternode": "Masternode",
-    "settings.aboutApp": "About Oxy Pay",
+    "settings.aboutApp": "About Peable",
     "settings.version": "v{version}",
     "settings.dangerZone": "Danger Zone",
     "settings.pin.verify": "Verify PIN",
@@ -352,7 +352,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Your device does not have biometric authentication set up. Please enable it in your device settings first.",
     "settings.biometrics.verifyPrompt": "Verify biometrics to enable",
     "settings.biometrics.updateError": "Failed to update biometrics setting.",
-    "settings.backup.exportDialogTitle": "Save Oxy Pay backup",
+    "settings.backup.exportDialogTitle": "Save Peable backup",
     "settings.backup.saved.title": "Backup saved",
     "settings.backup.saved.description":
       "Saved to {path}. Sharing is not available on this platform.",
@@ -417,15 +417,15 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "socialRecipientPicker.empty": "No one found",
 
     // ---------- Onboarding ----------
-    "onboarding.logoAccessibility": "Oxy Pay logo",
-    "onboarding.signInTitle": "Welcome to Oxy Pay",
+    "onboarding.logoAccessibility": "Peable logo",
+    "onboarding.signInTitle": "Welcome to Peable",
     "onboarding.signInSubtitle": "Sign in with your Oxy account — your money is just there.",
     "onboarding.createIdentityTitle": "Set up your Oxy ID",
     "onboarding.createIdentitySubtitle": "Your wallet is secured by your Oxy identity. Create it to continue.",
     "onboarding.createIdentityCta": "Continue in Commons",
     "onboarding.commonsNotInstalled": "Commons by Oxy isn't installed on this device. Install it to set up your Oxy ID.",
     "onboarding.createIdentityError": "Couldn't reach Oxy. Check your connection and try again.",
-    "onboarding.webUnsupportedTitle": "Open Oxy Pay on your phone",
+    "onboarding.webUnsupportedTitle": "Open Peable on your phone",
     "onboarding.webUnsupportedSubtitle": "The wallet is available on the mobile app only.",
 
     // PIN setup
@@ -768,7 +768,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Enable location access in your device settings to see places near you.",
     "map.webOnly.title": "Map only available on mobile",
     "map.webOnly.subtitle":
-      "Open Oxy Pay on your phone to find places near you that accept FairCoin.",
+      "Open Peable on your phone to find places near you that accept FairCoin.",
     "map.unavailable.title": "Map unavailable",
     "map.unavailable.subtitle": "Map is unavailable on this device.",
     "map.category.cafe": "Cafe",
@@ -881,7 +881,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "wallet.transactionCount.one": "{count} transacci\u00f3n",
     "wallet.transactionCount.other": "{count} transacciones",
     "wallet.syncAccessibility": "Estado de sincronizaci\u00f3n: {label}",
-    "wallet.defaultName": "Oxy Pay",
+    "wallet.defaultName": "Peable",
     "wallet.sync.offline": "Sin conexi\u00f3n",
     "wallet.sync.syncing": "Sincronizando {progress}%",
     "wallet.sync.synced": "Sincronizado",
@@ -920,7 +920,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "send.recipientMode.address": "Dirección",
     "send.recipientMode.choosePlaceholder": "Elige a quién pagar",
     "send.recipientMode.reserving": "Obteniendo su dirección…",
-    "send.recipientMode.keyless": "@{username} aún no configuró Oxy Pay. Invítalo para recibir pagos al instante la próxima vez.",
+    "send.recipientMode.keyless": "@{username} aún no configuró Peable. Invítalo para recibir pagos al instante la próxima vez.",
     "send.recent": "Reciente",
     "send.networkFee": "Comisi\u00f3n de red",
     "send.fee.low": "Baja",
@@ -1113,7 +1113,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.importBackup": "Importar Respaldo",
     "settings.coinControl": "Control de Monedas",
     "settings.masternode": "Masternode",
-    "settings.aboutApp": "Acerca de Oxy Pay",
+    "settings.aboutApp": "Acerca de Peable",
     "settings.version": "v{version}",
     "settings.dangerZone": "Zona de Peligro",
     "settings.pin.verify": "Verificar PIN",
@@ -1134,7 +1134,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "settings.biometrics.verifyPrompt": "Verifica biometr\u00eda para activar",
     "settings.biometrics.updateError":
       "Fall\u00f3 la actualizaci\u00f3n del ajuste biom\u00e9trico.",
-    "settings.backup.exportDialogTitle": "Guardar respaldo de Oxy Pay",
+    "settings.backup.exportDialogTitle": "Guardar respaldo de Peable",
     "settings.backup.saved.title": "Respaldo guardado",
     "settings.backup.saved.description":
       "Guardado en {path}. Compartir no est\u00e1 disponible en esta plataforma.",
@@ -1202,15 +1202,15 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "socialRecipientPicker.empty": "Nadie encontrado",
 
     // ---------- Onboarding ----------
-    "onboarding.logoAccessibility": "Logo de Oxy Pay",
-    "onboarding.signInTitle": "Bienvenido a Oxy Pay",
+    "onboarding.logoAccessibility": "Logo de Peable",
+    "onboarding.signInTitle": "Bienvenido a Peable",
     "onboarding.signInSubtitle": "Inicia sesi\u00f3n con tu cuenta Oxy \u2014 tu dinero ya est\u00e1 ah\u00ed.",
     "onboarding.createIdentityTitle": "Configura tu Oxy ID",
     "onboarding.createIdentitySubtitle": "Tu monedero est\u00e1 protegido por tu identidad Oxy. Cr\u00e9ala para continuar.",
     "onboarding.createIdentityCta": "Continuar en Commons",
     "onboarding.commonsNotInstalled": "Commons by Oxy no est\u00e1 instalada en este dispositivo. Inst\u00e1lala para configurar tu Oxy ID.",
     "onboarding.createIdentityError": "No se pudo conectar con Oxy. Comprueba tu conexi\u00f3n e int\u00e9ntalo de nuevo.",
-    "onboarding.webUnsupportedTitle": "Abre Oxy Pay en tu tel\u00e9fono",
+    "onboarding.webUnsupportedTitle": "Abre Peable en tu tel\u00e9fono",
     "onboarding.webUnsupportedSubtitle": "El monedero solo est\u00e1 disponible en la app m\u00f3vil.",
 
     // PIN setup
@@ -1570,7 +1570,7 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
       "Activa el acceso a la ubicación en los ajustes de tu dispositivo para ver lugares cercanos.",
     "map.webOnly.title": "El mapa solo está disponible en móvil",
     "map.webOnly.subtitle":
-      "Abre Oxy Pay en tu teléfono para encontrar lugares cerca de ti que acepten FairCoin.",
+      "Abre Peable en tu teléfono para encontrar lugares cerca de ti que acepten FairCoin.",
     "map.unavailable.title": "Mapa no disponible",
     "map.unavailable.subtitle": "El mapa no está disponible en este dispositivo.",
     "map.category.cafe": "Cafetería",

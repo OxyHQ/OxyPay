@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { MerchantDisplay, PaymentIntent } from '@oxypay/shared-types';
+import type { MerchantDisplay, PaymentIntent } from '@peable/shared-types';
 import { subscribe } from '../lib/intentClient';
 import { MerchantIdentity } from './MerchantIdentity';
-import { PayWithOxyPay } from './PayWithOxyPay';
+import { PayWithPeable } from './PayWithPeable';
 import { StatusPanel } from './StatusPanel';
 
 export interface CheckoutViewProps {
@@ -66,7 +66,7 @@ export function CheckoutView({ intent: initialIntent, merchant, successUrl }: Ch
     <div className="checkout-view">
       {merchant && <MerchantIdentity merchant={merchant} />}
       {awaitingPayment ? (
-        <PayWithOxyPay intent={intent} />
+        <PayWithPeable intent={intent} />
       ) : (
         <StatusPanel intent={intent} successUrl={successUrl} />
       )}

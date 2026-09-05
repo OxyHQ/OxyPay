@@ -1,7 +1,7 @@
 /**
  * Approve-pay screen.
  *
- * The payer lands here from an `oxypay://pay?...` deep link (parsed + validated
+ * The payer lands here from an `peable://pay?...` deep link (parsed + validated
  * by {@link parsePaymentRequest} in the root layout, which forwards the fields
  * as route params). It shows the amount, payee address, and network, then:
  *
@@ -43,7 +43,7 @@ import {
 import type {
   PaymentIntent,
   PaymentIntentStatus,
-} from "@oxypay/shared-types";
+} from "@peable/shared-types";
 import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { ScreenHeader, Button } from "../../src/ui/components";
 import { FairCoinSymbol } from "../../src/ui/components/FairCoinSymbol";

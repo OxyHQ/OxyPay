@@ -2,7 +2,7 @@ import { EXPLORER_BASE_URL as DEFAULT_EXPLORER_BASE_URL } from "@fairco.in/core"
 import type { NetworkType } from "@fairco.in/core";
 
 /**
- * Typed environment reader for the Oxy Pay Gateway backend.
+ * Typed environment reader for the Peable Gateway backend.
  *
  * Every value is validated and defaulted explicitly — no `process.env.X!`,
  * no magic numbers scattered through the code. `loadConfig` is pure over its
@@ -13,7 +13,7 @@ import type { NetworkType } from "@fairco.in/core";
 const DEFAULT_PORT = 3001;
 const DEFAULT_NETWORK: NetworkType = "mainnet";
 // The hosted checkout page's host (F2.2/F2.3) — see `2026-07-19-fase2-checkout-links.md`.
-const DEFAULT_CHECKOUT_BASE_URL = "https://checkout.oxy.so";
+const DEFAULT_CHECKOUT_BASE_URL = "https://checkout.peable.to";
 // The SAME literal fallback the shared `oxyClient` singleton itself is built
 // with (`@oxyhq/core`'s `OXY_API_URL = process.env.OXY_API_URL || 'https://api.oxy.so'`)
 // — not re-exported from that package's public entry, so mirrored here rather
@@ -45,10 +45,10 @@ export interface AppConfig {
    * Exact browser origins allowed to open a realtime Socket.io connection AND
    * (F2.5) to call the REST API cross-origin — both `createGateway`'s Socket.io
    * `cors.origin` check and `createOxyCors({ appOrigins })` in `server.ts` read
-   * this same list (comma-separated `OXY_PAY_ALLOWED_ORIGINS`). It exists
+   * this same list (comma-separated `PEABLE_ALLOWED_ORIGINS`). It exists
    * because `createOxyCors`'s built-in Oxy-family allowlist only trusts
    * ONE-LABEL `*.oxy.so` subdomains — a two-label host like
-   * `dashboard.pay.oxy.so` must be listed here explicitly. Requests with no
+   * `dashboard.peable.to` must be listed here explicitly. Requests with no
    * `Origin` (native apps / server-to-server) are always allowed; an arbitrary
    * browser origin is NEVER reflected — it must be listed here. REST routes
    * remain gated by their own auth (service token / Oxy user bearer /
@@ -94,7 +94,7 @@ function readNetwork(raw: string | undefined): NetworkType {
   const value = raw.trim();
   if (value === "mainnet" || value === "testnet") return value;
   throw new Error(
-    `OXYPAY_NETWORK must be "mainnet" or "testnet", received "${raw}"`,
+    `PEABLE_NETWORK must be "mainnet" or "testnet", received "${raw}"`,
   );
 }
 
@@ -149,12 +149,12 @@ export function loadConfig(
       env.EXPLORER_BASE_URL,
       DEFAULT_EXPLORER_BASE_URL,
     ),
-    network: readNetwork(env.OXYPAY_NETWORK),
+    network: readNetwork(env.PEABLE_NETWORK),
     databaseUrl: readRequired(env.DATABASE_URL, "DATABASE_URL"),
     port: readPort(env.PORT),
-    allowedOrigins: readOrigins(env.OXY_PAY_ALLOWED_ORIGINS),
+    allowedOrigins: readOrigins(env.PEABLE_ALLOWED_ORIGINS),
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),
-    checkoutBaseUrl: readNonEmpty(env.OXY_PAY_CHECKOUT_BASE_URL, DEFAULT_CHECKOUT_BASE_URL),
+    checkoutBaseUrl: readNonEmpty(env.PEABLE_CHECKOUT_BASE_URL, DEFAULT_CHECKOUT_BASE_URL),
     oxyApiUrl: readNonEmpty(env.OXY_API_URL, DEFAULT_OXY_API_URL),
   };
 }

@@ -1,4 +1,4 @@
-# Oxy Pay roadmap
+# Peable roadmap
 
 > Source snapshot: `main` at `b746f4cf130cf1313173178e19bd4f75e65d4213`
 > (2026-09-03). A merged source feature is not proof that its production
@@ -7,20 +7,20 @@
 The detailed design history remains in git. These are the maintained source
 documents:
 
-- [Fase 1 product design](superpowers/specs/2026-07-18-oxypay-phase1-foundation-design.md)
-- [Gateway implementation plan](superpowers/plans/2026-07-18-oxypay-gateway-backend-f1a.md)
-- [Oxy identity and social-payment design](superpowers/specs/2026-07-18-oxypay-oxy-identity-social-redesign-design.md)
-- [Integration guide](integrating-oxy-pay.md)
+- [Fase 1 product design](superpowers/specs/2026-07-18-peable-phase1-foundation-design.md)
+- [Gateway implementation plan](superpowers/plans/2026-07-18-peable-gateway-backend-f1a.md)
+- [Oxy identity and social-payment design](superpowers/specs/2026-07-18-peable-oxy-identity-social-redesign-design.md)
+- [Integration guide](integrating-peable.md)
 
 ## Product boundaries
 
-- **Oxy Pay** is the self-custodial wallet in `packages/frontend`.
-- **Oxy Pay Gateway** is the API in `packages/backend`, its wire contract in
-  `packages/shared-types`, the published `@oxyhq/pay` SDK in `packages/sdk`, and
+- **Peable** is the self-custodial wallet in `packages/frontend`.
+- **Peable Gateway** is the API in `packages/backend`, its wire contract in
+  `packages/shared-types`, the published `@peable/sdk` SDK in `packages/sdk`, and
   the payer-facing web application in `packages/checkout`.
-- **Oxy Pay Terminal** is the future point-of-sale product. No
+- **Peable Terminal** is the future point-of-sale product. No
   `packages/terminal` implementation exists yet.
-- Oxy owns applications, credentials and permissions. Oxy Pay must not create a
+- Oxy owns applications, credentials and permissions. Peable must not create a
   second account or credential authority.
 
 ## Invariants
@@ -60,12 +60,12 @@ documents:
 - [ ] Re-verify cold boot, sign-in, key rotation, social receive and the full
   approve-payment flow on a production-equivalent physical device before
   enabling mainnet social payments.
-- [ ] Complete the internal FAIRWallet-to-Oxy-Pay naming sweep without changing
+- [ ] Complete the internal FAIRWallet-to-Peable naming sweep without changing
   third-party attribution.
 
 ### SDK and hosted checkout
 
-- [x] `@oxyhq/pay@0.1.1` is published and contains server-side payment-intent,
+- [x] `@peable/sdk@0.1.1` is published and contains server-side payment-intent,
   payment-link, checkout-session and webhook resources.
 - [x] The browser entry and `packages/checkout` implement payer retrieval,
   deep-link handoff, QR presentation and live status.
@@ -101,7 +101,7 @@ documents:
 - [ ] WordPress/WooCommerce integration, followed by other commerce adapters.
 - [ ] Shared Pockets with multi-party signing and encrypted partial-signature
   coordination; the coordinator must remain unable to spend.
-- [ ] Oxy Pay Terminal for mobile and desktop, including an explicit NFC
+- [ ] Peable Terminal for mobile and desktop, including an explicit NFC
   entitlement and confirmation policy.
 - [ ] Subscriptions, refunds, payouts, disputes and analytics without weakening
   self-custody.

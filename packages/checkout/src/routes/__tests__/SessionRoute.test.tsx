@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { CheckoutSessionPublic, PaymentIntent } from '@oxypay/shared-types';
+import type { CheckoutSessionPublic, PaymentIntent } from '@peable/shared-types';
 
 // SessionRoute never touches `../lib/intentClient` directly, but
 // CheckoutView -> subscribe() does — mock it the same way LinkRoute.test.tsx
@@ -16,7 +16,7 @@ mock.module('../../lib/intentClient', () => ({
   }),
 }));
 
-// Renders the full CheckoutView -> PayWithOxyPay -> Qr chain, which draws to
+// Renders the full CheckoutView -> PayWithPeable -> Qr chain, which draws to
 // a real <canvas> 2D context — unsupported by happy-dom. Stub it out (same
 // as LinkRoute.test.tsx/IntentRoute.test.tsx).
 mock.module('qr-creator/dist/qr-creator.es6.min.js', () => ({
@@ -86,14 +86,14 @@ function renderSessionRoute(hash: string) {
   );
 }
 
-test('sends the fragment client_secret via the X-Oxy-Pay-Client-Secret header, never a query param', async () => {
+test('sends the fragment client_secret via the X-Peable-Client-Secret header, never a query param', async () => {
   renderSessionRoute('#cs=session_secret_abc');
 
   expect(await screen.findByText('1 FAIR')).toBeDefined();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(capturedUrl).not.toContain('client_secret');
   expect(capturedUrl?.endsWith('/v1/checkout_sessions/cs_test123/public')).toBe(true);
-  expect(new Headers(capturedInit?.headers).get('X-Oxy-Pay-Client-Secret')).toBe(
+  expect(new Headers(capturedInit?.headers).get('X-Peable-Client-Secret')).toBe(
     'session_secret_abc',
   );
 });

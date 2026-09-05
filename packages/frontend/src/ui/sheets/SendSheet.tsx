@@ -176,7 +176,7 @@ export function SendSheet({
     }
     // Sharing.shareAsync requires a file URI on native, so write the link to
     // a temporary text file in the cache directory and share that.
-    const file = new File(Paths.cache, "oxypay-tx-link.txt");
+    const file = new File(Paths.cache, "peable-tx-link.txt");
     if (file.exists) file.delete();
     file.create();
     file.write(explorerUrl);

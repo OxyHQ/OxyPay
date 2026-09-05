@@ -36,13 +36,13 @@ jobs:
         # for it pass here and fail in production.
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: oxypay
-          POSTGRES_PASSWORD: oxypay
-          POSTGRES_DB: oxypay
+          POSTGRES_USER: peable
+          POSTGRES_PASSWORD: peable
+          POSTGRES_DB: peable
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U oxypay"
+          --health-cmd "pg_isready -U peable"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -50,14 +50,14 @@ jobs:
     env:
       # Where the throwaway per-suite databases are CREATED (the `postgres`
       # maintenance database on the service container).
-      TEST_DATABASE_URL: postgres://oxypay:oxypay@localhost:5432/postgres
+      TEST_DATABASE_URL: postgres://peable:peable@localhost:5432/postgres
       # `config.ts` now REFUSES to load without this, because the service
       # cannot boot without it — so importing any module that reaches the
       # config singleton needs it set, including tests that never touch the
       # database. It is deliberately NOT what the suites connect to: each one
       # gets its own throwaway database from `TEST_DATABASE_URL` above and
       # points the pool at it via `setDatabaseForTesting`.
-      DATABASE_URL: postgres://oxypay:oxypay@localhost:5432/oxypay
+      DATABASE_URL: postgres://peable:peable@localhost:5432/peable
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -80,7 +80,7 @@ jobs:
       # Reads the tracked file listing, so it needs no build and costs seconds. It
       # answers the one question a green build cannot: Mongo returns as a hoisted
       # dependency or a workflow variable, and every other step here passes while it
-      # does. The port completed in #20/#36 and `oxypay` was dropped on 2026-08-09.
+      # does. The port completed in #20/#36 and the Mongo database `oxypay` was dropped on 2026-08-09.
       - name: Guard against MongoDB returning
         run: bun run validate:no-mongo
 
@@ -102,11 +102,11 @@ jobs:
 
       # Both published packages are built before the typecheck, because two
       # consumers resolve them through their `dist`: the backend imports
-      # `@oxypay/shared-types`' compiled output, and `@oxypay/checkout` imports
-      # `@oxyhq/pay/checkout`. Without these, the typecheck fails with a TS2307
+      # `@peable/shared-types`' compiled output, and `@peable/checkout` imports
+      # `@peable/sdk/checkout`. Without these, the typecheck fails with a TS2307
       # that says nothing about the change under review.
       - run: bun run build:shared-types
-      - run: bun run --filter @oxyhq/pay build
+      - run: bun run --filter @peable/sdk build
 
       - name: Typecheck every package
         run: bun run --filter '*' typecheck

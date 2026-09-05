@@ -1,9 +1,9 @@
 import { oxyClient } from "@oxyhq/core";
-import type { MerchantDisplay } from "@oxypay/shared-types";
+import type { MerchantDisplay } from "@peable/shared-types";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
 
 /** Neutral fallback shown when a merchant hasn't set a `displayName`. */
-const DEFAULT_MERCHANT_NAME = "Oxy Pay merchant";
+const DEFAULT_MERCHANT_NAME = "Peable merchant";
 
 /**
  * Resolve the public, secret-free merchant identity that a payer-facing

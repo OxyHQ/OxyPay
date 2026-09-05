@@ -1,4 +1,4 @@
-import type { PaymentIntentStatus } from "@oxypay/shared-types";
+import type { PaymentIntentStatus } from "@peable/shared-types";
 import { getDb } from "../db/postgres";
 import {
   findWatchableIntents,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 import { PaymentIntentsResource } from '../../src/resources/paymentIntents';
-import { OxyPayInvalidRequestError } from '../../src/core/errors';
+import { PeableInvalidRequestError } from '../../src/core/errors';
 import { createMockFetch } from '../support/mockFetch';
 import { buildTestClient, serviceTokenMintResponse, TEST_GATEWAY_URL } from '../support/testGateway';
 
@@ -91,7 +91,7 @@ describe('PaymentIntentsResource', () => {
     expect(call?.url).toBe(`${TEST_GATEWAY_URL}/v1/payment_intents/pi_1/reject`);
   });
 
-  test('propagates a mapped OxyPayError on a non-2xx Gateway response', async () => {
+  test('propagates a mapped PeableError on a non-2xx Gateway response', async () => {
     const { fetch: fetchImpl } = createMockFetch((req) => {
       if (req.url.includes('/auth/service-token')) return serviceTokenMintResponse();
       return {
@@ -101,6 +101,6 @@ describe('PaymentIntentsResource', () => {
     });
     const resource = new PaymentIntentsResource(buildTestClient(fetchImpl));
 
-    await expect(resource.retrieve('pi_missing')).rejects.toBeInstanceOf(OxyPayInvalidRequestError);
+    await expect(resource.retrieve('pi_missing')).rejects.toBeInstanceOf(PeableInvalidRequestError);
   });
 });

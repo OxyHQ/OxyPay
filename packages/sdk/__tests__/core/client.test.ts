@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createRestClient } from '../../src/core/client';
-import { OxyPayApiError, OxyPayAuthenticationError, OxyPayInvalidRequestError } from '../../src/core/errors';
+import { PeableApiError, PeableAuthenticationError, PeableInvalidRequestError } from '../../src/core/errors';
 import type { ServiceTokenProvider } from '../../src/core/serviceToken';
 import { createMockFetch } from '../support/mockFetch';
 import { TEST_GATEWAY_URL } from '../support/testGateway';
@@ -103,7 +103,7 @@ describe('createRestClient', () => {
     expect(result).toEqual({ id: 'pi_1', status: 'created' });
   });
 
-  test('maps a non-2xx nested-envelope response to a typed OxyPayError', async () => {
+  test('maps a non-2xx nested-envelope response to a typed PeableError', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 422,
       json: { error: { type: 'invalid_request_error', message: 'bad amount' } },
@@ -112,7 +112,7 @@ describe('createRestClient', () => {
     const client = createRestClient({ baseURL: TEST_GATEWAY_URL }, provider, { fetch: fetchImpl });
 
     await expect(client.request('POST', '/v1/payment_intents', { body: {} })).rejects.toBeInstanceOf(
-      OxyPayInvalidRequestError,
+      PeableInvalidRequestError,
     );
   });
 
@@ -146,21 +146,21 @@ describe('createRestClient', () => {
     const client = createRestClient({ baseURL: TEST_GATEWAY_URL }, provider, { fetch: fetchImpl });
 
     await expect(client.request('GET', '/v1/payment_intents/pi_1')).rejects.toBeInstanceOf(
-      OxyPayAuthenticationError,
+      PeableAuthenticationError,
     );
     // Exactly one retry: two fetch attempts, one invalidate.
     expect(requests).toHaveLength(2);
     expect(invalidateCalls).toHaveLength(1);
   });
 
-  test('wraps a network-level fetch failure as OxyPayApiError', async () => {
+  test('wraps a network-level fetch failure as PeableApiError', async () => {
     const failingFetch = (() =>
       Promise.reject(new Error('ECONNRESET'))) as unknown as typeof fetch;
     const { provider } = fakeTokenProvider(['tok_1']);
     const client = createRestClient({ baseURL: TEST_GATEWAY_URL }, provider, { fetch: failingFetch });
 
     await expect(client.request('GET', '/v1/payment_intents/pi_1')).rejects.toBeInstanceOf(
-      OxyPayApiError,
+      PeableApiError,
     );
   });
 });

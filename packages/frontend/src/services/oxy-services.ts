@@ -2,7 +2,7 @@ import { OxyServices } from '@oxyhq/core';
 import { OXY_BASE_URL } from '@/config';
 
 /**
- * Shared OxyServices instance used throughout Oxy Pay. This is the SAME instance
+ * Shared OxyServices instance used throughout Peable. This is the SAME instance
  * passed to `OxyProvider` in `app/_layout.tsx`, so every module reads and writes
  * the one canonical Oxy session.
  *

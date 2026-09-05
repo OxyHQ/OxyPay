@@ -5,7 +5,7 @@
  * `null`). Route the user to Commons — the ecosystem identity vault — to
  * CREATE an Oxy ID, or, if the server shows an identity that just isn't on
  * this device yet, to Commons' recovery-phrase import screen to sync it.
- * Oxy Pay is a Relying Party; it never mints or imports identities itself.
+ * Peable is a Relying Party; it never mints or imports identities itself.
  */
 
 /**

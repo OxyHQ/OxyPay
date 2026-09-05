@@ -1,10 +1,10 @@
 /**
- * Oxy Pay payment-request deep link — parser + contract.
+ * Peable payment-request deep link — parser + contract.
  *
- * A merchant/Gateway hands the payer an `oxypay://pay?...` link (QR or button)
+ * A merchant/Gateway hands the payer an `peable://pay?...` link (QR or button)
  * that fully describes one payment intent:
  *
- *   oxypay://pay?intent=<pi_...>&secret=<client_secret>&address=<addr>
+ *   peable://pay?intent=<pi_...>&secret=<client_secret>&address=<addr>
  *               &amount=<base_units>&network=<mainnet|testnet>
  *
  * `parsePaymentRequest` turns that URL into a validated {@link ParsedPaymentRequest}
@@ -17,10 +17,10 @@
 
 import { getNetwork, validateAddress, type NetworkType } from '@fairco.in/core';
 
-/** The `oxypay://pay` deep-link scheme + host that carries a payment request. */
-const PAYMENT_REQUEST_PREFIX = 'oxypay://pay';
+/** The `peable://pay` deep-link scheme + host that carries a payment request. */
+const PAYMENT_REQUEST_PREFIX = 'peable://pay';
 
-/** A fully validated, self-consistent Oxy Pay payment request. */
+/** A fully validated, self-consistent Peable payment request. */
 export interface ParsedPaymentRequest {
   /** Payment intent id (`pi_<hex>`). */
   intentId: string;
@@ -42,7 +42,7 @@ function isNetworkType(value: string): value is NetworkType {
 }
 
 /**
- * Split the query string of an `oxypay://pay` URL into a key→value map. Values
+ * Split the query string of an `peable://pay` URL into a key→value map. Values
  * are percent-decoded; a malformed escape (which makes `decodeURIComponent`
  * throw) surfaces as `null` so the caller rejects the whole request.
  */
@@ -70,7 +70,7 @@ function parseQuery(query: string): Map<string, string> | null {
 }
 
 /**
- * Parse and fully validate an `oxypay://pay?...` deep link.
+ * Parse and fully validate an `peable://pay?...` deep link.
  *
  * Returns `null` unless every field is present and self-consistent: the scheme
  * matches, `intent` looks like a `pi_` id, `secret` belongs to that intent,
@@ -84,7 +84,7 @@ export function parsePaymentRequest(uri: string): ParsedPaymentRequest | null {
   }
 
   const rest = trimmed.slice(PAYMENT_REQUEST_PREFIX.length);
-  // Only the bare host or a `?query` may follow — guard against `oxypay://payX`.
+  // Only the bare host or a `?query` may follow — guard against `peable://payX`.
   if (rest.length > 0 && !rest.startsWith('?')) {
     return null;
   }

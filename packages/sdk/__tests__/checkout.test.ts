@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { createOxyPayCheckout } from '../src/checkout';
+import { createPeableCheckout } from '../src/checkout';
 
 describe('"./checkout" entry', () => {
-  test('re-exports createOxyPayCheckout from browser/payerClient', () => {
-    const client = createOxyPayCheckout({ gatewayUrl: 'https://api.pay.oxy.test' });
+  test('re-exports createPeableCheckout from browser/payerClient', () => {
+    const client = createPeableCheckout({ gatewayUrl: 'https://api.pay.oxy.test' });
     expect(typeof client.getPaymentIntent).toBe('function');
     expect(typeof client.subscribe).toBe('function');
     expect(typeof client.submitTx).toBe('function');

@@ -1,6 +1,6 @@
 # Schema conventions
 
-The binding ledger for Oxy Pay's PostgreSQL schema: what each decision is, and
+The binding ledger for Peable's PostgreSQL schema: what each decision is, and
 why the obvious alternative is wrong. Read it before touching a table.
 
 This is a **greenfield** port. Production held zero documents when it was

@@ -248,7 +248,7 @@ class FallbackSocketProvider implements SocketProvider {
   connect(_host: string, _port: number): never {
     throw new Error(
       "TCP connections are not available in web browsers. " +
-      "Run Oxy Pay as a native app (iOS/Android) or via Electron for P2P connectivity.",
+      "Run Peable as a native app (iOS/Android) or via Electron for P2P connectivity.",
     );
   }
 }

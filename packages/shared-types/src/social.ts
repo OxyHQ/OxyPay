@@ -1,4 +1,4 @@
-// Social-receive + transaction-enrichment contracts — shared by the Oxy Pay
+// Social-receive + transaction-enrichment contracts — shared by the Peable
 // Gateway backend, the wallet frontend, and (indirectly) the enrichment
 // service's callers. Mirrors the Stripe-parity style of paymentIntent.ts.
 

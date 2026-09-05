@@ -1,8 +1,8 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { act, cleanup, render, screen } from '@testing-library/react';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 
-// Stubbed `@oxyhq/pay/checkout` client (via this app's one touchpoint,
+// Stubbed `@peable/sdk/checkout` client (via this app's one touchpoint,
 // `intentClient.ts`) — captures the `onUpdate` callback `subscribe` was
 // given so the test can simulate a socket push directly, and tracks the
 // returned unsubscribe so unmount-cleanup is verifiable.

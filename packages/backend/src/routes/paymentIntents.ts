@@ -13,7 +13,7 @@ import {
   PAYMENT_INTENT_STATUSES,
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
-} from "@oxypay/shared-types";
+} from "@peable/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantByAppEnvironment } from "../db/merchants/merchantRepository";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
@@ -330,7 +330,7 @@ export function createPaymentIntentsRouter(deps: {
       const clientSecret =
         typeof clientSecretParam === "string"
           ? clientSecretParam
-          : req.header("X-Oxy-Pay-Client-Secret");
+          : req.header("X-Peable-Client-Secret");
       if (!clientSecret) {
         sendError(
           res,

@@ -15,10 +15,10 @@ test('gatewayGet forwards `init` (e.g. headers) to fetch unchanged', async () =>
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 
   await gatewayGet('/v1/checkout_sessions/cs_1/public', {
-    headers: { 'X-Oxy-Pay-Client-Secret': 'secret_abc' },
+    headers: { 'X-Peable-Client-Secret': 'secret_abc' },
   });
 
-  expect(new Headers(capturedInit?.headers).get('X-Oxy-Pay-Client-Secret')).toBe('secret_abc');
+  expect(new Headers(capturedInit?.headers).get('X-Peable-Client-Secret')).toBe('secret_abc');
 });
 
 test('a failed request throws an Error whose message never contains a client_secret or a query string', async () => {

@@ -117,7 +117,7 @@ async function fetchCallerMembership(
     if (!(error instanceof SsrfRejection) && !(error instanceof UpstreamError)) {
       const message = error instanceof Error ? error.message : String(error);
       process.emitWarning(
-        `OxyPay dashboard membership check failed for application ${applicationId}: ${message}`,
+        `Peable dashboard membership check failed for application ${applicationId}: ${message}`,
       );
     }
     return false;

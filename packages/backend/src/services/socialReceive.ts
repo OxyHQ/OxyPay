@@ -50,7 +50,7 @@ export async function resolveIdentityPublicKey(
  * identity key; it never sees or stores a private key.
  *
  * Returns `null` when the recipient is keyless (no identity key to derive
- * from) — callers surface the "invite them to set up Oxy Pay" flow (spec
+ * from) — callers surface the "invite them to set up Peable" flow (spec
  * §4.5) instead of a send.
  *
  * Lazily creates the per-user cursor on first use (no merchant-style

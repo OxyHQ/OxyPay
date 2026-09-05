@@ -10,3 +10,4 @@ tsconfig.tsbuildinfo
 **/tsconfig.tsbuildinfo
 .turbo
 coverage
+.worktrees/

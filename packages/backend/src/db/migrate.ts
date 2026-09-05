@@ -9,7 +9,7 @@ import {
 } from '@oxyhq/db/migrate';
 
 /**
- * The ONLY thing that applies migrations to an Oxy Pay database.
+ * The ONLY thing that applies migrations to an Peable database.
  *
  * Run locally as `bun run db:migrate -- --target-database=<name> --phase=<run>`
  * and in production as the compiled `dist/db/migrate.js`, launched as a

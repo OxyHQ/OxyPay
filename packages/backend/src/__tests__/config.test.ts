@@ -7,7 +7,7 @@ import { loadConfig } from "../config";
  * that has nothing to do with what they assert. The value is never connected
  * to; `loadConfig` is pure over its argument.
  */
-const DB = { DATABASE_URL: "postgres://oxypay:oxypay@localhost:5432/oxypay" };
+const DB = { DATABASE_URL: "postgres://peable:peable@localhost:5432/peable" };
 
 test("serviceJwtSecret reads OXY_ACCESS_TOKEN_SECRET", () => {
   expect(loadConfig({ ...DB, OXY_ACCESS_TOKEN_SECRET: "shh" }).serviceJwtSecret).toBe("shh");

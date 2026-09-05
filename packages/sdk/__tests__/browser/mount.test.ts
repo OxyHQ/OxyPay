@@ -1,14 +1,14 @@
 /**
  * Pure, DOM-free coverage for `browser/mount.ts` (Fase 2 SDK plan, Task 6):
- * intent-id derivation/validation, the `oxypay://pay` deep-link builder, the
- * mobile/desktop heuristic, and the typed event emitter. `OxyPayCheckout.mount`
+ * intent-id derivation/validation, the `peable://pay` deep-link builder, the
+ * mobile/desktop heuristic, and the typed event emitter. `PeableCheckout.mount`
  * itself touches `document`/`window`/`navigator` and is verified in a real
  * foregrounded browser tab instead (Step 3, deferred — see the Task 6 report),
  * per this repo's AGENTS.md rule that headless runners can't catch DOM/timer
  * issues.
  */
 import { describe, expect, test } from 'bun:test';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 import { getNetwork, validateAddress } from '@fairco.in/core';
 import {
   buildPayDeepLink,
@@ -17,7 +17,7 @@ import {
   isMobileUserAgent,
   type PayDeepLinkParams,
 } from '../../src/browser/mount';
-import { OxyPayInvalidRequestError, OxyPayApiError, OxyPayError } from '../../src/core/errors';
+import { PeableInvalidRequestError, PeableApiError, PeableError } from '../../src/core/errors';
 // The wallet's REAL deep-link parser — imported directly (not re-implemented)
 // so the round-trip test below proves byte-for-byte compatibility instead of
 // just asserting against my own possibly-mistaken re-reading of its contract.
@@ -60,23 +60,23 @@ describe('deriveIntentId', () => {
     expect(deriveIntentId(SECRET, ID)).toBe(ID);
   });
 
-  test('throws OxyPayInvalidRequestError when clientSecret has no derivable pi_ id', () => {
-    expect(() => deriveIntentId('not-a-real-secret')).toThrow(OxyPayInvalidRequestError);
+  test('throws PeableInvalidRequestError when clientSecret has no derivable pi_ id', () => {
+    expect(() => deriveIntentId('not-a-real-secret')).toThrow(PeableInvalidRequestError);
   });
 
   test('throws when an explicit intentId does not match the pi_ id shape', () => {
     expect(() => deriveIntentId(SECRET, 'merch_notapaymentintent')).toThrow(
-      OxyPayInvalidRequestError,
+      PeableInvalidRequestError,
     );
   });
 
   test('throws when clientSecret does not belong to the given/derived intentId', () => {
     const otherId = 'pi_ffffffffffffffffffffffff';
-    expect(() => deriveIntentId(SECRET, otherId)).toThrow(OxyPayInvalidRequestError);
+    expect(() => deriveIntentId(SECRET, otherId)).toThrow(PeableInvalidRequestError);
   });
 
   test('throws for an empty clientSecret', () => {
-    expect(() => deriveIntentId('')).toThrow(OxyPayInvalidRequestError);
+    expect(() => deriveIntentId('')).toThrow(PeableInvalidRequestError);
   });
 });
 
@@ -92,10 +92,10 @@ describe('buildPayDeepLink', () => {
     network: NET,
   };
 
-  test('produces the exact oxypay://pay param contract', () => {
+  test('produces the exact peable://pay param contract', () => {
     const link = buildPayDeepLink(PARAMS);
     expect(link).toBe(
-      `oxypay://pay?intent=${ID}&secret=${SECRET}&address=${ADDR}&amount=150000000&network=${NET}`,
+      `peable://pay?intent=${ID}&secret=${SECRET}&address=${ADDR}&amount=150000000&network=${NET}`,
     );
   });
 
@@ -195,7 +195,7 @@ describe('createEmitter', () => {
 
   test('emitting an event with no registered handlers does not throw', () => {
     const emitter = createEmitter();
-    expect(() => emitter.emit('error', new OxyPayApiError('boom'))).not.toThrow();
+    expect(() => emitter.emit('error', new PeableApiError('boom'))).not.toThrow();
   });
 
   test('removeAll tears down every handler for every event', () => {
@@ -210,7 +210,7 @@ describe('createEmitter', () => {
 
     emitter.removeAll();
     emitter.emit('settled', INTENT);
-    emitter.emit('error', new OxyPayError('api_error', 'boom'));
+    emitter.emit('error', new PeableError('api_error', 'boom'));
 
     expect(calls).toBe(0);
   });

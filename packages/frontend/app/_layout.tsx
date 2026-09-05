@@ -109,7 +109,7 @@ function useDeepLinkHandler() {
 
   const navigateFromUrl = useCallback(
     (url: string) => {
-      // An `oxypay://pay?...` request routes to the approve-pay screen. Parse +
+      // An `peable://pay?...` request routes to the approve-pay screen. Parse +
       // validate here so we only ever push the approve screen for a well-formed
       // request; the screen re-derives the same fields from its route params.
       const payment = parsePaymentRequest(url);
@@ -303,7 +303,7 @@ export default function RootLayout() {
               oxyServices={oxyServices}
               clientId={OXY_CLIENT_ID}
               authRedirectUri={OXY_AUTH_REDIRECT_URI}
-              storageKeyPrefix="oxypay"
+              storageKeyPrefix="peable"
               queryClient={queryClient}
             >
               <ImageResolverProvider

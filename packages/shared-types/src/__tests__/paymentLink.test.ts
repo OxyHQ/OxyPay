@@ -10,7 +10,7 @@ test('PaymentLink is assignable from a representative literal', () => {
     active: true,
     metadata: { orderId: 'o1' },
     successUrl: 'https://merchant.example/thank-you',
-    url: 'https://checkout.oxy.so/l/link_abc',
+    url: 'https://checkout.peable.to/l/link_abc',
     createdAt: '2026-07-19T00:00:00.000Z',
     updatedAt: '2026-07-19T00:00:00.000Z',
   };

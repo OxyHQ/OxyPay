@@ -1,8 +1,8 @@
-# Oxy Pay Gateway — Backend core (F1 Track A) Implementation Plan
+# Peable Gateway — Backend core (F1 Track A) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Oxy Pay Gateway's non-custodial `PaymentIntent` core — `@oxypay/shared-types` + a from-scratch `@oxypay/backend` that creates payment intents, derives per-intent watch-only addresses from a merchant xpub, watches FairCoin for settlement, and fires signed webhooks + realtime socket events — independently testable via API + FairCoin testnet, with **no wallet app required**.
+**Goal:** Build the Peable Gateway's non-custodial `PaymentIntent` core — `@peable/shared-types` + a from-scratch `@peable/backend` that creates payment intents, derives per-intent watch-only addresses from a merchant xpub, watches FairCoin for settlement, and fires signed webhooks + realtime socket events — independently testable via API + FairCoin testnet, with **no wallet app required**.
 
 **Architecture:** Merchant (authenticated via a Console-issued Oxy service app-key) calls `POST /v1/payment_intents`; the backend derives a fresh receive address from the merchant's **watch-only xpub** (public key only — cannot spend), returns a `pi_…` intent + `client_secret`. A tip-driven settlement watcher observes that address on the FairCoin Explorer; on mempool-seen → `confirming`, on N confs → `settled`, emitting Socket.io events and an HMAC-signed webhook. The payer's self-custody wallet (Track B, separate plan) signs the actual on-chain tx — the backend never holds keys or funds.
 
@@ -12,7 +12,7 @@
 
 - **Non-custody invariant (legal firewall — never violate):** (1) private keys live only on user devices; the backend never sees/stores/derives them. (2) The backend never possesses or controls funds, ever. (3) The user initiates + signs every payment. (4) Of a merchant the backend stores at most a **watch-only xpub** (public → cannot spend). A change violating 1–4 is a legal bug.
 - **Realtime-first:** REST for commands, **Socket.io for state**. No polling on the critical path. The `PaymentIntent` is the single source of truth.
-- **Stripe parity:** prefixed IDs (`pi_`, `evt_`); `Idempotency-Key` on every create; `Oxy-Pay-Version` date header; HMAC-signed webhooks with dotted event types (`payment_intent.settled`); `client_secret` reference; `oxypay.*` SDK ergonomics (later); test/live mode per app-key.
+- **Stripe parity:** prefixed IDs (`pi_`, `evt_`); `Idempotency-Key` on every create; `Peable-Version` date header; HMAC-signed webhooks with dotted event types (`payment_intent.settled`); `client_secret` reference; `peable.*` SDK ergonomics (later); test/live mode per app-key.
 - **Amounts:** `bigint` base units (m⊜; `1 FAIR = UNITS_PER_COIN = 100_000_000`). Never floats. Mongo stores the decimal string; the domain uses `bigint`.
 - **Package manager:** `bun` only; hoisted linker (`bunfig.toml` at root). Commit `bun.lock` with its `package.json` change. Tests via `bun test`.
 - **Clean code, no tricky things:** no `as any`, `@ts-ignore`, `!`, `var`, `console.log`, silent `catch {}`, TODO/HACK, barrel/re-export shims. Direct imports from owners. `setInterval` in singletons calls `.unref?.()`.
@@ -46,7 +46,7 @@ packages/backend/src/
   models/PaymentIntent.ts       # pi_ id, merchantId, amount(str), address, index, status, txid, confs, clientSecret, idempotencyKey, expiresAt, metadata
   realtime/socket.ts            # Socket.io init + emitIntentUpdate(intent)
   routes/paymentIntents.ts      # POST /v1/payment_intents, GET /:id, POST /:id/reject
-  server.ts                     # express wiring, Oxy-Pay-Version header, error handler, watcher boot
+  server.ts                     # express wiring, Peable-Version header, error handler, watcher boot
   __tests__/…                   # colocated bun tests per unit
 ```
 
@@ -55,20 +55,20 @@ packages/backend/src/
 ### Task 1: Repo prep — branch, archive dead backend, scaffold new packages
 
 **Files:**
-- Create branch `feat/oxypay-gateway-f1a`
+- Create branch `feat/peable-gateway-f1a`
 - Archive + remove: `packages/backend/*` (custodial, incl. uncommitted WIP)
 - Reset: `packages/shared-types/src/*`
 - Modify: `packages/backend/package.json`, `packages/shared-types/package.json`, root `tsconfig.json` refs
 
 **Interfaces:**
-- Produces: an empty, compiling `@oxypay/backend` + `@oxypay/shared-types` skeleton; `packages/frontend` left untouched (Track B).
+- Produces: an empty, compiling `@peable/backend` + `@peable/shared-types` skeleton; `packages/frontend` left untouched (Track B).
 
-- [ ] **Step 1: Preserve the current WIP so nothing is lost.** From `/home/nate/Oxy/OxyPay`:
+- [ ] **Step 1: Preserve the current WIP so nothing is lost.** From `/home/nate/Oxy/Peable`:
 
 ```bash
 git checkout -b archive/custodial-backend-2026-07-18
 git add -A && git commit -m "chore: archive custodial backend + WIP before Gateway rewrite"
-git checkout main && git checkout -b feat/oxypay-gateway-f1a
+git checkout main && git checkout -b feat/peable-gateway-f1a
 ```
 
 Expected: the archive branch holds the full pre-rewrite tree; the feature branch starts from clean `main`.
@@ -79,19 +79,19 @@ Expected: the archive branch holds the full pre-rewrite tree; the feature branch
 git rm -r packages/backend/src packages/backend/server.ts packages/backend/dist
 ```
 
-- [ ] **Step 3: Rewrite `packages/backend/package.json`** — name `@oxypay/backend`, scripts `dev` (`bun --watch src/server.ts`), `build` (`tsc`), `test` (`bun test`), `typecheck` (`tsc --noEmit`); deps: `express`, `mongoose`, `socket.io`, `@oxyhq/core`, `@fairco.in/core`, `@scure/bip32`, `zod`; devDeps `@types/express`, `mongodb-memory-server`. Run `bun install` from root; commit `bun.lock` in this task's commit.
+- [ ] **Step 3: Rewrite `packages/backend/package.json`** — name `@peable/backend`, scripts `dev` (`bun --watch src/server.ts`), `build` (`tsc`), `test` (`bun test`), `typecheck` (`tsc --noEmit`); deps: `express`, `mongoose`, `socket.io`, `@oxyhq/core`, `@fairco.in/core`, `@scure/bip32`, `zod`; devDeps `@types/express`, `mongodb-memory-server`. Run `bun install` from root; commit `bun.lock` in this task's commit.
 
 - [ ] **Step 4: Reset `packages/shared-types/src`** — delete the custodial type files (`wallet.ts`, `paymentMethod.ts`, old `payment.ts`/`invoice.ts`/`transaction.ts`), leave `src/` empty except a placeholder `index.ts` (`export {};`).
 
 - [ ] **Step 5: Verify the monorepo still installs + compiles.**
 
-Run: `cd /home/nate/Oxy/OxyPay && bun install && bun run --filter @oxypay/shared-types typecheck && bun run --filter @oxypay/backend typecheck`
+Run: `cd /home/nate/Oxy/Peable && bun install && bun run --filter @peable/shared-types typecheck && bun run --filter @peable/backend typecheck`
 Expected: PASS (empty packages compile).
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add -A && git commit -m "chore(gateway): scaffold empty @oxypay/backend + reset shared-types"
+git add -A && git commit -m "chore(gateway): scaffold empty @peable/backend + reset shared-types"
 ```
 
 ---
@@ -155,7 +155,7 @@ export function isValidStatusTransition(from: PaymentIntentStatus, to: PaymentIn
 
 - [ ] **Step 5: Implement `event.ts`** + wire `index.ts` to export from `money`/`paymentIntent`/`event` (package entry, direct exports — not a compat shim).
 
-- [ ] **Step 6: Run tests + typecheck.** Run: `bun test packages/shared-types && bun run --filter @oxypay/shared-types typecheck` — Expected: PASS.
+- [ ] **Step 6: Run tests + typecheck.** Run: `bun test packages/shared-types && bun run --filter @peable/shared-types typecheck` — Expected: PASS.
 
 - [ ] **Step 7: Commit.** `git add -A && git commit -m "feat(shared-types): PaymentIntent + webhook event contract"`
 
@@ -284,7 +284,7 @@ export function deriveIntentAddress(xpub: string, change: number, index: number,
 - [ ] **Step 1: Pin the `/api/transaction/:txid` response shape.** `curl -s "https://explorer.fairco.in/api/transaction/<a-real-testnet-or-mainnet-txid>?network=…"` and record the exact JSON path to outputs (address + value) in a comment. (Mainnet has live txids; testnet may be empty.)
 - [ ] **Step 2: Failing test** — mock `fetch`; `getTip` parses `stats.blockHeight`; `getTransaction` maps outputs to `{address, valueSat: bigint}` and returns `null` on 404; `verifyPayment` returns `paid:true` only when an output matches address + `valueSat >= expectedSat`.
 - [ ] **Step 3: Run — FAIL.**
-- [ ] **Step 4: Implement** the client against the confirmed endpoints; `config.ts` reads `EXPLORER_BASE_URL` (default from `@fairco.in/core`), `OXYPAY_NETWORK`, `MONGODB_URI`, `PORT`, Oxy app-key env — typed, no magic numbers.
+- [ ] **Step 4: Implement** the client against the confirmed endpoints; `config.ts` reads `EXPLORER_BASE_URL` (default from `@fairco.in/core`), `PEABLE_NETWORK`, `MONGODB_URI`, `PORT`, Oxy app-key env — typed, no magic numbers.
 - [ ] **Step 5: Run — PASS**, plus one **live mainnet** assertion (`getTip('mainnet') > 0`; testnet is currently empty so assert against mainnet).
 - [ ] **Step 6: Commit.** `git commit -am "feat(backend): FairCoin Explorer client (tip + address received)"`
 
@@ -308,7 +308,7 @@ export function deriveIntentAddress(xpub: string, change: number, index: number,
 
 **Files:** Create `packages/backend/src/services/webhookDispatcher.ts`; Test `…/__tests__/webhookDispatcher.test.ts`
 
-**Interfaces:** Produces `deliver(event: WebhookEvent, merchant: Merchant): Promise<void>` — builds the `evt_` envelope, signs via `signWebhook(merchant.webhookSecret, …)`, POSTs through `safeFetch` (SSRF-safe) with the `Oxy-Pay-Signature` header; retries with backoff; never throws into the watcher.
+**Interfaces:** Produces `deliver(event: WebhookEvent, merchant: Merchant): Promise<void>` — builds the `evt_` envelope, signs via `signWebhook(merchant.webhookSecret, …)`, POSTs through `safeFetch` (SSRF-safe) with the `Peable-Signature` header; retries with backoff; never throws into the watcher.
 
 - [ ] **Step 1: Failing test** — a stub endpoint receives a correctly-signed POST (verify with `verifyWebhook`); a 500 triggers a retry; an SSRF target (`http://169.254.169.254`) is refused by `safeFetch`.
 - [ ] **Step 2: Run — FAIL.**
@@ -350,7 +350,7 @@ export function deriveIntentAddress(xpub: string, change: number, index: number,
 
 **Files:** Create `packages/backend/src/server.ts`, `db.ts`; Test `…/__tests__/e2e.test.ts`
 
-**Interfaces:** `server.ts` wires express (CORS `createOxyCors`, rate-limit `createOxyRateLimit`, `Oxy-Pay-Version` response header, routes, JSON error handler), boots mongoose + the `SettlementWatcher`, and hands `emitIntentUpdate` + `webhookDispatcher.deliver` to the watcher as `onChange`.
+**Interfaces:** `server.ts` wires express (CORS `createOxyCors`, rate-limit `createOxyRateLimit`, `Peable-Version` response header, routes, JSON error handler), boots mongoose + the `SettlementWatcher`, and hands `emitIntentUpdate` + `webhookDispatcher.deliver` to the watcher as `onChange`.
 
 - [ ] **Step 1: Failing e2e test** — with memory mongo + a stubbed Explorer: create an intent → drive the watcher through `confirming`→`settled` → assert a socket `intent.updated` AND a signed webhook were emitted, and that **no key/seed field exists anywhere on the Merchant/PaymentIntent docs** (non-custody assertion).
 - [ ] **Step 2: Run — FAIL.**

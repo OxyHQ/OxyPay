@@ -1,4 +1,4 @@
-// Builds the `oxypay://pay?...` deep link the Oxy Pay wallet's
+// Builds the `peable://pay?...` deep link the Peable wallet's
 // `parsePaymentRequest` parses (packages/frontend/src/pay/payment-request.ts).
 // Param names and encoding MUST match that parser exactly — a mismatch means
 // the wallet silently rejects the link. Verified against the wallet's REAL
@@ -9,7 +9,7 @@
 // wallet's parser decodes every value with a plain `decodeURIComponent`
 // (which reads `+` literally, not as a space) — `encodeURIComponent` is its
 // exact inverse, `URLSearchParams`'s encoding is not.
-import type { NetworkType } from '@oxypay/shared-types';
+import type { NetworkType } from '@peable/shared-types';
 
 export interface PayDeepLinkParams {
   intentId: string;
@@ -32,5 +32,5 @@ export function buildPayDeepLink(params: PayDeepLinkParams): string {
   )
     .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
     .join('&');
-  return `oxypay://pay?${query}`;
+  return `peable://pay?${query}`;
 }

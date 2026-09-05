@@ -1,5 +1,5 @@
 // Shared fixtures for wiring a real `RestClient` (service-token provider +
-// REST client, exactly what `OxyPay`'s constructor builds) against an
+// REST client, exactly what `Peable`'s constructor builds) against an
 // injected fetch mock, so resource-level tests exercise the FULL path
 // (resource → RestClient → fetch) instead of stubbing `RestClient` itself.
 
@@ -30,7 +30,7 @@ export function serviceTokenMintResponse(
   };
 }
 
-/** Build a `RestClient` wired exactly like `OxyPay`'s constructor, against the given fetch. */
+/** Build a `RestClient` wired exactly like `Peable`'s constructor, against the given fetch. */
 export function buildTestClient(fetchImpl: typeof fetch): RestClient {
   const tokenProvider = createServiceTokenProvider(
     { publicKey: TEST_PUBLIC_KEY, secret: TEST_SECRET, oxyApiUrl: TEST_OXY_API_URL },

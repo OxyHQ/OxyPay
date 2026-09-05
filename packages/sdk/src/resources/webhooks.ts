@@ -1,8 +1,8 @@
-import { verifyWebhook, type WebhookEvent, type WebhookEventType } from '@oxypay/shared-types';
-import { OxyPaySignatureVerificationError } from '../core/errors';
+import { verifyWebhook, type WebhookEvent, type WebhookEventType } from '@peable/shared-types';
+import { PeableSignatureVerificationError } from '../core/errors';
 
-/** Header the Gateway's `webhookDispatcher.deliver` signs with (`Oxy-Pay-Signature`). */
-export const WEBHOOK_SIGNATURE_HEADER = 'Oxy-Pay-Signature';
+/** Header the Gateway's `webhookDispatcher.deliver` signs with (`Peable-Signature`). */
+export const WEBHOOK_SIGNATURE_HEADER = 'Peable-Signature';
 
 /** Default replay-tolerance window, matching the backend's own tests/usage. */
 const DEFAULT_TOLERANCE_SEC = 300;
@@ -45,8 +45,8 @@ export class WebhooksResource {
   /**
    * Verify a webhook delivery and parse it into a typed `WebhookEvent`.
    * Verifies via the SAME `verifyWebhook` the Gateway signs with
-   * (`@oxypay/shared-types`) so the algorithm can never drift between the two
-   * sides. Throws `OxyPaySignatureVerificationError` on a bad/stale/tampered
+   * (`@peable/shared-types`) so the algorithm can never drift between the two
+   * sides. Throws `PeableSignatureVerificationError` on a bad/stale/tampered
    * signature or a malformed payload — never returns a partially-trusted
    * event.
    */
@@ -61,7 +61,7 @@ export class WebhooksResource {
 
     const verified = verifyWebhook(endpointSecret, rawBody, signatureHeader, toleranceSec, nowSec);
     if (!verified) {
-      throw new OxyPaySignatureVerificationError(
+      throw new PeableSignatureVerificationError(
         'Webhook signature verification failed — the payload, signature header, or secret do not match, or the timestamp is stale.',
       );
     }
@@ -70,13 +70,13 @@ export class WebhooksResource {
     try {
       parsed = JSON.parse(rawBody);
     } catch {
-      throw new OxyPaySignatureVerificationError(
+      throw new PeableSignatureVerificationError(
         'Webhook signature verified, but the payload is not valid JSON',
       );
     }
 
     if (!isWebhookEventShape(parsed)) {
-      throw new OxyPaySignatureVerificationError(
+      throw new PeableSignatureVerificationError(
         'Webhook signature verified, but the payload does not match the expected event shape',
       );
     }

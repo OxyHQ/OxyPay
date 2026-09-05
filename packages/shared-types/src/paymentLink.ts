@@ -16,7 +16,7 @@ export interface PaymentLink {
   metadata: Record<string, string>;
   /** Optional post-payment redirect target for the checkout page. */
   successUrl?: string;
-  /** Canonical `checkout.oxy.so/l/<id>` URL. */
+  /** Canonical `checkout.peable.to/l/<id>` URL. */
   url: string;
   createdAt: string;
   updatedAt: string;

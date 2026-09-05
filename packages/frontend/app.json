@@ -1,19 +1,22 @@
 {
   "expo": {
-    "name": "Oxy Pay",
-    "slug": "oxypay",
+    "name": "Peable",
+    "slug": "peable",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": [
-      "oxypay",
+      "peable",
       "faircoin"
     ],
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "so.oxy.pay",
+      "bundleIdentifier": "to.peable.app",
       "icon": "./assets/icon.png",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["oxycommons"]
+      },
       "entitlements": {
         "aps-environment": "production",
         "keychain-access-groups": ["$(AppIdentifierPrefix)group.so.oxy.shared"]
@@ -26,7 +29,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "predictiveBackGestureEnabled": true,
-      "package": "so.oxy.pay",
+      "package": "to.peable.app",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -36,7 +39,7 @@
               "scheme": "faircoin"
             },
             {
-              "scheme": "oxypay"
+              "scheme": "peable"
             }
           ],
           "category": [
@@ -74,13 +77,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Oxy Pay needs camera access to scan QR codes."
+          "cameraPermission": "Peable needs camera access to scan QR codes."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Oxy Pay uses your location to show nearby places that accept FairCoin."
+          "locationWhenInUsePermission": "Peable uses your location to show nearby places that accept FairCoin."
         }
       ],
       "@maplibre/maplibre-react-native",

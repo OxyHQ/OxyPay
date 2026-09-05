@@ -3,7 +3,7 @@ import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
-import { isBaseUnitString, type CreateCheckoutSessionParams } from "@oxypay/shared-types";
+import { isBaseUnitString, type CreateCheckoutSessionParams } from "@peable/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import { findIntentById } from "../db/payments/paymentIntentRepository";
@@ -153,7 +153,7 @@ export function createCheckoutSessionsRouter(deps: {
 
   // Public payer path — UNAUTHENTICATED, rate-limited, authorized by
   // possession of the wrapped intent's `client_secret` (query param or
-  // `X-Oxy-Pay-Client-Secret` header — mirrors `GET /v1/payment_intents/:id`).
+  // `X-Peable-Client-Secret` header — mirrors `GET /v1/payment_intents/:id`).
   // Never leaks `merchant`/`paymentIntent` without a proven secret.
   router.get(
     "/v1/checkout_sessions/:id/public",
@@ -187,7 +187,7 @@ export function createCheckoutSessionsRouter(deps: {
       const clientSecret =
         typeof clientSecretParam === "string"
           ? clientSecretParam
-          : req.header("X-Oxy-Pay-Client-Secret");
+          : req.header("X-Peable-Client-Secret");
       if (!clientSecret) {
         sendError(res, 401, "authentication_error", "missing client_secret");
         return;

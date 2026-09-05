@@ -3,7 +3,7 @@
 // `Idempotency-Key` when given, serializes query params, parses JSON, and
 // maps every non-2xx response via `errors.ts`.
 
-import { errorFromResponse, OxyPayApiError } from './errors';
+import { errorFromResponse, PeableApiError } from './errors';
 import type { ServiceTokenProvider } from './serviceToken';
 
 const HTTP_UNAUTHORIZED = 401;
@@ -77,8 +77,8 @@ export function createRestClient(
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       });
     } catch (cause) {
-      throw new OxyPayApiError(
-        `Failed to reach the Oxy Pay Gateway at ${config.baseURL}: ${
+      throw new PeableApiError(
+        `Failed to reach the Peable Gateway at ${config.baseURL}: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -93,7 +93,7 @@ export function createRestClient(
       return performRequest<T>(method, path, opts, false);
     }
 
-    // The Gateway echoes a date-based `Oxy-Pay-Version` response header
+    // The Gateway echoes a date-based `Peable-Version` response header
     // (Stripe parity). No SDK behavior depends on it yet, so it is
     // deliberately not read here — nothing to do with it today.
     const body = await readJsonBody(response);

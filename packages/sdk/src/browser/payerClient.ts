@@ -7,20 +7,20 @@
 // Holds NO service token and NO private key — only a public `client_secret`,
 // the exact payer capability the wallet's own payer path already uses
 // (non-custody invariant). `core/errors.ts` is the one `./core/*` import: it
-// is a pure status-code→`OxyPayError` mapper with no service-token/secret
+// is a pure status-code→`PeableError` mapper with no service-token/secret
 // machinery, so reusing it here (instead of throwing bare `Error`) does not
 // carry any of the merchant-authed code `checkout.ts` warns against into the
 // browser bundle.
 import { io, type Socket } from 'socket.io-client';
-import type { PaymentIntent } from '@oxypay/shared-types';
-import { errorFromResponse, OxyPayApiError, OxyPayInvalidRequestError } from '../core/errors';
+import type { PaymentIntent } from '@peable/shared-types';
+import { errorFromResponse, PeableApiError, PeableInvalidRequestError } from '../core/errors';
 
-const DEFAULT_GATEWAY_URL = 'https://api.pay.oxy.so';
+const DEFAULT_GATEWAY_URL = 'https://api.peable.to';
 
-export interface OxyPayCheckoutClient {
+export interface PeableCheckoutClient {
   /**
    * `GET /v1/payment_intents/:id` — the initial REST snapshot. Sends
-   * `clientSecret` via the `X-Oxy-Pay-Client-Secret` header, never a query
+   * `clientSecret` via the `X-Peable-Client-Secret` header, never a query
    * param, so the capability token never lands in server/CDN access logs.
    */
   getPaymentIntent(id: string, clientSecret: string): Promise<PaymentIntent>;
@@ -34,8 +34,8 @@ export interface OxyPayCheckoutClient {
   submitTx(id: string, clientSecret: string, txid: string): Promise<PaymentIntent>;
 }
 
-export interface CreateOxyPayCheckoutOptions {
-  /** Gateway base URL. Default `https://api.pay.oxy.so`. */
+export interface CreatePeableCheckoutOptions {
+  /** Gateway base URL. Default `https://api.peable.to`. */
   gatewayUrl?: string;
 }
 
@@ -64,20 +64,20 @@ async function readJsonBody(response: Response): Promise<unknown> {
 /**
  * Factory for the payer-side client core.
  */
-export function createOxyPayCheckout(
-  opts: CreateOxyPayCheckoutOptions = {},
-): OxyPayCheckoutClient {
+export function createPeableCheckout(
+  opts: CreatePeableCheckoutOptions = {},
+): PeableCheckoutClient {
   const baseUrl = (opts.gatewayUrl ?? DEFAULT_GATEWAY_URL).replace(/\/$/, '');
 
   async function getPaymentIntent(id: string, clientSecret: string): Promise<PaymentIntent> {
     let response: Response;
     try {
       response = await fetch(`${baseUrl}/v1/payment_intents/${encodeURIComponent(id)}`, {
-        headers: { 'X-Oxy-Pay-Client-Secret': clientSecret },
+        headers: { 'X-Peable-Client-Secret': clientSecret },
       });
     } catch (cause) {
-      throw new OxyPayApiError(
-        `Failed to reach the Oxy Pay Gateway at ${baseUrl}: ${
+      throw new PeableApiError(
+        `Failed to reach the Peable Gateway at ${baseUrl}: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -99,8 +99,8 @@ export function createOxyPayCheckout(
         },
       );
     } catch (cause) {
-      throw new OxyPayApiError(
-        `Failed to reach the Oxy Pay Gateway at ${baseUrl}: ${
+      throw new PeableApiError(
+        `Failed to reach the Peable Gateway at ${baseUrl}: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -133,8 +133,8 @@ export function createOxyPayCheckout(
       ack = await socket.emitWithAck('subscribe', { intentId: id, clientSecret });
     } catch (cause) {
       socket.disconnect();
-      throw new OxyPayApiError(
-        `Failed to reach the Oxy Pay Gateway realtime layer at ${baseUrl}: ${
+      throw new PeableApiError(
+        `Failed to reach the Peable Gateway realtime layer at ${baseUrl}: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -145,7 +145,7 @@ export function createOxyPayCheckout(
       // an unknown intent AND a wrong client_secret (anti-enumeration — see
       // `realtime/socket.ts`), so this is deliberately InvalidRequestError,
       // not PermissionError: there is no signal here to tell the two apart.
-      throw new OxyPayInvalidRequestError(
+      throw new PeableInvalidRequestError(
         `Gateway rejected subscription to payment intent ${id} ` +
           '(unknown payment intent or invalid client_secret)',
       );

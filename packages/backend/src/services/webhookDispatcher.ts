@@ -9,7 +9,7 @@ import {
   type PaymentIntent,
   type WebhookEvent,
   type WebhookEventType,
-} from "@oxypay/shared-types";
+} from "@peable/shared-types";
 import { newId } from "../lib/ids";
 
 /** The concrete `safeFetch` signature — injected in tests, real one in prod. */
@@ -93,7 +93,7 @@ export async function deliver(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Oxy-Pay-Signature": signature,
+          "Peable-Signature": signature,
         },
         body: rawBody,
       });
@@ -109,7 +109,7 @@ export async function deliver(
     } catch (error) {
       if (error instanceof SsrfRejection) {
         process.emitWarning(
-          `OxyPay webhook target refused as SSRF-unsafe: ${target.url} (${error.message})`,
+          `Peable webhook target refused as SSRF-unsafe: ${target.url} (${error.message})`,
         );
         return { delivered: false, attempts };
       }
@@ -118,7 +118,7 @@ export async function deliver(
         // than throwing out of a best-effort delivery.
         const message = error instanceof Error ? error.message : String(error);
         process.emitWarning(
-          `OxyPay webhook delivery error for ${target.url}: ${message}`,
+          `Peable webhook delivery error for ${target.url}: ${message}`,
         );
         return { delivered: false, attempts };
       }

@@ -21,7 +21,7 @@ describe('CheckoutResource.sessions', () => {
           amount: '100000',
           network: 'testnet',
           metadata: {},
-          url: 'https://checkout.oxy.so/c/cs_1',
+          url: 'https://checkout.peable.to/c/cs_1',
         },
       };
     });

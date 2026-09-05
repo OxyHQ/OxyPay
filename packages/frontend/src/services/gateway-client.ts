@@ -4,12 +4,12 @@ import type {
   SocialNextAddressResponse,
   SocialReceiveCursorResponse,
   EnrichmentResult,
-} from '@oxypay/shared-types';
+} from '@peable/shared-types';
 import { oxyServices } from '@/services/oxy-services';
 import { GATEWAY_API_URL } from '@/config';
 
 /**
- * HTTP client for the Oxy Pay Gateway backend (`api.pay.oxy.so`).
+ * HTTP client for the Peable Gateway backend (`api.peable.to`).
  *
  * A linked client owns its own base URL, cache, and request queue, but keeps its
  * bearer token in lockstep with the canonical Oxy session and delegates 401

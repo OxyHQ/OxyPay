@@ -1,7 +1,7 @@
 {
-  "name": "@oxypay/shared-types",
+  "name": "@peable/shared-types",
   "version": "0.2.0",
-  "description": "Shared TypeScript types for the Oxy Pay Gateway — the wire contract shared by the backend, SDK, and frontend.",
+  "description": "Shared TypeScript types for the Peable Gateway — the wire contract shared by the backend, SDK, and frontend.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
   "types": "dist/types/index.d.ts",
@@ -29,19 +29,19 @@
     "dist"
   ],
   "keywords": [
-    "oxypay",
+    "peable",
     "gateway",
     "payments",
     "types"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/OxyHQ/OxyPay.git",
+    "url": "https://github.com/OxyHQ/Peable.git",
     "directory": "packages/shared-types"
   },
-  "author": "Oxy Pay",
+  "author": "Peable",
   "license": "MIT",
-  "homepage": "https://oxy.so",
+  "homepage": "https://peable.to",
   "engines": {
     "node": ">=18.0.0"
   },

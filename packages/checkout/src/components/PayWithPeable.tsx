@@ -1,4 +1,4 @@
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 import { formatFair } from '@fairco.in/core';
 import { buildPayDeepLink } from '../lib/deepLink';
 import { Qr } from './Qr';
@@ -11,10 +11,10 @@ function isMobileDevice(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-// Mode A: pay through the Oxy Pay wallet app. Mobile opens the `oxypay://`
+// Mode A: pay through the Peable wallet app. Mobile opens the `peable://`
 // deep link directly; desktop shows a QR of the same link for the payer to
 // scan with their phone.
-export function PayWithOxyPay({ intent }: { intent: PaymentIntent }) {
+export function PayWithPeable({ intent }: { intent: PaymentIntent }) {
   const deepLink = buildPayDeepLink({
     intentId: intent.id,
     clientSecret: intent.clientSecret,
@@ -24,22 +24,22 @@ export function PayWithOxyPay({ intent }: { intent: PaymentIntent }) {
   });
 
   return (
-    <div className="pay-with-oxypay">
-      <p className="pay-with-oxypay__amount">{formatFair(BigInt(intent.amount))} FAIR</p>
+    <div className="pay-with-peable">
+      <p className="pay-with-peable__amount">{formatFair(BigInt(intent.amount))} FAIR</p>
       {isMobileDevice() ? (
         <button
           type="button"
-          className="pay-with-oxypay__button"
+          className="pay-with-peable__button"
           onClick={() => {
             window.location.href = deepLink;
           }}
         >
-          Pay with Oxy Pay
+          Pay with Peable
         </button>
       ) : (
-        <div className="pay-with-oxypay__qr">
+        <div className="pay-with-peable__qr">
           <Qr text={deepLink} size={200} />
-          <p className="pay-with-oxypay__hint">Scan with the Oxy Pay app</p>
+          <p className="pay-with-peable__hint">Scan with the Peable app</p>
         </div>
       )}
     </div>

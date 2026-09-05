@@ -65,7 +65,7 @@ test("falls back to a neutral name and null avatar/description when unset", asyn
 
   const display = await resolveMerchantDisplay(merchant);
 
-  expect(display.name).toBe("Oxy Pay merchant");
+  expect(display.name).toBe("Peable merchant");
   expect(display.avatarUrl).toBeNull();
   expect(display.description).toBeNull();
 });

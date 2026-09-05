@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import type { PaymentIntentStatus } from "@oxypay/shared-types";
+import type { PaymentIntentStatus } from "@peable/shared-types";
 import { applyEvent, type IntentEvent } from "../intentState";
 
 // Happy-path table: (state, event) -> expected next status.

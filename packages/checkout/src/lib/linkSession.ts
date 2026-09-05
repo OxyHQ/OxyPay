@@ -8,7 +8,7 @@ import {
   PAYMENT_INTENT_STATUSES,
   isValidStatusTransition,
   type PaymentIntent,
-} from '@oxypay/shared-types';
+} from '@peable/shared-types';
 
 export interface OpenIntentRef {
   id: string;
@@ -16,7 +16,7 @@ export interface OpenIntentRef {
 }
 
 function storageKey(linkId: string): string {
-  return `oxypay:link-intent:${linkId}`;
+  return `peable:link-intent:${linkId}`;
 }
 
 /** Raw sessionStorage read — does NOT check whether the referenced intent is
