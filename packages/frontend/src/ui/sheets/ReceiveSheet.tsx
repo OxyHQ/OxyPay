@@ -103,7 +103,7 @@ export function ReceiveSheet({
 
     // expo-sharing requires a file URI, so write the payment request to a
     // temporary text file in the cache directory and share that.
-    const file = new File(Paths.cache, "oxypay-payment-request.txt");
+    const file = new File(Paths.cache, "peable-payment-request.txt");
     if (file.exists) file.delete();
     file.create();
     file.write(payload);

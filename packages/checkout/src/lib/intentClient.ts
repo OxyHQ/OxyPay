@@ -1,15 +1,15 @@
-// The ONLY place this app touches `@oxyhq/pay/checkout`. Every route reads a
+// The ONLY place this app touches `@peable/sdk/checkout`. Every route reads a
 // `PaymentIntent` through the functions below, never through
-// `createOxyPayCheckout` directly — swapping the workspace SDK for the
+// `createPeableCheckout` directly — swapping the workspace SDK for the
 // published one later is a one-line change here, and tests mock this module
 // instead of the SDK package (the frozen client core throws "not
 // implemented" for every method until the SDK plan's Task 5 lands on
-// feat/oxypay-sdk-embed and merges back).
-import { createOxyPayCheckout } from '@oxyhq/pay/checkout';
-import type { PaymentIntent } from '@oxypay/shared-types';
+// feat/peable-sdk-embed and merges back).
+import { createPeableCheckout } from '@peable/sdk/checkout';
+import type { PaymentIntent } from '@peable/shared-types';
 import { GATEWAY_URL } from './config';
 
-const client = createOxyPayCheckout({ gatewayUrl: GATEWAY_URL });
+const client = createPeableCheckout({ gatewayUrl: GATEWAY_URL });
 
 export function getPaymentIntent(id: string, clientSecret: string): Promise<PaymentIntent> {
   return client.getPaymentIntent(id, clientSecret);

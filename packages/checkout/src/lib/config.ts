@@ -3,10 +3,10 @@
 // so no other module inlines a magic string or a raw `import.meta.env.VITE_*`
 // lookup.
 
-/** Oxy Pay Gateway base URL — the REST + socket API this app talks to. */
+/** Peable Gateway base URL — the REST + socket API this app talks to. */
 export const GATEWAY_URL: string =
-  import.meta.env.VITE_GATEWAY_URL ?? 'https://api.pay.oxy.so';
+  import.meta.env.VITE_GATEWAY_URL ?? 'https://api.peable.to';
 
 /** Custom URL scheme the wallet app registers for the "open in wallet" deep link. */
 export const WALLET_DEEPLINK_SCHEME: string =
-  import.meta.env.VITE_WALLET_DEEPLINK_SCHEME ?? 'oxypay';
+  import.meta.env.VITE_WALLET_DEEPLINK_SCHEME ?? 'peable';

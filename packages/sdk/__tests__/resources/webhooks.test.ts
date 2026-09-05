@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { signWebhook, type WebhookEvent } from '@oxypay/shared-types';
+import { signWebhook, type WebhookEvent } from '@peable/shared-types';
 import { WebhooksResource } from '../../src/resources/webhooks';
-import { OxyPaySignatureVerificationError } from '../../src/core/errors';
+import { PeableSignatureVerificationError } from '../../src/core/errors';
 
 const SECRET = 'whsec_test_secret';
 const TIMESTAMP = 1700000000;
@@ -56,7 +56,7 @@ describe('WebhooksResource.constructEvent', () => {
 
     expect(() =>
       resource.constructEvent(tampered, header, SECRET, { toleranceSec: Number.MAX_SAFE_INTEGER }),
-    ).toThrow(OxyPaySignatureVerificationError);
+    ).toThrow(PeableSignatureVerificationError);
   });
 
   test('rejects a signature produced with the wrong secret', () => {
@@ -65,7 +65,7 @@ describe('WebhooksResource.constructEvent', () => {
 
     expect(() =>
       resource.constructEvent(RAW_BODY, header, SECRET, { toleranceSec: Number.MAX_SAFE_INTEGER }),
-    ).toThrow(OxyPaySignatureVerificationError);
+    ).toThrow(PeableSignatureVerificationError);
   });
 
   test('rejects a stale timestamp beyond the default tolerance', () => {
@@ -74,7 +74,7 @@ describe('WebhooksResource.constructEvent', () => {
     const resource = new WebhooksResource();
 
     expect(() => resource.constructEvent(RAW_BODY, header, SECRET)).toThrow(
-      OxyPaySignatureVerificationError,
+      PeableSignatureVerificationError,
     );
   });
 
@@ -84,7 +84,7 @@ describe('WebhooksResource.constructEvent', () => {
     const resource = new WebhooksResource();
 
     expect(() => resource.constructEvent(RAW_BODY, header, SECRET, { toleranceSec: 60 })).toThrow(
-      OxyPaySignatureVerificationError,
+      PeableSignatureVerificationError,
     );
     expect(() =>
       resource.constructEvent(RAW_BODY, header, SECRET, { toleranceSec: 300 }),
@@ -98,7 +98,7 @@ describe('WebhooksResource.constructEvent', () => {
 
     expect(() =>
       resource.constructEvent(rawBody, header, SECRET, { toleranceSec: Number.MAX_SAFE_INTEGER }),
-    ).toThrow(OxyPaySignatureVerificationError);
+    ).toThrow(PeableSignatureVerificationError);
   });
 
   test('rejects a signature-valid JSON body that does not match the event shape', () => {
@@ -108,14 +108,14 @@ describe('WebhooksResource.constructEvent', () => {
 
     expect(() =>
       resource.constructEvent(rawBody, header, SECRET, { toleranceSec: Number.MAX_SAFE_INTEGER }),
-    ).toThrow(OxyPaySignatureVerificationError);
+    ).toThrow(PeableSignatureVerificationError);
   });
 
   test('rejects a malformed signature header', () => {
     const resource = new WebhooksResource();
 
     expect(() => resource.constructEvent(RAW_BODY, 'not-a-signature', SECRET)).toThrow(
-      OxyPaySignatureVerificationError,
+      PeableSignatureVerificationError,
     );
   });
 });

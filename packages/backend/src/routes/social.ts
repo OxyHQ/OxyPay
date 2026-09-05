@@ -7,7 +7,7 @@ import { createOxyAuthMiddleware, getRequiredOxyUserId } from "@oxyhq/core/serve
 import type {
   SocialNextAddressResponse,
   SocialReceiveCursorResponse,
-} from "@oxypay/shared-types";
+} from "@peable/shared-types";
 import { reserveNextSocialAddress, getReservedThrough } from "../services/socialReceive";
 import { getDb } from "../db/postgres";
 import { insertSendAttribution } from "../db/social/sendAttribution";
@@ -118,7 +118,7 @@ export function createSocialRouter(deps?: { requireOxyUser?: RequestHandler }): 
         // observability. Log it and surface a distinct 5xx instead.
         const message = err instanceof Error ? err.message : String(err);
         process.emitWarning(
-          `OxyPay social-send profile lookup failed for @${username}: ${message}`,
+          `Peable social-send profile lookup failed for @${username}: ${message}`,
         );
         sendError(res, 502, "api_error", "failed to resolve recipient — try again");
         return;

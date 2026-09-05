@@ -12,7 +12,7 @@ import type { DatabaseOrTransaction } from '../postgres';
  * NOT WIRED TO ANY ROUTE YET, and that is deliberate rather than dead code.
  * The route switch is the change that makes `DATABASE_URL` required at boot,
  * which cannot merge until the genesis migration has been applied to the
- * `oxypay` database — so the repositories land first, unused, and the switch is
+ * `peable` database — so the repositories land first, unused, and the switch is
  * one small reviewable change afterwards. Do not delete this as unreferenced.
  */
 

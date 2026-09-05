@@ -12,6 +12,18 @@
  * `address` / `amount` prefill the form (the route wrapper passes the
  * `faircoin:` deep-link params in; the home pill opens it empty). The QR scanner
  * and contact picker still open as their own full-screen overlays on top.
+ *
+ * `recipient` arrives from the `/@username` profile page (`app/[username].tsx`),
+ * which resolved the Oxy identity AND reserved the address before navigating —
+ * so it comes in ALREADY resolved, alongside that address in `address`. It only
+ * seeds the initial pick; from then on the picker and the clear button own the
+ * selection exactly as they do for a manual pick. Nothing async happens here for
+ * it, so it opens no window in which a stale reservation could overwrite
+ * `toAddress` (compare `handleSelectRecipient`'s generation guard). Reserving on
+ * the profile page rather than on arrival here also keeps a mere link click from
+ * spending one of the six-per-ten-minutes (sender, recipient) reservations the
+ * gateway allows — a reservation advances the recipient's cursor whether or not
+ * it is ever paid.
  */
 
 import type React from "react";
@@ -110,9 +122,11 @@ function truncateAddress(address: string): string {
 export function SendSheet({
   address: initialAddress = "",
   amount: initialAmount = "",
+  recipient: initialRecipient = null,
 }: {
   address?: string;
   amount?: string;
+  recipient?: SocialRecipient | null;
 }): React.JSX.Element {
   const router = useRouter();
   const confirmedBalance = useWalletStore((s) => s.confirmedBalance);
@@ -137,8 +151,16 @@ export function SendSheet({
   const [feeLevel, setFeeLevel] = useState<FeeLevel>("medium");
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
-  const [recipientMode, setRecipientMode] = useState<"person" | "address">("person");
-  const [selectedRecipient, setSelectedRecipient] = useState<SocialRecipient | null>(null);
+  // Person mode unless the caller prefilled a bare address with no identity
+  // behind it (a `faircoin:` URI or a QR scan) — that recipient IS the address,
+  // and only Address mode renders it, so opening in Person mode would arm the
+  // Send button against an address the screen never showed.
+  const [recipientMode, setRecipientMode] = useState<"person" | "address">(
+    initialAddress && !initialRecipient ? "address" : "person",
+  );
+  const [selectedRecipient, setSelectedRecipient] = useState<SocialRecipient | null>(
+    initialRecipient,
+  );
   const [showRecipientPicker, setShowRecipientPicker] = useState(false);
   const [reservingAddress, setReservingAddress] = useState(false);
   const [keylessRecipientUsername, setKeylessRecipientUsername] = useState<string | null>(null);
@@ -176,7 +198,7 @@ export function SendSheet({
     }
     // Sharing.shareAsync requires a file URI on native, so write the link to
     // a temporary text file in the cache directory and share that.
-    const file = new File(Paths.cache, "oxypay-tx-link.txt");
+    const file = new File(Paths.cache, "peable-tx-link.txt");
     if (file.exists) file.delete();
     file.create();
     file.write(explorerUrl);

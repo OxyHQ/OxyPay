@@ -109,7 +109,7 @@ function useDeepLinkHandler() {
 
   const navigateFromUrl = useCallback(
     (url: string) => {
-      // An `oxypay://pay?...` request routes to the approve-pay screen. Parse +
+      // An `peable://pay?...` request routes to the approve-pay screen. Parse +
       // validate here so we only ever push the approve screen for a well-formed
       // request; the screen re-derives the same fields from its route params.
       const payment = parsePaymentRequest(url);
@@ -303,7 +303,7 @@ export default function RootLayout() {
               oxyServices={oxyServices}
               clientId={OXY_CLIENT_ID}
               authRedirectUri={OXY_AUTH_REDIRECT_URI}
-              storageKeyPrefix="oxypay"
+              storageKeyPrefix="peable"
               queryClient={queryClient}
             >
               <ImageResolverProvider
@@ -364,6 +364,9 @@ function AppContent({ ready }: { ready: boolean }) {
         <Stack.Screen name="transaction/[txid]" options={{ headerShown: false }} />
         <Stack.Screen name="pay/[intent]" options={{ headerShown: false }} />
         <Stack.Screen name="buy" options={{ headerShown: false }} />
+        {/* Public `/@username` profile — see `app/[username].tsx`. Also the
+            catch-all for unknown single-segment URLs, which it 404s itself. */}
+        <Stack.Screen name="[username]" options={{ headerShown: false }} />
       </Stack>
       {/* Full-screen lock overlay: covers every authenticated route while the
           app is locked so no screen can be reached behind it (finding C1). */}

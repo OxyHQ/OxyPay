@@ -344,10 +344,10 @@ describe("GET /v1/payment_intents/:id", () => {
     expect(body.id).toBe(created.body.id);
   });
 
-  test("payer-authed via X-Oxy-Pay-Client-Secret header (no Authorization header)", async () => {
+  test("payer-authed via X-Peable-Client-Secret header (no Authorization header)", async () => {
     const created = await createIntent("idem-get-payer-header");
     const res = await fetch(`${baseUrl}/v1/payment_intents/${created.body.id}`, {
-      headers: { "X-Oxy-Pay-Client-Secret": created.body.client_secret ?? "" },
+      headers: { "X-Peable-Client-Secret": created.body.client_secret ?? "" },
     });
     expect(res.status).toBe(200);
     const body = await readJson(res);

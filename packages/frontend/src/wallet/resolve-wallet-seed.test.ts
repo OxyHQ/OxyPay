@@ -1,10 +1,10 @@
 /**
- * Regression test for the Pockets↔OxyPay integration bug: `switchPocket` and
+ * Regression test for the Pockets↔Peable integration bug: `switchPocket` and
  * `moveBetweenPockets` reconstructed a wallet's spending secret via
  * `getWalletMnemonic`/`getCachedWalletSeed` only, which works for BIP39
- * wallets but not Oxy Pay's PRIMARY wallet — the identity-derived wallet
+ * wallets but not Peable's PRIMARY wallet — the identity-derived wallet
  * (`OXY_IDENTITY_WALLET_ID`), whose seed is NEVER persisted (re-derived from
- * the Oxy identity each boot, see identity-wallet.ts). Every Oxy Pay user is
+ * the Oxy identity each boot, see identity-wallet.ts). Every Peable user is
  * on the identity wallet, so this broke Pockets switch/move for all of them.
  *
  * `resolveWalletSeed` is the single, identity-wallet-aware fix both call

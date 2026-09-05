@@ -5,7 +5,7 @@
  * 2. Resolves directory imports to index.js
  * 3. Adds import attributes for JSON imports
  *
- * Mirrors `@oxypay/shared-types`'s post-build script. `@oxyhq/pay`'s two
+ * Mirrors `@peable/shared-types`'s post-build script. `@peable/sdk`'s two
  * entry points (`index.ts` server, `checkout.ts` browser) both compile under
  * this one pass — tsc preserves the `src/` directory layout in `dist/esm/`,
  * so relative specifiers inside `core/`, `resources/`, and `browser/` all

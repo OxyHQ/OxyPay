@@ -97,7 +97,7 @@ Licensor:                     The Oxy Collective, Inc., incorporated in
                               <JURISDICTION OF INCORPORATION: NOT YET
                               SUPPLIED> under registration number
                               <REGISTRATION NUMBER: NOT YET SUPPLIED>
-The Software:                 OxyHQ/OxyPay, and each version of it the
+The Software:                 OxyHQ/Peable, and each version of it the
                               Licensor makes available under these terms
 Copyright notice:             Copyright (c) 2026-present The Oxy Collective,
                               Inc.
@@ -227,7 +227,7 @@ Attribution means preserving the copyright notice and a copy of these terms
 in the source you Convey, and presenting the following line in at least one
 place your users can reach:
 
-    Built on OxyHQ/OxyPay by The Oxy Collective, Inc., https://oxy.so.
+    Built on OxyHQ/Peable by The Oxy Collective, Inc., https://oxy.so.
     Licensed under the Breathe License 1.0.
 
 A reachable "About", "Credits", "Licenses", or "Open source" screen
@@ -684,9 +684,9 @@ libraries, not the application, and they keep the license they are published
 under today. Their own package.json license field governs them, and it is
 unchanged by this file.
 
-  -   @oxyhq/pay (packages/sdk)
+  -   @peable/sdk (packages/sdk)
 
-  -   @oxypay/shared-types (packages/shared-types)
+  -   @peable/shared-types (packages/shared-types)
 
 They are held back deliberately. Sweeping them into these terms would narrow
 the license under every consumer who already depends on them, which is the

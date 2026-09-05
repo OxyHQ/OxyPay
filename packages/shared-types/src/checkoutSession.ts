@@ -17,7 +17,7 @@ export interface CheckoutSession {
   metadata: Record<string, string>;
   successUrl?: string;
   cancelUrl?: string;
-  /** Canonical `checkout.oxy.so/c/<id>` URL. */
+  /** Canonical `checkout.peable.to/c/<id>` URL. */
   url: string;
   createdAt: string;
   updatedAt: string;

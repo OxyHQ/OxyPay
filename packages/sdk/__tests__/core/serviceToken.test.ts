@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { createServiceTokenProvider } from '../../src/core/serviceToken';
-import { OxyPayApiError, OxyPayAuthenticationError } from '../../src/core/errors';
+import { PeableApiError, PeableAuthenticationError } from '../../src/core/errors';
 import { createMockFetch } from '../support/mockFetch';
 import { SERVICE_TOKEN_MINT_URL, TEST_OXY_API_URL, TEST_PUBLIC_KEY, TEST_SECRET } from '../support/testGateway';
 
@@ -107,7 +107,7 @@ describe('createServiceTokenProvider', () => {
     expect(mintCount).toBe(2);
   });
 
-  test('maps a non-2xx mint response (flat oxy-api envelope) to a typed OxyPayError', async () => {
+  test('maps a non-2xx mint response (flat oxy-api envelope) to a typed PeableError', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 401,
       json: { error: 'UNAUTHORIZED', message: 'Invalid credentials' },
@@ -117,10 +117,10 @@ describe('createServiceTokenProvider', () => {
       { fetch: fetchImpl },
     );
 
-    await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayAuthenticationError);
+    await expect(provider.getToken()).rejects.toBeInstanceOf(PeableAuthenticationError);
   });
 
-  test('throws OxyPayApiError when the mint response data envelope is missing token/expiresIn', async () => {
+  test('throws PeableApiError when the mint response data envelope is missing token/expiresIn', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 200,
       json: { data: { appName: 'x' } },
@@ -130,10 +130,10 @@ describe('createServiceTokenProvider', () => {
       { fetch: fetchImpl },
     );
 
-    await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayApiError);
+    await expect(provider.getToken()).rejects.toBeInstanceOf(PeableApiError);
   });
 
-  test('throws OxyPayApiError when the mint response has no `data` envelope at all', async () => {
+  test('throws PeableApiError when the mint response has no `data` envelope at all', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 200,
       json: { token: 'svc_abc', expiresIn: 3600 },
@@ -143,10 +143,10 @@ describe('createServiceTokenProvider', () => {
       { fetch: fetchImpl },
     );
 
-    await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayApiError);
+    await expect(provider.getToken()).rejects.toBeInstanceOf(PeableApiError);
   });
 
-  test('wraps a network-level fetch failure as OxyPayApiError', async () => {
+  test('wraps a network-level fetch failure as PeableApiError', async () => {
     const failingFetch = (() =>
       Promise.reject(new Error('ECONNREFUSED'))) as unknown as typeof fetch;
     const provider = createServiceTokenProvider(
@@ -154,6 +154,6 @@ describe('createServiceTokenProvider', () => {
       { fetch: failingFetch },
     );
 
-    await expect(provider.getToken()).rejects.toBeInstanceOf(OxyPayApiError);
+    await expect(provider.getToken()).rejects.toBeInstanceOf(PeableApiError);
   });
 });

@@ -4,8 +4,8 @@
 // validates at the Gateway. Caches the token until near expiry and re-mints
 // reactively when `RestClient` sees a 401 (see `client.ts`).
 
-import { resolveConfig, type OxyPayConfig } from './config';
-import { errorFromResponse, OxyPayApiError } from './errors';
+import { resolveConfig, type PeableConfig } from './config';
+import { errorFromResponse, PeableApiError } from './errors';
 
 /** Path (relative to `oxyApiUrl`) of oxy-api's service-token mint endpoint. */
 const SERVICE_TOKEN_PATH = '/auth/service-token';
@@ -51,7 +51,7 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 export function createServiceTokenProvider(
-  cfg: OxyPayConfig,
+  cfg: PeableConfig,
   deps: { fetch?: typeof fetch } = {},
 ): ServiceTokenProvider {
   const resolved = resolveConfig(cfg);
@@ -70,8 +70,8 @@ export function createServiceTokenProvider(
         body: JSON.stringify({ apiKey: resolved.publicKey, apiSecret: resolved.secret }),
       });
     } catch (cause) {
-      throw new OxyPayApiError(
-        `Failed to reach ${resolved.oxyApiUrl} to mint an Oxy Pay service token: ${
+      throw new PeableApiError(
+        `Failed to reach ${resolved.oxyApiUrl} to mint an Peable service token: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -82,8 +82,8 @@ export function createServiceTokenProvider(
       throw errorFromResponse(response.status, body);
     }
     if (!isServiceTokenMintEnvelope(body)) {
-      throw new OxyPayApiError(
-        'Oxy Pay: the service-token mint response was missing `data.token`/`data.expiresIn`',
+      throw new PeableApiError(
+        'Peable: the service-token mint response was missing `data.token`/`data.expiresIn`',
       );
     }
 

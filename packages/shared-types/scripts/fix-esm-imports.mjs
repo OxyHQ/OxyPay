@@ -5,7 +5,7 @@
  * 2. Resolves directory imports to index.js
  * 3. Adds import attributes for JSON imports
  *
- * @oxypay/shared-types has exactly one runtime dependency (`@fairco.in/core`),
+ * @peable/shared-types has exactly one runtime dependency (`@fairco.in/core`),
  * which ships a spec-compliant ESM build with its own `.js`-extensioned
  * internal specifiers, so no CJS default-import interop rewrites are needed
  * here. (Mirrors `@oxyhq/contracts`'s post-build script.)

@@ -1,8 +1,8 @@
 {
-  "name": "@oxypay/checkout",
+  "name": "@peable/checkout",
   "version": "0.1.0",
   "private": true,
-  "description": "Oxy Pay hosted checkout — the anonymous payer-facing web app served at checkout.oxy.so (payment sessions, links, and intents).",
+  "description": "Peable hosted checkout — the anonymous payer-facing web app served at checkout.peable.to (payment sessions, links, and intents).",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@fairco.in/core": "0.5.0",
-    "@oxyhq/pay": "*",
-    "@oxypay/shared-types": "*",
+    "@peable/sdk": "*",
+    "@peable/shared-types": "*",
     "qr-creator": "^1.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

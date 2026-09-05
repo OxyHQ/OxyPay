@@ -1,7 +1,7 @@
-# Integrating Oxy Pay (`@oxyhq/pay`)
+# Integrating Peable (`@peable/sdk`)
 
-A Stripe-ergonomics SDK over the Oxy Pay Gateway. **Non-custodial**: the merchant
-never holds keys or funds — the buyer pays from their own self-custody Oxy Pay
+A Stripe-ergonomics SDK over the Peable Gateway. **Non-custodial**: the merchant
+never holds keys or funds — the buyer pays from their own self-custody Peable
 wallet (or an external FairCoin wallet), and settlement is watched on-chain from
 the merchant's **watch-only** xpub. Your server never sees a private key.
 
@@ -17,10 +17,10 @@ the merchant's **watch-only** xpub. Your server never sees a private key.
 2. Issue a **service credential** on it (`type: 'service'`) with scopes
    **`payments:read` + `payments:write`** → you get `{ publicKey, secret }`
    (e.g. `publicKey: oxy_dk_…`). This is the SAME credential mechanism Console
-   already issues — there is no separate "Oxy Pay API key".
+   already issues — there is no separate "Peable API key".
 3. Register the merchant once against the Gateway (creates the watch-only
    `Merchant` from an **xpub** — never an xprv; the backend rejects an xprv):
-   `POST https://api.pay.oxy.so/v1/merchants` (authed with the service token).
+   `POST https://api.peable.to/v1/merchants` (authed with the service token).
 
 Keep `secret` server-side only. The browser never sees it.
 
@@ -29,11 +29,11 @@ Keep `secret` server-side only. The browser never sees it.
 ## 1. Install
 
 ```bash
-bun add @oxyhq/pay        # (npm/yarn work too)
+bun add @peable/sdk        # (npm/yarn work too)
 ```
 
 Node 18+ (global `fetch`). Server entry is zero-runtime-dep; the browser entry
-(`@oxyhq/pay/checkout`) pulls in `socket.io-client` for live status.
+(`@peable/sdk/checkout`) pulls in `socket.io-client` for live status.
 
 ---
 
@@ -43,17 +43,17 @@ A **Checkout Session** wraps exactly one payment and gives you a hosted URL to
 redirect the buyer to — the least code, Stripe-Checkout parity.
 
 ```ts
-import { OxyPay } from '@oxyhq/pay';
+import { Peable } from '@peable/sdk';
 
-const oxypay = new OxyPay({
-  publicKey: process.env.OXY_PAY_PUBLIC_KEY!, // oxy_dk_…
-  secret:    process.env.OXY_PAY_SECRET!,     // credential secret
-  // baseURL defaults to https://api.pay.oxy.so
+const peable = new Peable({
+  publicKey: process.env.PEABLE_PUBLIC_KEY!, // oxy_dk_…
+  secret:    process.env.PEABLE_SECRET!,     // credential secret
+  // baseURL defaults to https://api.peable.to
   // oxyApiUrl defaults to https://api.oxy.so (service-token mint host)
 });
 
 // amount is in BASE UNITS (m⊜), integer string. 1 FAIR = 100_000_000 m⊜.
-const session = await oxypay.checkout.sessions.create({
+const session = await peable.checkout.sessions.create({
   amount:  '250000000',          // 2.5 FAIR
   network: 'testnet',            // 'testnet' | 'mainnet' — start on testnet
   metadata: { orderId: 'MERCARIA-ORDER-123' },
@@ -61,34 +61,34 @@ const session = await oxypay.checkout.sessions.create({
   cancelUrl:  'https://mercaria.example/cart',
 });
 
-// session.url  → redirect the buyer here (checkout.oxy.so/c/<id>#cs=…)
+// session.url  → redirect the buyer here (checkout.peable.to/c/<id>#cs=…)
 // session.id, session.paymentIntentId, session.clientSecret also returned
 return redirect(session.url);
 ```
 
 That's the whole happy path: create → redirect → the hosted page shows amount +
-your merchant identity + a "Pay with Oxy Pay" deep link/QR + live status, and
+your merchant identity + a "Pay with Peable" deep link/QR + live status, and
 sends the buyer to `successUrl` on settlement. You confirm fulfillment from the
 **webhook** (§4), never from the redirect alone.
 
 ### Alternative: a raw PaymentIntent (build your own UI)
 
 ```ts
-const intent = await oxypay.paymentIntents.create(
+const intent = await peable.paymentIntents.create(
   { amount: '250000000', network: 'testnet', metadata: { orderId: '123' } },
   { idempotencyKey: 'order-123' },   // REQUIRED — safe retries, no double-charge
 );
 // intent.id, intent.clientSecret, intent.address, intent.status, intent.expiresAt
-await oxypay.paymentIntents.retrieve(intent.id);
-await oxypay.paymentIntents.list({ status: 'settled', limit: 20 });
-await oxypay.paymentIntents.reject(intent.id);   // cancel an unpaid intent
+await peable.paymentIntents.retrieve(intent.id);
+await peable.paymentIntents.list({ status: 'settled', limit: 20 });
+await peable.paymentIntents.reject(intent.id);   // cancel an unpaid intent
 ```
 
 ### Payment Links (shareable, reusable price)
 
 ```ts
-const link = await oxypay.paymentLinks.create({ amount: '250000000', network: 'testnet' });
-// link.url → checkout.oxy.so/l/<id>, share anywhere; each visit mints a fresh intent
+const link = await peable.paymentLinks.create({ amount: '250000000', network: 'testnet' });
+// link.url → checkout.peable.to/l/<id>, share anywhere; each visit mints a fresh intent
 ```
 
 ---
@@ -99,17 +99,17 @@ const link = await oxypay.paymentLinks.create({ amount: '250000000', network: 't
 
 Just `redirect(session.url)` (above). Nothing to build.
 
-### (B) Embed the pay button inline — `@oxyhq/pay/checkout`
+### (B) Embed the pay button inline — `@peable/sdk/checkout`
 
 Pass the session's/intent's **public `clientSecret`** to the browser (never the
 service secret):
 
 ```html
-<div id="oxy-pay-button"></div>
+<div id="peable-button"></div>
 <script type="module">
-  import { OxyPayCheckout } from '@oxyhq/pay/checkout';
+  import { PeableCheckout } from '@peable/sdk/checkout';
 
-  const checkout = OxyPayCheckout.mount('#oxy-pay-button', {
+  const checkout = PeableCheckout.mount('#peable-button', {
     clientSecret: 'pi_…_secret_…',   // from the session/intent, safe to expose
   });
   checkout.on('confirming', () => showSpinner());
@@ -119,7 +119,7 @@ service secret):
 </script>
 ```
 
-The button opens `oxypay://pay?…` on mobile (the buyer's Oxy Pay app) or shows a
+The button opens `peable://pay?…` on mobile (the buyer's Peable app) or shows a
 QR on desktop, and streams live status over the Gateway socket — **anonymously**,
 no Oxy login required for the buyer. The `clientSecret` is a read + `submit_tx`
 capability only; it can never move funds.
@@ -132,18 +132,18 @@ Point a Gateway webhook at your endpoint, then verify every delivery with the
 **same** signer the Gateway uses (algorithm can't drift):
 
 ```ts
-import { OxyPay, WEBHOOK_SIGNATURE_HEADER } from '@oxyhq/pay';
+import { Peable, WEBHOOK_SIGNATURE_HEADER } from '@peable/sdk';
 
-app.post('/webhooks/oxy-pay', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/webhooks/peable', express.raw({ type: 'application/json' }), (req, res) => {
   let event;
   try {
-    event = oxypay.webhooks.constructEvent(
+    event = peable.webhooks.constructEvent(
       req.body.toString('utf8'),               // the RAW body (not JSON-parsed)
-      req.header(WEBHOOK_SIGNATURE_HEADER)!,    // 'Oxy-Pay-Signature'
-      process.env.OXY_PAY_WEBHOOK_SECRET!,      // your endpoint secret
+      req.header(WEBHOOK_SIGNATURE_HEADER)!,    // 'Peable-Signature'
+      process.env.PEABLE_WEBHOOK_SECRET!,      // your endpoint secret
     );
   } catch {
-    return res.status(400).send('bad signature');  // throws OxyPaySignatureVerificationError
+    return res.status(400).send('bad signature');  // throws PeableSignatureVerificationError
   }
 
   switch (event.type) {
@@ -186,9 +186,9 @@ Every non-2xx maps to a typed error — catch what you need:
 
 ```ts
 import {
-  OxyPayError, OxyPayAuthenticationError, OxyPayInvalidRequestError,
-  OxyPayPermissionError, OxyPayApiError, OxyPaySignatureVerificationError,
-} from '@oxyhq/pay';
+  PeableError, PeableAuthenticationError, PeableInvalidRequestError,
+  PeablePermissionError, PeableApiError, PeableSignatureVerificationError,
+} from '@peable/sdk';
 ```
 
 ---
@@ -198,10 +198,10 @@ import {
 - [ ] Owner: register Mercaria's Oxy Application + a `payments:read`/`payments:write`
       service credential (test environment) → `{ publicKey, secret }`.
 - [ ] Owner: register Mercaria as a Gateway `Merchant` (watch-only xpub, testnet).
-- [ ] Mercaria server: `OXY_PAY_PUBLIC_KEY` / `OXY_PAY_SECRET` / `OXY_PAY_WEBHOOK_SECRET` in env.
+- [ ] Mercaria server: `PEABLE_PUBLIC_KEY` / `PEABLE_SECRET` / `PEABLE_WEBHOOK_SECRET` in env.
 - [ ] Mercaria server: create a Checkout Session at checkout, redirect to `session.url`
-      (or embed `@oxyhq/pay/checkout`).
-- [ ] Mercaria server: webhook endpoint verifying `Oxy-Pay-Signature`, fulfill on `settled`.
+      (or embed `@peable/sdk/checkout`).
+- [ ] Mercaria server: webhook endpoint verifying `Peable-Signature`, fulfill on `settled`.
 - [ ] Test the full flow on **testnet** end-to-end.
 - [ ] Go live: swap to a production-environment credential + `network: 'mainnet'`
       (gated on the mainnet items — see the roadmap).

@@ -143,7 +143,7 @@ describe("POST /v1/checkout_sessions", () => {
     expect(body.clientSecret).toStartWith(`${body.paymentIntentId}_secret_`);
     expect(body.amount).toBe("400000000");
     expect(body.metadata).toEqual({ orderId: "o_cs_1" });
-    expect(body.url).toBe(`https://checkout.oxy.so/c/${body.id}`);
+    expect(body.url).toBe(`https://checkout.peable.to/c/${body.id}`);
 
     const intent = await findIntentByPublicId(gatewayDb(), body.paymentIntentId);
     expect(intent).not.toBeNull();
@@ -291,7 +291,7 @@ describe("GET /v1/checkout_sessions/:id/public", () => {
     expect(body.paymentIntent.amount).toBe("88000000");
   });
 
-  test("accepts the client_secret via the X-Oxy-Pay-Client-Secret header too", async () => {
+  test("accepts the client_secret via the X-Peable-Client-Secret header too", async () => {
     const createRes = await fetch(`${baseUrl}/v1/checkout_sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -300,7 +300,7 @@ describe("GET /v1/checkout_sessions/:id/public", () => {
     const created = await readJson<CheckoutSessionResponse>(createRes);
 
     const res = await fetch(`${baseUrl}/v1/checkout_sessions/${created.id}/public`, {
-      headers: { "X-Oxy-Pay-Client-Secret": created.clientSecret },
+      headers: { "X-Peable-Client-Secret": created.clientSecret },
     });
     expect(res.status).toBe(200);
   });

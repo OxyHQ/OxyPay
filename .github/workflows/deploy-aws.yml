@@ -1,8 +1,8 @@
-# Deploy the Oxy Pay Gateway backend (@oxypay/backend) to AWS ECS Fargate.
+# Deploy the Peable Gateway backend (@peable/backend) to AWS ECS Fargate.
 #
 # Adapted from the canonical Mention backend workflow. Builds a native arm64
 # image on an arm64 runner, pushes it to ECR, and rolls the ECS service. The
-# ECR repo (oxy/oxypay) and the ECS service (oxypay on cluster oxy-cluster,
+# ECR repo (oxy/peable) and the ECS service (peable on cluster oxy-cluster,
 # port 3001) are provisioned in terraform (~/Oxy/oxy-infra); the deploy step
 # no-ops gracefully until the service exists, so the first push can run before
 # the service is created (the image still lands in ECR).
@@ -36,7 +36,7 @@ permissions:
 env:
   AWS_REGION: us-west-2
   ECR_REGISTRY: 237343248947.dkr.ecr.us-west-2.amazonaws.com
-  APP: oxypay
+  APP: peable
   CLUSTER: oxy-cluster
   DOCKERFILE: packages/backend/Dockerfile
   # The database the migrator is allowed to write DDL to. Checked against
@@ -44,7 +44,7 @@ env:
   # reaches somewhere else fails instead of migrating it — a migrator pointed at
   # the wrong database does not error, it finds an empty ledger, applies the
   # whole journal and reports success over a database nobody meant to touch.
-  PG_DATABASE: oxypay
+  PG_DATABASE: peable
 
 jobs:
   deploy:
@@ -70,7 +70,7 @@ jobs:
       # every deploy needs a person. Filtering the blob after the fact does not
       # help; the blob must never be built.
       #
-      # The list is the secrets the `oxypay` task definition actually consumes.
+      # The list is the secrets the `peable` task definition actually consumes.
       # Adding a new one means adding it here, or it never reaches SSM.
       - name: Sync GitHub secrets -> SSM (GitHub is the source of truth)
         env:
@@ -280,7 +280,7 @@ jobs:
       #
       # Six sibling repos — Alia, Allo, CrowdSource, Homiio, Mention and Syra —
       # share `deploy-ecs-image.sh`, which returned early at `desiredCount=0` and
-      # exited 0 ABOVE its post-migration step. OxyPay has never carried it. Here,
+      # exited 0 ABOVE its post-migration step. Peable has never carried it. Here,
       # at zero capacity the polling loop above reads `rolloutState=COMPLETED
       # running=0 desired=0`, matches `RUNNING == DESIRED`, exits 0 — and `post`
       # still runs. So the phase is never stranded.

@@ -1,5 +1,5 @@
 /**
- * `createOxyPayCheckout` — the anonymous payer-side client core (Fase 2 SDK
+ * `createPeableCheckout` — the anonymous payer-side client core (Fase 2 SDK
  * plan, Task 5). REST calls (`getPaymentIntent`/`submitTx`) are exercised
  * against a stubbed `globalThis.fetch` (the SDK's shared `createMockFetch`
  * harness); `subscribe` is exercised against a mock `socket.io-client`
@@ -7,7 +7,7 @@
  * `payerClient.ts` imports `io` at module scope.
  */
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 import { createMockFetch } from '../support/mockFetch';
 import { TEST_GATEWAY_URL } from '../support/testGateway';
 
@@ -69,8 +69,8 @@ mock.module('socket.io-client', () => ({
   },
 }));
 
-const { createOxyPayCheckout } = await import('../../src/browser/payerClient');
-const { OxyPayApiError, OxyPayInvalidRequestError, OxyPayPermissionError } = await import(
+const { createPeableCheckout } = await import('../../src/browser/payerClient');
+const { PeableApiError, PeableInvalidRequestError, PeablePermissionError } = await import(
   '../../src/core/errors'
 );
 
@@ -100,13 +100,13 @@ const INTENT: PaymentIntent = {
 };
 
 describe('getPaymentIntent', () => {
-  test('GETs /v1/payment_intents/:id with client_secret as the X-Oxy-Pay-Client-Secret header and returns the DTO', async () => {
+  test('GETs /v1/payment_intents/:id with client_secret as the X-Peable-Client-Secret header and returns the DTO', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({
       status: 200,
       json: INTENT,
     }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     const result = await client.getPaymentIntent('pi_1', 'secret_1');
 
@@ -114,66 +114,66 @@ describe('getPaymentIntent', () => {
     expect(requests[0]?.method).toBe('GET');
     expect(requests[0]?.url).toBe(`${TEST_GATEWAY_URL}/v1/payment_intents/pi_1`);
     expect(requests[0]?.url).not.toContain('client_secret');
-    expect(requests[0]?.headers.get('X-Oxy-Pay-Client-Secret')).toBe('secret_1');
+    expect(requests[0]?.headers.get('X-Peable-Client-Secret')).toBe('secret_1');
     expect(result).toEqual(INTENT);
   });
 
   test('URL-encodes the id and never puts client_secret in the URL', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({ status: 200, json: INTENT }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await client.getPaymentIntent('pi/1', 'sec ret');
 
     const url = new URL(requests[0]?.url ?? '');
     expect(url.pathname).toBe('/v1/payment_intents/pi%2F1');
     expect(url.search).toBe('');
-    expect(requests[0]?.headers.get('X-Oxy-Pay-Client-Secret')).toBe('sec ret');
+    expect(requests[0]?.headers.get('X-Peable-Client-Secret')).toBe('sec ret');
   });
 
-  test('defaults gatewayUrl to https://api.pay.oxy.so when not given', async () => {
+  test('defaults gatewayUrl to https://api.peable.to when not given', async () => {
     const { fetch: fetchImpl, requests } = createMockFetch(() => ({ status: 200, json: INTENT }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout();
+    const client = createPeableCheckout();
 
     await client.getPaymentIntent('pi_1', 'secret_1');
 
-    expect(requests[0]?.url).toStartWith('https://api.pay.oxy.so/v1/payment_intents/pi_1');
+    expect(requests[0]?.url).toStartWith('https://api.peable.to/v1/payment_intents/pi_1');
   });
 
-  test('maps a 403 invalid client_secret response to OxyPayPermissionError', async () => {
+  test('maps a 403 invalid client_secret response to PeablePermissionError', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 403,
       json: { error: { type: 'permission_error', message: 'invalid client_secret' } },
     }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.getPaymentIntent('pi_1', 'wrong')).rejects.toBeInstanceOf(
-      OxyPayPermissionError,
+      PeablePermissionError,
     );
   });
 
-  test('maps a 404 not-found response to OxyPayInvalidRequestError', async () => {
+  test('maps a 404 not-found response to PeableInvalidRequestError', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 404,
       json: { error: { type: 'invalid_request_error', message: 'payment intent not found' } },
     }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.getPaymentIntent('pi_missing', 'secret_1')).rejects.toBeInstanceOf(
-      OxyPayInvalidRequestError,
+      PeableInvalidRequestError,
     );
   });
 
-  test('wraps a network-level fetch failure as OxyPayApiError', async () => {
+  test('wraps a network-level fetch failure as PeableApiError', async () => {
     globalThis.fetch = (() =>
       Promise.reject(new Error('ECONNRESET'))) as unknown as typeof fetch;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.getPaymentIntent('pi_1', 'secret_1')).rejects.toBeInstanceOf(
-      OxyPayApiError,
+      PeableApiError,
     );
   });
 });
@@ -186,7 +186,7 @@ describe('submitTx', () => {
       json: broadcast,
     }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     const result = await client.submitTx('pi_1', 'secret_1', 'tx_abc');
 
@@ -201,26 +201,26 @@ describe('submitTx', () => {
     expect(result).toEqual(broadcast);
   });
 
-  test('maps a 409 illegal state transition response to OxyPayInvalidRequestError', async () => {
+  test('maps a 409 illegal state transition response to PeableInvalidRequestError', async () => {
     const { fetch: fetchImpl } = createMockFetch(() => ({
       status: 409,
       json: { error: { type: 'invalid_request_error', message: 'illegal state transition' } },
     }));
     globalThis.fetch = fetchImpl;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.submitTx('pi_1', 'secret_1', 'tx_abc')).rejects.toBeInstanceOf(
-      OxyPayInvalidRequestError,
+      PeableInvalidRequestError,
     );
   });
 
-  test('wraps a network-level fetch failure as OxyPayApiError', async () => {
+  test('wraps a network-level fetch failure as PeableApiError', async () => {
     globalThis.fetch = (() =>
       Promise.reject(new Error('ECONNRESET'))) as unknown as typeof fetch;
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.submitTx('pi_1', 'secret_1', 'tx_abc')).rejects.toBeInstanceOf(
-      OxyPayApiError,
+      PeableApiError,
     );
   });
 });
@@ -228,7 +228,7 @@ describe('submitTx', () => {
 describe('subscribe', () => {
   test('connects anonymously (no auth option) and emits subscribe with {intentId, clientSecret}', async () => {
     const socket = installFakeSocket({ ok: true });
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await client.subscribe('pi_1', 'secret_1', () => {});
 
@@ -243,7 +243,7 @@ describe('subscribe', () => {
 
   test('calls onUpdate only for intent.updated events matching this intent id', async () => {
     const socket = installFakeSocket({ ok: true });
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
     const updates: PaymentIntent[] = [];
 
     await client.subscribe('pi_1', 'secret_1', (intent) => updates.push(intent));
@@ -261,7 +261,7 @@ describe('subscribe', () => {
 
   test('unsubscribe removes the listener, removes the reconnect handler, and disconnects the socket', async () => {
     const socket = installFakeSocket({ ok: true });
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     const { unsubscribe } = await client.subscribe('pi_1', 'secret_1', () => {});
     const listener = socket.on.mock.calls[0]?.[1];
@@ -276,7 +276,7 @@ describe('subscribe', () => {
 
   test('on Manager reconnect, re-emits subscribe with the same {intentId, clientSecret} without duplicating the intent.updated listener', async () => {
     const socket = installFakeSocket([{ ok: true }, { ok: true }]);
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
     const updates: PaymentIntent[] = [];
 
     await client.subscribe('pi_1', 'secret_1', (intent) => updates.push(intent));
@@ -308,7 +308,7 @@ describe('subscribe', () => {
       { ok: true },
       new Error('intent has since expired'),
     ]);
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await client.subscribe('pi_1', 'secret_1', () => {});
     const reconnectHandler = socket.io.on.mock.calls[0]?.[1] as () => void;
@@ -320,23 +320,23 @@ describe('subscribe', () => {
     expect(socket.emitWithAck).toHaveBeenCalledTimes(2);
   });
 
-  test('a rejected ack (ok: false) disconnects the socket and throws OxyPayInvalidRequestError', async () => {
+  test('a rejected ack (ok: false) disconnects the socket and throws PeableInvalidRequestError', async () => {
     const socket = installFakeSocket({ ok: false });
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.subscribe('pi_1', 'wrong-secret', () => {})).rejects.toBeInstanceOf(
-      OxyPayInvalidRequestError,
+      PeableInvalidRequestError,
     );
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
     expect(socket.on).not.toHaveBeenCalled();
   });
 
-  test('an emitWithAck failure disconnects the socket and throws OxyPayApiError', async () => {
+  test('an emitWithAck failure disconnects the socket and throws PeableApiError', async () => {
     const socket = installFakeSocket(new Error('socket disconnected before ack'));
-    const client = createOxyPayCheckout({ gatewayUrl: TEST_GATEWAY_URL });
+    const client = createPeableCheckout({ gatewayUrl: TEST_GATEWAY_URL });
 
     await expect(client.subscribe('pi_1', 'secret_1', () => {})).rejects.toBeInstanceOf(
-      OxyPayApiError,
+      PeableApiError,
     );
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
   });

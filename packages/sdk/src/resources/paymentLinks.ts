@@ -1,4 +1,4 @@
-import type { CreatePaymentLinkParams, PaymentLink } from '@oxypay/shared-types';
+import type { CreatePaymentLinkParams, PaymentLink } from '@peable/shared-types';
 import type { RestClient } from '../core/client';
 
 export interface PaymentLinkListParams {

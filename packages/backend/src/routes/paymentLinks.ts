@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
-import { isBaseUnitString, type CreatePaymentLinkParams } from "@oxypay/shared-types";
+import { isBaseUnitString, type CreatePaymentLinkParams } from "@peable/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import {

@@ -1,5 +1,5 @@
 /**
- * Typed runtime configuration for Oxy Pay.
+ * Typed runtime configuration for Peable.
  *
  * Every value is overridable per-environment via an `EXPO_PUBLIC_*` variable
  * (inlined into the bundle at build time by Expo) and falls back to the
@@ -12,28 +12,28 @@
 export const OXY_BASE_URL =
   process.env.EXPO_PUBLIC_OXY_BASE_URL ?? 'https://api.oxy.so';
 
-// Oxy Pay's registered Oxy OAuth client id (ApplicationCredential publicKey),
-// reused from the Oxy Pay Console client. Required by @oxyhq/services for the
+// Peable's registered Oxy OAuth client id (ApplicationCredential publicKey),
+// reused from the Peable Console client. Required by @oxyhq/services for the
 // cross-app device sign-in flow. Public and safe to commit.
 export const OXY_CLIENT_ID =
   process.env.EXPO_PUBLIC_OXY_CLIENT_ID ??
   'oxy_dk_857cabdaba3f79ec5c931706424f439b67f3bc7b7bc34fca';
 
-/** Registered OAuth redirect surface for the Oxy Pay web origin (exact match). */
+/** Registered OAuth redirect surface for the Peable web origin (exact match). */
 export const OXY_AUTH_REDIRECT_URI =
-  process.env.EXPO_PUBLIC_OXY_AUTH_REDIRECT_URI ?? 'https://pay.oxy.so';
+  process.env.EXPO_PUBLIC_OXY_AUTH_REDIRECT_URI ?? 'https://peable.to';
 
-// Oxy Pay Gateway backend (payment intents, submit-tx). RP backend addressed by
+// Peable Gateway backend (payment intents, submit-tx). RP backend addressed by
 // a linked client that re-mints the Oxy token from the device secret.
 export const GATEWAY_API_URL =
-  process.env.EXPO_PUBLIC_GATEWAY_API_URL ?? 'https://api.pay.oxy.so';
+  process.env.EXPO_PUBLIC_GATEWAY_API_URL ?? 'https://api.peable.to';
 
 // Gateway realtime (Socket.IO) — live payment-intent status updates.
 export const GATEWAY_SOCKET_URL =
-  process.env.EXPO_PUBLIC_GATEWAY_SOCKET_URL ?? 'wss://api.pay.oxy.so';
+  process.env.EXPO_PUBLIC_GATEWAY_SOCKET_URL ?? 'wss://api.peable.to';
 
-// Oxy Pay's own display name for user-facing UI (biometric unlock prompt,
+// Peable's own display name for user-facing UI (biometric unlock prompt,
 // accessibility labels). Must NOT come from `@fairco.in/core`'s `APP_NAME` —
 // that constant belongs to the external FairCoin protocol package and equals
 // "FAIRWallet", a different app's brand. Keep in sync with `app.json`'s `name`.
-export const APP_DISPLAY_NAME = 'Oxy Pay';
+export const APP_DISPLAY_NAME = 'Peable';

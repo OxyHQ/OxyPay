@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { CheckoutSessionPublic } from '@oxypay/shared-types';
+import type { CheckoutSessionPublic } from '@peable/shared-types';
 import { gatewayGet } from '../lib/gatewayFetch';
 import type { LoadState } from '../lib/loadState';
 import { CheckoutView } from '../components/CheckoutView';
@@ -9,7 +9,7 @@ import { CheckoutView } from '../components/CheckoutView';
 // Session parity). The client secret travels in the URL FRAGMENT
 // (`#cs=<secret>`), not the query string, so it never reaches server/CDN
 // access logs; the app forwards it to the Gateway via the
-// `X-Oxy-Pay-Client-Secret` header rather than a query param, so it never
+// `X-Peable-Client-Secret` header rather than a query param, so it never
 // lands in the Gateway's own access logs either.
 export function SessionRoute() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -23,7 +23,7 @@ export function SessionRoute() {
     }
     let cancelled = false;
     gatewayGet<CheckoutSessionPublic>(`/v1/checkout_sessions/${sessionId}/public`, {
-      headers: { 'X-Oxy-Pay-Client-Secret': clientSecret },
+      headers: { 'X-Peable-Client-Secret': clientSecret },
     })
       .then((session) => {
         if (!cancelled) setState({ status: 'ready', data: session });

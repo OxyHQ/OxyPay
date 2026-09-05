@@ -4,7 +4,7 @@ import { createdAt, generatedId, inList, updatedAt } from '@oxyhq/db';
 import { NETWORK_TYPES, SERVICE_ENVIRONMENTS } from './valueSets';
 
 /**
- * A merchant of the Oxy Pay Gateway.
+ * A merchant of the Peable Gateway.
  *
  * The non-custody firewall is a property of what this table CAN hold: there is
  * an `xpub` column and there is deliberately no column for a private key, a

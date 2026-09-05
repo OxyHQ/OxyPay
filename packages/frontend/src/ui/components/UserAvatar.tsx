@@ -5,7 +5,7 @@
  * placeholder initial. `username` is optional so this also covers identities
  * with no handle (e.g. a merchant) — the placeholder then falls back to
  * `displayName` alone, or renders Bloom's default avatar when both are
- * absent. Used everywhere an identity's avatar renders in Oxy Pay: the
+ * absent. Used everywhere an identity's avatar renders in Peable: the
  * recipient picker, the receive screen, and the transaction history.
  */
 import type React from "react";

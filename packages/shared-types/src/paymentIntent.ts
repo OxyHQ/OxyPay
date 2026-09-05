@@ -1,4 +1,4 @@
-// The PaymentIntent contract — the single source of truth shared by the Oxy Pay
+// The PaymentIntent contract — the single source of truth shared by the Peable
 // Gateway backend, SDK, and frontend. Mirrors Stripe's PaymentIntent shape over
 // the non-custodial FairCoin lifecycle.
 import type { NetworkType } from './network';

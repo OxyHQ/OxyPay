@@ -1,14 +1,14 @@
-// The `OxyPayError` hierarchy — every non-2xx Gateway/oxy-api response is
+// The `PeableError` hierarchy — every non-2xx Gateway/oxy-api response is
 // mapped into one of these, never a bare `Error` or a raw `Response`.
 
-export type OxyPayErrorType =
+export type PeableErrorType =
   | 'authentication_error'
   | 'invalid_request_error'
   | 'permission_error'
   | 'api_error'
   | 'signature_verification_error';
 
-export interface OxyPayErrorDetails {
+export interface PeableErrorDetails {
   /** The HTTP status code that produced this error, when applicable. */
   statusCode?: number;
   /**
@@ -20,59 +20,59 @@ export interface OxyPayErrorDetails {
   code?: string;
 }
 
-export class OxyPayError extends Error {
-  readonly type: OxyPayErrorType;
+export class PeableError extends Error {
+  readonly type: PeableErrorType;
   readonly statusCode?: number;
   readonly code?: string;
 
-  constructor(type: OxyPayErrorType, message: string, details: OxyPayErrorDetails = {}) {
+  constructor(type: PeableErrorType, message: string, details: PeableErrorDetails = {}) {
     super(message);
-    this.name = 'OxyPayError';
+    this.name = 'PeableError';
     this.type = type;
     this.statusCode = details.statusCode;
     this.code = details.code;
-    Object.setPrototypeOf(this, OxyPayError.prototype);
+    Object.setPrototypeOf(this, PeableError.prototype);
   }
 }
 
-export class OxyPayAuthenticationError extends OxyPayError {
-  constructor(message: string, details: OxyPayErrorDetails = {}) {
+export class PeableAuthenticationError extends PeableError {
+  constructor(message: string, details: PeableErrorDetails = {}) {
     super('authentication_error', message, details);
-    this.name = 'OxyPayAuthenticationError';
-    Object.setPrototypeOf(this, OxyPayAuthenticationError.prototype);
+    this.name = 'PeableAuthenticationError';
+    Object.setPrototypeOf(this, PeableAuthenticationError.prototype);
   }
 }
 
-export class OxyPayInvalidRequestError extends OxyPayError {
-  constructor(message: string, details: OxyPayErrorDetails = {}) {
+export class PeableInvalidRequestError extends PeableError {
+  constructor(message: string, details: PeableErrorDetails = {}) {
     super('invalid_request_error', message, details);
-    this.name = 'OxyPayInvalidRequestError';
-    Object.setPrototypeOf(this, OxyPayInvalidRequestError.prototype);
+    this.name = 'PeableInvalidRequestError';
+    Object.setPrototypeOf(this, PeableInvalidRequestError.prototype);
   }
 }
 
-export class OxyPayPermissionError extends OxyPayError {
-  constructor(message: string, details: OxyPayErrorDetails = {}) {
+export class PeablePermissionError extends PeableError {
+  constructor(message: string, details: PeableErrorDetails = {}) {
     super('permission_error', message, details);
-    this.name = 'OxyPayPermissionError';
-    Object.setPrototypeOf(this, OxyPayPermissionError.prototype);
+    this.name = 'PeablePermissionError';
+    Object.setPrototypeOf(this, PeablePermissionError.prototype);
   }
 }
 
-export class OxyPayApiError extends OxyPayError {
-  constructor(message: string, details: OxyPayErrorDetails = {}) {
+export class PeableApiError extends PeableError {
+  constructor(message: string, details: PeableErrorDetails = {}) {
     super('api_error', message, details);
-    this.name = 'OxyPayApiError';
-    Object.setPrototypeOf(this, OxyPayApiError.prototype);
+    this.name = 'PeableApiError';
+    Object.setPrototypeOf(this, PeableApiError.prototype);
   }
 }
 
 /** Thrown by `webhooks.constructEvent` on a bad/stale/tampered signature. */
-export class OxyPaySignatureVerificationError extends OxyPayError {
+export class PeableSignatureVerificationError extends PeableError {
   constructor(message: string) {
     super('signature_verification_error', message);
-    this.name = 'OxyPaySignatureVerificationError';
-    Object.setPrototypeOf(this, OxyPaySignatureVerificationError.prototype);
+    this.name = 'PeableSignatureVerificationError';
+    Object.setPrototypeOf(this, PeableSignatureVerificationError.prototype);
   }
 }
 
@@ -101,7 +101,7 @@ function isFlatGatewayErrorBody(body: unknown): body is FlatGatewayErrorBody {
 }
 
 /**
- * Map an HTTP status + parsed JSON body into a typed `OxyPayError`.
+ * Map an HTTP status + parsed JSON body into a typed `PeableError`.
  *
  * The Oxy ecosystem returns TWO distinct error envelopes depending on WHERE a
  * request was rejected:
@@ -119,9 +119,9 @@ function isFlatGatewayErrorBody(body: unknown): body is FlatGatewayErrorBody {
  * upstream `type`/`code` string is still attached to the resulting error
  * (`.code`) for callers who want it.
  */
-export function errorFromResponse(status: number, body: unknown): OxyPayError {
+export function errorFromResponse(status: number, body: unknown): PeableError {
   let upstreamCode: string | undefined;
-  let message = `Oxy Pay request failed with status ${status}`;
+  let message = `Peable request failed with status ${status}`;
 
   if (isNestedGatewayErrorBody(body)) {
     upstreamCode = body.error.type;
@@ -131,9 +131,9 @@ export function errorFromResponse(status: number, body: unknown): OxyPayError {
     message = body.message || message;
   }
 
-  const details: OxyPayErrorDetails = { statusCode: status, code: upstreamCode };
-  if (status === 401) return new OxyPayAuthenticationError(message, details);
-  if (status === 403) return new OxyPayPermissionError(message, details);
-  if (status >= 400 && status < 500) return new OxyPayInvalidRequestError(message, details);
-  return new OxyPayApiError(message, details);
+  const details: PeableErrorDetails = { statusCode: status, code: upstreamCode };
+  if (status === 401) return new PeableAuthenticationError(message, details);
+  if (status === 403) return new PeablePermissionError(message, details);
+  if (status >= 400 && status < 500) return new PeableInvalidRequestError(message, details);
+  return new PeableApiError(message, details);
 }

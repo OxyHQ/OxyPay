@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { PaymentIntent, PublicPaymentLink } from '@oxypay/shared-types';
+import type { PaymentIntent, PublicPaymentLink } from '@peable/shared-types';
 
-// Reuse-if-open (spec §6) never exercises the real `@oxyhq/pay/checkout`
+// Reuse-if-open (spec §6) never exercises the real `@peable/sdk/checkout`
 // stub — it's frozen to always reject, so it can't produce the open/terminal
 // fixtures this suite needs. Mock this app's one SDK touchpoint instead;
 // `App.test.tsx` is the file that covers the real (unmocked) stub behavior.
@@ -18,7 +18,7 @@ mock.module('../../lib/intentClient', () => ({
   }),
 }));
 
-// A resolved intent now renders the full CheckoutView -> PayWithOxyPay ->
+// A resolved intent now renders the full CheckoutView -> PayWithPeable ->
 // Qr chain (Task 9), which draws to a real <canvas> 2D context — unsupported
 // by happy-dom (no canvas rendering engine), unrelated to what this suite
 // tests (reuse-if-open, not QR rendering). Stub it out; `Qr` itself isn't
@@ -92,7 +92,7 @@ function renderLinkRoute() {
 
 test('reuses an open intent without minting a fresh one', async () => {
   sessionStorage.setItem(
-    'oxypay:link-intent:link_test123',
+    'peable:link-intent:link_test123',
     JSON.stringify({ id: 'pi_open789', clientSecret: 'pi_open789_secret' }),
   );
   const openIntent = makeIntent();
@@ -102,7 +102,7 @@ test('reuses an open intent without minting a fresh one', async () => {
   fireEvent.click(await screen.findByRole('button', { name: /pay/i }));
 
   // status 'created' is an awaiting-payment state — CheckoutView renders
-  // PayWithOxyPay (amount + deep link/QR), not StatusPanel yet.
+  // PayWithPeable (amount + deep link/QR), not StatusPanel yet.
   expect(await screen.findByText('1 FAIR')).toBeDefined();
   expect(getPaymentIntentMock).toHaveBeenCalledWith('pi_open789', 'pi_open789_secret');
   // Only the link-details GET should have hit the Gateway — no mint POST.
@@ -111,7 +111,7 @@ test('reuses an open intent without minting a fresh one', async () => {
 
 test('mints a fresh intent once the remembered one is terminal', async () => {
   sessionStorage.setItem(
-    'oxypay:link-intent:link_test123',
+    'peable:link-intent:link_test123',
     JSON.stringify({ id: 'pi_settled999', clientSecret: 'pi_settled999_secret' }),
   );
   const terminalIntent = makeIntent({ id: 'pi_settled999', status: 'settled' });
@@ -133,8 +133,8 @@ test('mints a fresh intent once the remembered one is terminal', async () => {
   fireEvent.click(await screen.findByRole('button', { name: /pay/i }));
 
   // status 'created' is an awaiting-payment state — CheckoutView renders
-  // PayWithOxyPay (amount + deep link/QR), not StatusPanel yet.
+  // PayWithPeable (amount + deep link/QR), not StatusPanel yet.
   expect(await screen.findByText('1 FAIR')).toBeDefined();
   expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(sessionStorage.getItem('oxypay:link-intent:link_test123')).toContain('pi_fresh456');
+  expect(sessionStorage.getItem('peable:link-intent:link_test123')).toContain('pi_fresh456');
 });

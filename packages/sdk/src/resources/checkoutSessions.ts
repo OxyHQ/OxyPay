@@ -1,4 +1,4 @@
-import type { CheckoutSession, CreateCheckoutSessionParams } from '@oxypay/shared-types';
+import type { CheckoutSession, CreateCheckoutSessionParams } from '@peable/shared-types';
 import type { RestClient } from '../core/client';
 
 export class CheckoutSessionsResource {
@@ -18,9 +18,9 @@ export class CheckoutSessionsResource {
   }
 }
 
-/** `oxypay.checkout.sessions.*` — a thin namespace wrapper so the public API
- * reads `oxypay.checkout.sessions.create(...)` (Stripe Checkout Session
- * parity), leaving room for future `oxypay.checkout.*` resources. */
+/** `peable.checkout.sessions.*` — a thin namespace wrapper so the public API
+ * reads `peable.checkout.sessions.create(...)` (Stripe Checkout Session
+ * parity), leaving room for future `peable.checkout.*` resources. */
 export class CheckoutResource {
   readonly sessions: CheckoutSessionsResource;
 

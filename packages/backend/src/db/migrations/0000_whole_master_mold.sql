@@ -1,6 +1,6 @@
 -- oxy:deploy-phase=pre
 --
--- Genesis: the whole Oxy Pay schema, created from zero. Additive by
+-- Genesis: the whole Peable schema, created from zero. Additive by
 -- definition — there is nothing for it to drop, rename or narrow, and the
 -- previous image (which reads Mongo) is unaffected by every statement here.
 --

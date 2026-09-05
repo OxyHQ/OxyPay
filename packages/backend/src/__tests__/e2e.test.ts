@@ -20,7 +20,7 @@ import type {
   OxyAuthRequest,
   SafeFetchResult,
 } from "@oxyhq/core/server";
-import { verifyWebhook } from "@oxypay/shared-types";
+import { verifyWebhook } from "@peable/shared-types";
 import { merchants, paymentIntents } from "../db/schema";
 import {
   findMerchantByAppEnvironment,
@@ -115,7 +115,7 @@ beforeAll(async () => {
     environment: "development",
     network: "testnet",
     xpub: XPUB,
-    webhookUrl: "https://merchant.example/oxypay/webhook",
+    webhookUrl: "https://merchant.example/peable/webhook",
     webhookSecret: WEBHOOK_SECRET,
     requiredConfirmations: 1,
   });
@@ -166,7 +166,7 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
     body: JSON.stringify({ amount: AMOUNT, network: "testnet" }),
   });
   expect(createRes.status).toBe(201);
-  expect(createRes.headers.get("Oxy-Pay-Version")).toBe("2026-07-18");
+  expect(createRes.headers.get("Peable-Version")).toBe("2026-07-18");
   const created = (await createRes.json()) as {
     id: string;
     address: string;
@@ -287,7 +287,7 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   // 7. A correctly-signed settled webhook was delivered to the merchant.
   const hook = webhookCalls.at(-1);
   if (!hook) throw new Error("no webhook captured");
-  const signature = hook.headers["Oxy-Pay-Signature"];
+  const signature = hook.headers["Peable-Signature"];
   if (signature === undefined) throw new Error("webhook missing signature");
   expect(
     verifyWebhook(

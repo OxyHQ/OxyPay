@@ -3,7 +3,7 @@ import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { createOxyAuthMiddleware, getRequiredOxyUserId } from "@oxyhq/core/server";
-import type { EnrichResponse } from "@oxypay/shared-types";
+import type { EnrichResponse } from "@peable/shared-types";
 import { enrichAddresses, ENRICH_MAX_ADDRESSES } from "../services/enrichment";
 import { sendError, wrap } from "../lib/http";
 

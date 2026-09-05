@@ -1,5 +1,5 @@
 /**
- * Oxy Pay's on-device half of the social-receive scheme (design spec §4.3).
+ * Peable's on-device half of the social-receive scheme (design spec §4.3).
  * Reads the raw identity private key from `@oxyhq/core`'s EXISTING
  * `KeyManager.getSharedPrivateKey()`/`getPrivateKey()` — no `@oxyhq/core`
  * change needed; this mirrors `deriveIdentitySeed`'s own key-source priority

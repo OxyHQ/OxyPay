@@ -1,7 +1,7 @@
 import {
   type PaymentIntentStatus,
   isValidStatusTransition,
-} from "@oxypay/shared-types";
+} from "@peable/shared-types";
 
 /**
  * Events that drive a PaymentIntent through its lifecycle. Each event maps to a

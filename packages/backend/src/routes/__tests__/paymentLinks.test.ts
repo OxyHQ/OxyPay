@@ -136,7 +136,7 @@ afterAll(async () => {
 });
 
 describe("POST /v1/payment_links", () => {
-  test("creates a link (201) with a link_ id and a checkout.oxy.so URL", async () => {
+  test("creates a link (201) with a link_ id and a checkout.peable.to URL", async () => {
     const res = await fetch(`${baseUrl}/v1/payment_links`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,7 +155,7 @@ describe("POST /v1/payment_links", () => {
     expect(body.active).toBe(true);
     expect(body.metadata).toEqual({ sku: "sku_1" });
     expect(body.successUrl).toBe("https://merchant.example/thanks");
-    expect(body.url).toBe(`https://checkout.oxy.so/l/${body.id}`);
+    expect(body.url).toBe(`https://checkout.peable.to/l/${body.id}`);
   });
 
   test("a network that doesn't match the merchant's configured network -> 422", async () => {

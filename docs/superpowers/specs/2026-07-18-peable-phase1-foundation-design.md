@@ -1,22 +1,22 @@
-# Oxy Pay — Fase 1 (Cimiento): flujo de pago no-custodial end-to-end
+# Peable — Fase 1 (Cimiento): flujo de pago no-custodial end-to-end
 
 > **Estado:** diseño para revisión. Fase 1 de un producto multi-fase (ver "Contexto"). YAGNI estricto: esto prueba **un** flujo atómico, nada más.
 > **Fecha:** 2026-07-18
 
 ## Contexto
 
-Oxy Pay pivota de una plataforma **custodial** (muerta, no funcionaba) a una **pasarela de pagos no-custodial sobre FairCoin** — "Stripe sobre FairCoin". La app se basa en un fork de **FAIRWallet** (self-custodial, SPV/P2P, `@oxyhq/bloom`) vendorizado vía `git subtree` en `packages/frontend`, con **identidad Oxy** añadida encima. FairCoin/FAIRWallet siguen siendo un proyecto **aparte** (usable sin Oxy); Oxy Pay es el hermano vinculado a la cuenta Oxy.
+Peable pivota de una plataforma **custodial** (muerta, no funcionaba) a una **pasarela de pagos no-custodial sobre FairCoin** — "Stripe sobre FairCoin". La app se basa en un fork de **FAIRWallet** (self-custodial, SPV/P2P, `@oxyhq/bloom`) vendorizado vía `git subtree` en `packages/frontend`, con **identidad Oxy** añadida encima. FairCoin/FAIRWallet siguen siendo un proyecto **aparte** (usable sin Oxy); Peable es el hermano vinculado a la cuenta Oxy.
 
 **Restricción legal load-bearing (MiCA):** custodiar los FairCoins convertiría a Oxy en CASP (licencia, capital, AML, auditorías). Self-custody queda **fuera** de MiCA. Por tanto la **no-custodia es un invariante de diseño, no una feature** — es el firewall legal.
 
-Producto completo (fuera de alcance de esta fase, para orientar): **F1 cimiento** · F2 plataforma merchant/SDK `@oxyhq/pay` · F3 presencial/POS · F4 amplitud Stripe (billing/refunds/payouts). Dashboard developer = UI propia de Oxy Pay pero backend de apps/keys/tokens = **Oxy Console** (sin duplicar).
+Producto completo (fuera de alcance de esta fase, para orientar): **F1 cimiento** · F2 plataforma merchant/SDK `@peable/sdk` · F3 presencial/POS · F4 amplitud Stripe (billing/refunds/payouts). Dashboard developer = UI propia de Peable pero backend de apps/keys/tokens = **Oxy Console** (sin duplicar).
 
 ## Nomenclatura (productos)
 
-- **Oxy Pay** — la **app monedero** (consumer): self-custody FairCoin + identidad Oxy + aprobar-pago. → `packages/frontend`.
-- **Oxy Pay Gateway** — la **pasarela de pagos**: backend + API pública + SDK `@oxyhq/pay` + catálogo estilo Stripe (**one-time payments, payment links, invoices, subscriptions, checkout, webhooks**), integrable por apps del ecosistema Oxy (**Mercaria**, etc.) **y por terceros** que quieran Oxy Pay como su pasarela. → `packages/backend` + `shared-types` + `OxyPaySDK`. Registro de apps/keys/tokens vía **Oxy Console**; **dashboard propio** estilo Stripe.
-- **Oxy Pay Terminal** — el **TPV**: terminal merchant (NFC, móvil/PC), app Expo aparte. → `packages/terminal`.
-- **FairWallet** — proyecto **aparte** (sin Oxy). Oxy Pay es el hermano vinculado a Oxy.
+- **Peable** — la **app monedero** (consumer): self-custody FairCoin + identidad Oxy + aprobar-pago. → `packages/frontend`.
+- **Peable Gateway** — la **pasarela de pagos**: backend + API pública + SDK `@peable/sdk` + catálogo estilo Stripe (**one-time payments, payment links, invoices, subscriptions, checkout, webhooks**), integrable por apps del ecosistema Oxy (**Mercaria**, etc.) **y por terceros** que quieran Peable como su pasarela. → `packages/backend` + `shared-types` + `PeableSDK`. Registro de apps/keys/tokens vía **Oxy Console**; **dashboard propio** estilo Stripe.
+- **Peable Terminal** — el **TPV**: terminal merchant (NFC, móvil/PC), app Expo aparte. → `packages/terminal`.
+- **FairWallet** — proyecto **aparte** (sin Oxy). Peable es el hermano vinculado a Oxy.
 
 **Catálogo Stripe → fases** (el gateway crece sobre el primitivo de F1):
 - **one-time payment** = el primitivo de F1 (el `PaymentIntent`).
@@ -30,13 +30,13 @@ Probar, end-to-end en **testnet FairCoin**, la unidad atómica sobre la que se a
 
 > **cobro → notificación → aprobación → firma self-custody → liquidación FairCoin → confirmación + webhook**
 
-Un merchant (autenticado con app-key emitida por Console) crea un cobro; un usuario Oxy Pay lo aprueba y **firma él mismo** el pago; el backend **observa** la cadena (watch-only) y confirma; se dispara un webhook. Oxy **nunca** tiene claves ni toca fondos.
+Un merchant (autenticado con app-key emitida por Console) crea un cobro; un usuario Peable lo aprueba y **firma él mismo** el pago; el backend **observa** la cadena (watch-only) y confirma; se dispara un webhook. Oxy **nunca** tiene claves ni toca fondos.
 
 ## Invariante de no-custodia (obligatorio, verificable)
 
 Todo el diseño respeta, sin excepción:
 1. Las claves privadas viven **solo** en el dispositivo del usuario (secure-store, BIP44). El backend nunca las ve, guarda ni deriva.
-2. El backend nunca posee ni controla fondos, ni transitoriamente. No hay balance custodial, ni "cuenta Oxy Pay" con saldo.
+2. El backend nunca posee ni controla fondos, ni transitoriamente. No hay balance custodial, ni "cuenta Peable" con saldo.
 3. El pago lo **inicia y firma el usuario**. El backend solo: crea intents, rutea notificaciones, **observa** direcciones (watch-only, solo claves públicas/xpub), confirma, dispara webhooks, contabilidad merchant.
 4. Del merchant el backend guarda como mucho un **xpub watch-only** (clave pública → no puede gastar).
 
@@ -44,15 +44,15 @@ Un cambio que viole 1-4 es un bug legal, no solo técnico.
 
 ## Principios transversales (todo el Gateway)
 
-- **Realtime-first:** sistema event-driven. Cada cambio de estado del `PaymentIntent` se propaga **al instante vía Socket.io** a todos los interesados (monedero del pagador, SDK/dashboard del merchant, Oxy Pay Terminal). REST para comandos, **sockets para estado** — nada de polling en el camino crítico.
+- **Realtime-first:** sistema event-driven. Cada cambio de estado del `PaymentIntent` se propaga **al instante vía Socket.io** a todos los interesados (monedero del pagador, SDK/dashboard del merchant, Peable Terminal). REST para comandos, **sockets para estado** — nada de polling en el camino crítico.
 - **Todo interconectado:** el `PaymentIntent` es la **única fuente de verdad**; app, gateway, SDK, terminal y webhooks observan el mismo objeto/eventos.
 - **Paridad con Stripe (API/SDK/estructura):**
   - Objetos-recurso con **IDs prefijados**: `pi_` (PaymentIntent), `evt_` (Event); en fases posteriores `link_`, `cs_` (checkout session), `in_` (invoice), `sub_` (subscription), `merch_`/`acct_`.
   - **`Idempotency-Key`** en todos los `create`.
-  - Versionado de API por fecha vía header **`Oxy-Pay-Version`**.
+  - Versionado de API por fecha vía header **`Peable-Version`**.
   - Webhooks con **firma HMAC** y tipos punteados (`payment_intent.settled`, `payment_intent.failed`, …) — como Stripe (`payment_intent.succeeded`).
   - Referencia tipo **`client_secret`** para que el cliente (monedero) resuelva/confirme el intent; aquí "confirmar" = **aprobar + firmar** self-custody.
-  - **SDK ergonómico namespaced:** `oxypay.paymentIntents.create(...)`, `.retrieve(id)`, `.list(...)`; paginación y `expand` estilo Stripe.
+  - **SDK ergonómico namespaced:** `peable.paymentIntents.create(...)`, `.retrieve(id)`, `.list(...)`; paginación y `expand` estilo Stripe.
   - **test / live mode** por app-key (emitidas por Console).
 - **Código:** limpio, eficiente, **bien-acotado** (módulos de una responsabilidad, interfaces claras, imports directos, tipos correctos). **Sin hacks / tricky things / `as any` / shims** (estándares de AGENTS.md).
 
@@ -63,13 +63,13 @@ Un cambio que viole 1-4 es un bug legal, no solo técnico.
 - Backend nuevo de cero (`packages/backend`): modelo `PaymentIntent`, registro merchant (xpub watch-only + endpoint webhook), API de intents, **watcher de liquidación** (watch-only vía Explorer), dispatcher de webhooks, auth `@oxyhq/core/server`, Socket.io para updates realtime del intent al monedero.
 - `shared-types`: DTOs `PaymentIntent`, enum de estados, tipos de evento webhook.
 
-**Fuera (fases posteriores):** SDK `@oxyhq/pay`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia, on/off-ramp fiat, refunds, payouts, multi-merchant a escala, antifraude.
+**Fuera (fases posteriores):** SDK `@peable/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia, on/off-ramp fiat, refunds, payouts, multi-merchant a escala, antifraude.
 
 ## Arquitectura
 
-**Actores:** Payee (merchant / app Oxy) · Payer (usuario Oxy Pay) · Backend Oxy Pay (orquestador) · Cadena FairCoin (+ Explorer para watch-only).
+**Actores:** Payee (merchant / app Oxy) · Payer (usuario Peable) · Backend Peable (orquestador) · Cadena FairCoin (+ Explorer para watch-only).
 
-**Repos/paquetes tocados en F1:** solo `OxyPay/packages/{frontend,backend,shared-types}`. (Console/SDK/POS = fases siguientes.)
+**Repos/paquetes tocados en F1:** solo `Peable/packages/{frontend,backend,shared-types}`. (Console/SDK/POS = fases siguientes.)
 
 ### Ciclo de vida de `PaymentIntent`
 
@@ -109,8 +109,8 @@ El backend **no corre custodia ni nodo propio**. Se probó el Explorer en vivo: 
 
 ### Entrada del payer (dos modos, mismo intent)
 
-- **(A) Push (flujo héroe)** — el cobro apunta a un usuario Oxy conocido (el merchant pasa su Oxy id/handle) → push al monedero Oxy Pay → abre el intent → aprobar. FAIRWallet ya tiene push (`src/services/push-handler.ts`).
-- **(B) QR / payment-link** — cobro abierto; cualquier usuario Oxy Pay escanea/abre → mismo `GET intent` → aprobar.
+- **(A) Push (flujo héroe)** — el cobro apunta a un usuario Oxy conocido (el merchant pasa su Oxy id/handle) → push al monedero Peable → abre el intent → aprobar. FAIRWallet ya tiene push (`src/services/push-handler.ts`).
+- **(B) QR / payment-link** — cobro abierto; cualquier usuario Peable escanea/abre → mismo `GET intent` → aprobar.
 
 Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo héroe verificado es (A). **El `PaymentIntent` se diseña agnóstico al canal de entrada** — un tercer canal, **NFC-TPV**, se añade en F3 sin tocar el core (ver "Roadmap: POS/NFC y SDK/Mercaria").
 
@@ -143,7 +143,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 1. `bun install` desde root (linker hoisted); tras churn nativo `rm -rf packages/*/node_modules && bun install` + `expo-doctor`.
 2. Backend: `bun test` + `tsc --noEmit`. Levantar backend local.
-3. Frontend: `bun run --filter @oxypay/frontend typecheck`; `expo start`. **Verificar en pestaña de navegador EN PRIMER PLANO** (reglas Bloom/Reanimated/expo-router: pestaña en background congela rAF y da falsos "blank"): cold boot de OxyProvider + theming Bloom + bandeja de requests.
+3. Frontend: `bun run --filter @peable/frontend typecheck`; `expo start`. **Verificar en pestaña de navegador EN PRIMER PLANO** (reglas Bloom/Reanimated/expo-router: pestaña en background congela rAF y da falsos "blank"): cold boot de OxyProvider + theming Bloom + bandeja de requests.
 4. **Prueba del flujo atómico (testnet):** merchant registra xpub testnet → `POST /payment-intents` → llega push/QR al monedero → aprobar → el wallet firma+difunde → el watcher pasa `confirming`→`settled` → webhook recibido (verificar firma). Confirmar que el backend **nunca** tuvo claves ni fondos (auditar que solo hay xpub + direcciones observadas).
 5. Caso underpaid + caso expiry → estados `failed`/`expired` correctos.
 
@@ -152,7 +152,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 1. **Emparejado tx↔intent:** **xpub watch-only del merchant + dirección fresca por intent** (estilo BTCPay). No dirección estática.
 2. **Fuente de watch-only:** **FairCoin Explorer** (HTTP + WebSocket, sin infra propia). `faircoind` RPC queda como alternativa futura.
 3. **Confirmaciones para `settled`:** **1-conf** por defecto en testnet, **configurable por merchant**. `confirming` (0-conf mempool) es estado de primera clase.
-4. **Merchant en el test:** **cuenta Oxy Pay con wallet** que aporta su xpub (dos self-custody + orquestador).
+4. **Merchant en el test:** **cuenta Peable con wallet** que aporta su xpub (dos self-custody + orquestador).
 5. **Alineación Expo SDK:** fork viene en SDK 55 → **alinear a SDK 57 como sub-fase corta previa** dentro de F1.
 
 ## Roadmap: POS/NFC (F3) y SDK/Mercaria (F2)
@@ -161,13 +161,13 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 **Principio (lo confirma la investigación): NFC y el SDK NO son un core de pago nuevo — son canales de entrada del MISMO `PaymentIntent`.** Si el intent es agnóstico al canal (push/QR/NFC/SDK) y conserva `confirming` (0-conf) de primera clase, F2 y F3 son capas encima.
 
-**F2 — SDK `@oxyhq/pay` + apps (Mercaria) + plugins e-commerce:**
+**F2 — SDK `@peable/sdk` + apps (Mercaria) + plugins e-commerce:**
 - Apps como **Mercaria** (`~/Mercaria`, marketplace) embeben el SDK (checkout / pay-button). El SDK llama al backend F1 (`POST /payment-intents`) con la **app-key emitida por Console** y renderiza el estado (pending→settled) vía Socket.io.
-- Online/in-app: comprador (usuario Oxy Pay) recibe push o abre checkout → aprueba+firma → settle → webhook a Mercaria. Mercaria como merchant registra su **xpub watch-only** igual que en F1 (no-custodial).
-- **Plugins para webs de terceros:** un **plugin de WordPress/WooCommerce** (y equivalentes Shopify/PrestaShop más adelante) para que cualquier tienda acepte Oxy Pay en su web — igual que el plugin WooCommerce de Stripe. El plugin es solo un cliente del Gateway (crea intents con la app-key de Console + verifica webhooks firmados); nada de custodia.
+- Online/in-app: comprador (usuario Peable) recibe push o abre checkout → aprueba+firma → settle → webhook a Mercaria. Mercaria como merchant registra su **xpub watch-only** igual que en F1 (no-custodial).
+- **Plugins para webs de terceros:** un **plugin de WordPress/WooCommerce** (y equivalentes Shopify/PrestaShop más adelante) para que cualquier tienda acepte Peable en su web — igual que el plugin WooCommerce de Stripe. El plugin es solo un cliente del Gateway (crea intents con la app-key de Console + verifica webhooks firmados); nada de custodia.
 
 **F3 — POS físico / NFC "tipo Google Pay" (con FairCoin):**
-- **Distinción crítica (legal + técnica):** "como Google Pay" = la **UX** (tocar el móvil), NO los **rieles**. No se toca EMV/Visa/Mastercard — eso exigiría emitir tarjeta + conversión fiat en el punto de venta = custodia/exchange = **CASP + licencia**. Oxy Pay es **circuito cerrado**: NFC solo transporta localmente el `PaymentIntent`/dirección entre TPV y móvil del pagador; la liquidación es on-chain FairCoin firmada por el wallet self-custody. **No-custodial, MiCA-safe.** Precedentes que validan el modelo: [Numo/Numopay](https://coincharge.io/en/numo-numopay-accept-bitcoin-tap-to-pay-via-nfc-in-stores/), [Flexa Tap-to-Pay](https://flexa.co/newsroom/tap-to-pay), Swiss Bitcoin Pay / Bolt Card.
+- **Distinción crítica (legal + técnica):** "como Google Pay" = la **UX** (tocar el móvil), NO los **rieles**. No se toca EMV/Visa/Mastercard — eso exigiría emitir tarjeta + conversión fiat en el punto de venta = custodia/exchange = **CASP + licencia**. Peable es **circuito cerrado**: NFC solo transporta localmente el `PaymentIntent`/dirección entre TPV y móvil del pagador; la liquidación es on-chain FairCoin firmada por el wallet self-custody. **No-custodial, MiCA-safe.** Precedentes que validan el modelo: [Numo/Numopay](https://coincharge.io/en/numo-numopay-accept-bitcoin-tap-to-pay-via-nfc-in-stores/), [Flexa Tap-to-Pay](https://flexa.co/newsroom/tap-to-pay), Swiss Bitcoin Pay / Bolt Card.
 - **Arquitectura NFC elegida (esquiva el muro de iOS):** el **TPV (Android, HCE) presenta** el intent por NFC; el móvil del pagador **lo lee** (modo lector). Así el pagador en **iPhone solo necesita Core NFC lectura** (desde iOS 11) — **sin** el entitlement HCE de Apple. Android TPV usa HCE ([`react-native-hce`](https://github.com/appidea/react-native-hce), Type 4 tag, EAS dev build; la carga NFC va **firmada por nosotros** — la lib transmite en claro). Pagador toca → su app abre el intent → aprueba+firma → settle.
 - **Paridad total "tocar con la app cerrada"** (doble-clic botón lateral) en iPhone = requiere el **HCE entitlement de Apple** ([EEA, iOS 17.4+](https://developer.apple.com/support/hce-transactions-in-apps/); tras los compromisos DMA de jul-2024 **sin** necesidad de licencia PSP). Fase posterior; v1 POS = abrir-app-y-tocar, funciona en ambos SO sin entitlement.
 - **El TPV es una app Expo APARTE** (`packages/terminal`, 2ª app Expo del monorepo, lado merchant) — **no** un modo del monedero. Usa el NFC del dispositivo: en **móvil** (Android nativo/HCE; iPhone según entitlement o dirección de lectura) y en **PC** vía el shell **Electron** que el fork ya trae + **lector USB NFC** (ACR122U) o WebNFC donde exista. Corre en un móvil, un Android POS estándar (Sunmi/PAX) o un PC con lector. Solo **crea `PaymentIntent`s (core F1)** y hace el hand-off NFC con el monedero del pagador. Móvil-a-móvil vale para empezar; terminal dedicado = productización.
@@ -179,7 +179,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 ## Fuera de alcance explícito (no construir en F1)
 
-SDK `@oxyhq/pay`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia (per-approval o pre-firma nLockTime = fase R&D), on/off-ramp fiat (partner licenciado, no Oxy), refunds, payouts, antifraude, multi-currency.
+SDK `@peable/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia (per-approval o pre-firma nLockTime = fase R&D), on/off-ramp fiat (partner licenciado, no Oxy), refunds, payouts, antifraude, multi-currency.
 
 ## Nota legal
 

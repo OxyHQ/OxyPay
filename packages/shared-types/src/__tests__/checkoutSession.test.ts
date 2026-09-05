@@ -35,7 +35,7 @@ test('CheckoutSession is assignable from a representative literal', () => {
     metadata: {},
     successUrl: 'https://merchant.example/success',
     cancelUrl: 'https://merchant.example/cancel',
-    url: 'https://checkout.oxy.so/c/cs_abc',
+    url: 'https://checkout.peable.to/c/cs_abc',
     createdAt: '2026-07-19T00:00:00.000Z',
     updatedAt: '2026-07-19T00:00:00.000Z',
   };

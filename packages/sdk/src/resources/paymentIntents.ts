@@ -2,7 +2,7 @@ import type {
   CreatePaymentIntentParams,
   PaymentIntent,
   PaymentIntentStatus,
-} from '@oxypay/shared-types';
+} from '@peable/shared-types';
 import type { RestClient } from '../core/client';
 
 export interface PaymentIntentListParams {

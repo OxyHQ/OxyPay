@@ -1,7 +1,7 @@
 {
-  "name": "@oxyhq/pay",
+  "name": "@peable/sdk",
   "version": "0.1.1",
-  "description": "Oxy Pay SDK — a Stripe-ergonomics TypeScript client over the Oxy Pay Gateway REST + realtime contract. Server entry (`@oxyhq/pay`) mints Oxy service tokens from an ApplicationCredential and exposes paymentIntents/paymentLinks/checkout.sessions/webhooks; browser entry (`@oxyhq/pay/checkout`) is the anonymous payer-side client core.",
+  "description": "Peable SDK — a Stripe-ergonomics TypeScript client over the Peable Gateway REST + realtime contract. Server entry (`@peable/sdk`) mints Oxy service tokens from an ApplicationCredential and exposes paymentIntents/paymentLinks/checkout.sessions/webhooks; browser entry (`@peable/sdk/checkout`) is the anonymous payer-side client core.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
   "types": "dist/types/index.d.ts",
@@ -41,7 +41,7 @@
     "dist"
   ],
   "keywords": [
-    "oxypay",
+    "peable",
     "oxy",
     "payments",
     "sdk",
@@ -49,12 +49,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/OxyHQ/OxyPay.git",
+    "url": "https://github.com/OxyHQ/Peable.git",
     "directory": "packages/sdk"
   },
-  "author": "Oxy Pay",
+  "author": "Peable",
   "license": "MIT",
-  "homepage": "https://oxy.so",
+  "homepage": "https://peable.to",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -71,7 +71,7 @@
     "prepublishOnly": "bun run clean && bun run build"
   },
   "dependencies": {
-    "@oxypay/shared-types": "workspace:^",
+    "@peable/shared-types": "workspace:^",
     "qrcode-generator": "^2.0.4",
     "socket.io-client": "^4.8.3"
   },

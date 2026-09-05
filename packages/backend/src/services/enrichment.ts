@@ -1,5 +1,5 @@
 import { oxyClient, getNormalizedUserHandle } from "@oxyhq/core";
-import type { EnrichmentResult } from "@oxypay/shared-types";
+import type { EnrichmentResult } from "@peable/shared-types";
 import { getDb } from "../db/postgres";
 import { findIntentsByAddresses } from "../db/payments/paymentIntentRepository";
 import { findMerchantsByIds } from "../db/merchants/merchantRepository";

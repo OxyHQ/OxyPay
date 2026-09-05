@@ -1,4 +1,4 @@
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 
 interface StatusVisual {
   title: string;

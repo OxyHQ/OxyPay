@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * OxyPay is PostgreSQL-only. This refuses to let MongoDB back in by accident.
+ * Peable is PostgreSQL-only. This refuses to let MongoDB back in by accident.
  *
  * ## What it guards, and why a guard rather than a memory
  *
@@ -441,7 +441,7 @@ if (unexcused.length > 0 || failures.length > 0) {
   }
   for (const failure of failures) console.error(`  ${failure}\n`);
   console.error(
-    "  OxyPay is PostgreSQL-only (the port completed in #20/#36 and `oxypay` was archived and\n"
+    "  Peable is PostgreSQL-only (the port completed in #20/#36 and the Mongo database `oxypay` was archived and\n"
     + "  dropped on 2026-08-09); reintroducing Mongo needs an explicit architectural\n"
     + "  decision — remove the reference or add a reasoned KNOWN_EXCEPTIONS entry.\n",
   );

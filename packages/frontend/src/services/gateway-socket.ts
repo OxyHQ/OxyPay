@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 import { oxyServices } from '@/services/oxy-services';
 import { GATEWAY_SOCKET_URL } from '@/config';
 
@@ -20,7 +20,7 @@ interface ClientToServerEvents {
 }
 
 /**
- * Single lazy connection to the Oxy Pay Gateway realtime layer.
+ * Single lazy connection to the Peable Gateway realtime layer.
  *
  * `autoConnect: false` gates dialing the Gateway on being authenticated: the
  * handshake carries the Oxy access token (`handshake.auth.token`, read by the

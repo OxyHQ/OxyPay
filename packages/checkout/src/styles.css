@@ -1,5 +1,5 @@
-/* Oxy Pay checkout — hand-written CSS, no Tailwind/Bloom. This app is served
- * to anonymous payers (checkout.oxy.so); bundle weight and first paint matter
+/* Peable checkout — hand-written CSS, no Tailwind/Bloom. This app is served
+ * to anonymous payers (checkout.peable.to); bundle weight and first paint matter
  * more than a shared design system here (spec §6). Brand token VALUES are
  * copied in as CSS custom properties rather than importing Bloom's theme. */
 
@@ -98,7 +98,7 @@ body {
   font-size: 13px;
 }
 
-.pay-with-oxypay {
+.pay-with-peable {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -106,7 +106,7 @@ body {
   width: 100%;
 }
 
-.pay-with-oxypay__amount {
+.pay-with-peable__amount {
   margin: 0;
   color: var(--text);
   font-size: 40px;
@@ -114,7 +114,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-.pay-with-oxypay__button {
+.pay-with-peable__button {
   width: 100%;
   padding: 14px 20px;
   border: none;
@@ -126,11 +126,11 @@ body {
   cursor: pointer;
 }
 
-.pay-with-oxypay__button:hover {
+.pay-with-peable__button:hover {
   background: var(--oxy-purple-dark);
 }
 
-.pay-with-oxypay__qr {
+.pay-with-peable__qr {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -144,7 +144,7 @@ body {
   line-height: 0;
 }
 
-.pay-with-oxypay__hint {
+.pay-with-peable__hint {
   margin: 0;
   color: var(--text-muted);
   font-size: 13px;

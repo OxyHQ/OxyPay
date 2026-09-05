@@ -21,7 +21,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const checkScript = resolve(dirname(fileURLToPath(import.meta.url)), "check-lockfile-sync.mjs");
-const fixturePrefix = join(tmpdir(), "oxypay-lockfile-sync-");
+const fixturePrefix = join(tmpdir(), "peable-lockfile-sync-");
 const decoder = new TextDecoder();
 const createdFixtures = [];
 const failures = [];

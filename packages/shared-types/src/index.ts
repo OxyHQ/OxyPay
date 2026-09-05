@@ -1,4 +1,4 @@
-// @oxypay/shared-types — public API for the Oxy Pay Gateway contract.
+// @peable/shared-types — public API for the Peable Gateway contract.
 export { UNITS_PER_COIN, isBaseUnitString } from './money';
 export { type NetworkType } from './network';
 export {

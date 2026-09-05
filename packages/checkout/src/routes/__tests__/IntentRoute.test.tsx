@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { PaymentIntent } from '@oxypay/shared-types';
+import type { PaymentIntent } from '@peable/shared-types';
 
-// Reuse-if-open (spec §6) never exercises the real `@oxyhq/pay/checkout`
+// Reuse-if-open (spec §6) never exercises the real `@peable/sdk/checkout`
 // stub — mock this app's one SDK touchpoint instead; `App.test.tsx` covers
 // the real (unmocked) stub behavior.
 const getPaymentIntentMock = mock(async (): Promise<PaymentIntent> => {
@@ -17,7 +17,7 @@ mock.module('../../lib/intentClient', () => ({
   }),
 }));
 
-// Renders the full CheckoutView -> PayWithOxyPay -> Qr chain, which draws to
+// Renders the full CheckoutView -> PayWithPeable -> Qr chain, which draws to
 // a real <canvas> 2D context — unsupported by happy-dom. Stub it out; `Qr`
 // itself isn't exercised here (see LinkRoute.test.tsx for the same stub).
 mock.module('qr-creator/dist/qr-creator.es6.min.js', () => ({

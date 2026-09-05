@@ -5,7 +5,7 @@
 
 // Frozen FairCoin consensus constant (smallest units per FAIR). Mirrors
 // @fairco.in/core's branding.ts; inlined here (rather than imported) to keep
-// @oxypay/shared-types zero-runtime-dep for a clean CJS+ESM publish — must
+// @peable/shared-types zero-runtime-dep for a clean CJS+ESM publish — must
 // stay a bigint, never converted to number.
 export const UNITS_PER_COIN = 100_000_000n;
 

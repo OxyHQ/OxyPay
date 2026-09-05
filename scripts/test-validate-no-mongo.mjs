@@ -131,7 +131,7 @@ const cases = [
     name: "a dependency on mongoose is rejected",
     files: filler({
       "packages/backend/package.json": `${JSON.stringify(
-        { name: "@oxypay/backend", dependencies: { mongoose: "^8.24.0" } },
+        { name: "@peable/backend", dependencies: { mongoose: "^8.24.0" } },
         null,
         2,
       )}\n`,
@@ -143,7 +143,7 @@ const cases = [
     name: "a devDependency on mongodb-memory-server is rejected",
     files: filler({
       "packages/backend/package.json": `${JSON.stringify(
-        { name: "@oxypay/backend", devDependencies: { "mongodb-memory-server": "^10.0.0" } },
+        { name: "@peable/backend", devDependencies: { "mongodb-memory-server": "^10.0.0" } },
         null,
         2,
       )}\n`,
@@ -172,14 +172,14 @@ const cases = [
     expectOutput: "overrides declares mongoose",
   },
   {
-    // The regression this check exists for. `@oxypay/backend` described itself
+    // The regression this check exists for. `@peable/backend` described itself
     // as an "Express 5 / Mongoose / Socket.io backend" while every dependency
     // check above passed, because a description declares nothing. The most
     // visible line in the manifest was the one the guard could not read.
     name: "a description claiming Mongoose is rejected",
     files: filler({
       "packages/backend/package.json": `${JSON.stringify(
-        { name: "@oxypay/backend", description: "Express 5 / Mongoose / Socket.io backend for Mercaria" },
+        { name: "@peable/backend", description: "Express 5 / Mongoose / Socket.io backend for Mercaria" },
         null,
         2,
       )}\n`,
@@ -191,7 +191,7 @@ const cases = [
     name: "a keyword claiming MongoDB is rejected",
     files: filler({
       "packages/backend/package.json": `${JSON.stringify(
-        { name: "@oxypay/backend", keywords: ["api", "MongoDB"] },
+        { name: "@peable/backend", keywords: ["api", "MongoDB"] },
         null,
         2,
       )}\n`,
@@ -208,7 +208,7 @@ const cases = [
     name: "a description containing mongo inside another word passes",
     files: filler({
       "packages/backend/package.json": `${JSON.stringify(
-        { name: "@oxypay/backend", description: "Ranked among the fastest, deployed in Mongolia" },
+        { name: "@peable/backend", description: "Ranked among the fastest, deployed in Mongolia" },
         null,
         2,
       )}\n`,

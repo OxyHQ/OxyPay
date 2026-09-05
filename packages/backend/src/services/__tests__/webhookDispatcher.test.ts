@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { SsrfRejection, type SafeFetchResult } from "@oxyhq/core/server";
-import { verifyWebhook, type PaymentIntent } from "@oxypay/shared-types";
+import { verifyWebhook, type PaymentIntent } from "@peable/shared-types";
 import {
   buildEvent,
   deliver,
@@ -13,7 +13,7 @@ import {
 const TOLERANCE_SEC = 300;
 
 const TARGET: WebhookTarget = {
-  url: "https://merchant.example/oxypay/webhook",
+  url: "https://merchant.example/peable/webhook",
   secret: "whsec_test_secret",
 };
 
@@ -58,7 +58,7 @@ test("delivers a correctly-signed webhook and destroys the response on 2xx", asy
   const { result, wasDestroyed } = fakeResult(200);
   const fakeSafeFetch: SafeFetchFn = async (_url, options) => {
     captured.body = typeof options?.body === "string" ? options.body : undefined;
-    captured.signature = options?.headers?.["Oxy-Pay-Signature"];
+    captured.signature = options?.headers?.["Peable-Signature"];
     captured.contentType = options?.headers?.["Content-Type"];
     return result;
   };
