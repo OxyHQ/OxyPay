@@ -71,6 +71,24 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "notFound.description": "We couldn't find the screen you were looking for. It may have been moved or removed.",
     "notFound.goHome": "Back to wallet",
 
+    // ---------- Public profile (/@username) ----------
+    "profile.notFound.title": "No one goes by @{username}",
+    "profile.notFound.description": "That handle isn't registered on Oxy. Check the spelling, or ask them for their link.",
+    "profile.error.title": "Couldn't load this profile",
+    "profile.error.description": "Something went wrong reaching Oxy. Check your connection and try again.",
+    "profile.self": "This is you. Share your link so people can send you FAIR.",
+    "profile.send": "Send FAIR to {name}",
+    "profile.reserving": "Preparing address...",
+    "profile.signIn.description": "Sign in with Oxy to send @{username} money.",
+    "profile.walletNotReady": "Finish setting up your Peable wallet, then come back to pay.",
+    "profile.mainnetBlocked": "Paying by handle isn't ready for mainnet yet, so @{username} can't be paid from this wallet. Switch to testnet in Settings to try it.",
+    "profile.testnetOnly": "Paying by handle runs on testnet only for now.",
+    "profile.web.title": "Peable lives on your phone",
+    "profile.web.description": "Your keys are derived on your device and never leave it, so sending {name} money happens in the Peable app.",
+    "profile.web.openApp": "Open in the Peable app",
+    "profile.error.keyless": "@{username} hasn't set up an Oxy identity yet, so there's nowhere to send money. Invite them to Peable.",
+    "profile.error.reserve": "Couldn't prepare a payment address. Try again in a moment.",
+
     // ---------- Wallet / Home ----------
     "wallet.title": "Wallet",
     "wallet.balance": "Total Balance",
@@ -846,6 +864,24 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "notFound.title": "P\u00e1gina no encontrada",
     "notFound.description": "No encontramos la pantalla que buscabas. Es posible que se haya movido o eliminado.",
     "notFound.goHome": "Volver a la billetera",
+
+    // ---------- Public profile (/@username) ----------
+    "profile.notFound.title": "Nadie usa @{username}",
+    "profile.notFound.description": "Ese usuario no está registrado en Oxy. Revisa cómo se escribe o pídele su enlace.",
+    "profile.error.title": "No se pudo cargar el perfil",
+    "profile.error.description": "Hubo un problema al contactar con Oxy. Revisa tu conexión e inténtalo de nuevo.",
+    "profile.self": "Eres tú. Comparte tu enlace para que te envíen FAIR.",
+    "profile.send": "Enviar FAIR a {name}",
+    "profile.reserving": "Preparando dirección...",
+    "profile.signIn.description": "Inicia sesión con Oxy para enviarle dinero a @{username}.",
+    "profile.walletNotReady": "Termina de configurar tu billetera Peable y vuelve para pagar.",
+    "profile.mainnetBlocked": "Pagar por usuario aún no está listo para mainnet, así que no puedes pagarle a @{username} desde esta billetera. Cambia a testnet en Ajustes para probarlo.",
+    "profile.testnetOnly": "Pagar por usuario funciona solo en testnet por ahora.",
+    "profile.web.title": "Peable vive en tu teléfono",
+    "profile.web.description": "Tus claves se derivan en tu dispositivo y nunca salen de él, así que enviarle dinero a {name} se hace desde la app de Peable.",
+    "profile.web.openApp": "Abrir en la app de Peable",
+    "profile.error.keyless": "@{username} aún no configuró su identidad de Oxy, así que no hay a dónde enviar el dinero. Invítalo a Peable.",
+    "profile.error.reserve": "No se pudo preparar una dirección de pago. Inténtalo de nuevo en un momento.",
 
     // ---------- Wallet / Home ----------
     "wallet.title": "Billetera",
