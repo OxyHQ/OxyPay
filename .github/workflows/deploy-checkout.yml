@@ -1,0 +1,64 @@
+# Deploy the hosted checkout (@peable/checkout) to Cloudflare Pages.
+#
+# Frontends go to Pages and backends go to the ALB — the split every Oxy zone
+# already follows (oxy.so itself, accounts, auth, console, inbox, allo, noted,
+# os, space, atlas and crowdsource are all Pages; api.* is all ALB). Adapted
+# from the canonical OxyHQ/website workflow.
+#
+# This is deliberately a SEPARATE workflow from deploy-aws.yml rather than a
+# job inside it. The two deploy different things to different providers on
+# different triggers, and coupling them would mean a backend rollout failure
+# also withholds a checkout fix that has nothing to do with it.
+name: Deploy checkout to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    # The checkout bundles shared-types and resolves through the root manifests,
+    # so a change to any of them can alter the built output — not just
+    # packages/checkout/**.
+    paths:
+      - 'packages/checkout/**'
+      - 'packages/shared-types/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'bunfig.toml'
+      - '.github/workflows/deploy-checkout.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          # Read from package.json's `packageManager` so this cannot drift from
+          # the pin every other workflow and the Dockerfile share; a bun
+          # mismatch across lockfile consumers fails `--frozen-lockfile`.
+          bun-version-file: package.json
+
+      # Root `postinstall` builds shared-types, which the checkout imports
+      # through its `dist`. Without it the build fails with a TS2307 that says
+      # nothing about the change under review.
+      - run: bun install --frozen-lockfile
+
+      - run: bun run --filter @peable/checkout build
+        env:
+          # Injected rather than left to the fallback in `src/lib/config.ts`,
+          # even though that fallback is this same URL. A default that happens
+          # to be correct in production hides the case where the variable stops
+          # being injected — nothing is empty and nothing errors, so the only
+          # signal is payments quietly failing against the wrong host.
+          VITE_GATEWAY_URL: https://api.peable.to
+          VITE_WALLET_DEEPLINK_SCHEME: peable
+
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy packages/checkout/dist --project-name=peable-checkout --branch=main
