@@ -123,6 +123,41 @@ export const PAYMENT_INTENT_STATUSES: readonly PaymentIntentStatus[] = Object.ke
   ALLOWED,
 ) as PaymentIntentStatus[];
 
+/**
+ * Whether a payer can still complete a payment against an intent in this
+ * status — that is, whether `settled` is still reachable from it.
+ *
+ * **This is not "is the status a leaf of the table", and the difference is a
+ * bug that shipped.** The hosted checkout used to ask leaf-ness, which meant
+ * `settled` while `settled` had no outgoing edges. Adding the refund
+ * transitions (`settled → refunded | partially_refunded`) gave it edges, so a
+ * settled payment stopped looking finished — and the checkout began REUSING a
+ * remembered settled intent instead of minting a fresh one, showing a payer who
+ * had already paid their old receipt forever with no way to pay the link again.
+ * Nothing about that is visible from the transition table alone, which is
+ * exactly why the question has to be asked in the payer's terms.
+ *
+ * Reachability is transitive and requires at least one step, so `settled`
+ * itself answers `false`: it is where paying ENDS. `partially_refunded` is
+ * false too — money can still move, but not from the payer.
+ */
+export function canStillBePaid(status: PaymentIntentStatus): boolean {
+  const seen = new Set<PaymentIntentStatus>();
+  // Starts from the SUCCESSORS, never from `status` itself: seeding the queue
+  // with `settled` would make `canStillBePaid('settled')` true by reflexivity,
+  // which is the whole thing this function exists to answer `false` to.
+  const queue: PaymentIntentStatus[] = [...ALLOWED[status]];
+
+  while (queue.length > 0) {
+    const next = queue.shift() as PaymentIntentStatus;
+    if (next === 'settled') return true;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    queue.push(...ALLOWED[next]);
+  }
+  return false;
+}
+
 export interface PaymentIntent {
   id: string;
   object: 'payment_intent';

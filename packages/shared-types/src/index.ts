@@ -15,6 +15,7 @@ export {
   type PaymentIntent,
   type CreatePaymentIntentParams,
   isValidStatusTransition,
+  canStillBePaid,
   PAYMENT_INTENT_STATUSES,
   PAYMENT_INTENT_RAILS,
   CHAIN_ONLY_STATUSES,
