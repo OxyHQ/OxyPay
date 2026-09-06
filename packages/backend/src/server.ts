@@ -32,6 +32,7 @@ import { createSocialRouter } from "./routes/social";
 import { createEnrichRouter } from "./routes/enrich";
 import { createDashboardRouter } from "./routes/dashboard";
 import { SettlementWatcher } from "./services/settlementWatcher";
+import { ExpirySweeper } from "./services/expirySweeper";
 import type { PaymentIntentRow } from "./db/payments/paymentIntentRepository";
 import { getTransaction } from "./services/explorer";
 import {
@@ -108,6 +109,12 @@ export interface Gateway {
   httpServer: HttpServer;
   io: SocketServer;
   watcher: SettlementWatcher;
+  /**
+   * Drives unpaid intents past `expires_at` into `expired`. Exposed for the
+   * same reason as `watcher`: a test drives `check()` by hand rather than
+   * waiting on the timer.
+   */
+  expirySweeper: ExpirySweeper;
 }
 
 /**
@@ -222,25 +229,10 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
       windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
     });
 
-  app.use(createPaymentIntentsRouter({ requireMerchant, optionalServiceAuth }));
-  app.use(createSocialRouter({ requireOxyUser: deps.requireOxyUser }));
-  app.use(createEnrichRouter({ requireOxyUser: deps.requireOxyUser }));
-  app.use(createMerchantsRouter({ requireMerchant }));
-  app.use(
-    createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
-  );
-  app.use(createPaymentLinksRouter({ requireMerchant, publicRateLimit }));
-  app.use(createCheckoutSessionsRouter({ requireMerchant, publicRateLimit }));
-  app.use(
-    createDashboardRouter({ requireOxyUser: deps.requireOxyUser, safeFetch: deps.safeFetch }),
-  );
-
-  const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-    const message = err instanceof Error ? err.message : "internal error";
-    res.status(500).json({ error: { type: "api_error", message } });
-  };
-  app.use(errorHandler);
-
+  // Built BEFORE the routers are mounted, because `submit_tx` and `reject`
+  // need to fan their state change out over `io`. Express dispatches routes at
+  // request time, so mounting them after `createServer(app)` changes nothing
+  // about their order or behaviour.
   const httpServer = createServer(app);
   const io = new SocketServer(httpServer, {
     // No reflected origins and no credentials (auth is a token in the handshake,
@@ -259,16 +251,50 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   });
   initSocket(io, { socketAuth: deps.socketAuth });
 
+  app.use(
+    createPaymentIntentsRouter({
+      requireMerchant,
+      optionalServiceAuth,
+      notifyIntentChange: (intent) => onIntentChange(io, intent, deps.safeFetch),
+    }),
+  );
+  app.use(createSocialRouter({ requireOxyUser: deps.requireOxyUser }));
+  app.use(createEnrichRouter({ requireOxyUser: deps.requireOxyUser }));
+  app.use(createMerchantsRouter({ requireMerchant }));
+  app.use(
+    createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
+  );
+  app.use(createPaymentLinksRouter({ requireMerchant, publicRateLimit }));
+  app.use(createCheckoutSessionsRouter({ requireMerchant, publicRateLimit }));
+  app.use(
+    createDashboardRouter({ requireOxyUser: deps.requireOxyUser, safeFetch: deps.safeFetch }),
+  );
+
+  const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+    const message = err instanceof Error ? err.message : "internal error";
+    res.status(500).json({ error: { type: "api_error", message } });
+  };
+  app.use(errorHandler);
+
+
   const watcher = new SettlementWatcher({
     getTransaction: deps.getTransaction ?? getTransaction,
     onChange: (intent) => onIntentChange(io, intent, deps.safeFetch),
   });
 
-  return { httpServer, io, watcher };
+  // Same fanout as the watcher's: expiry is a status change like any other, so
+  // it reaches the payer's socket room and the merchant's webhook by the one
+  // path that knows how to do both.
+  const expirySweeper = new ExpirySweeper({
+    onChange: (intent) => onIntentChange(io, intent, deps.safeFetch),
+  });
+
+  return { httpServer, io, watcher, expirySweeper };
 }
 
 /**
- * Production entry: open the database, boot the watcher, and listen.
+ * Production entry: open the database, boot the watcher and the expiry
+ * sweeper, and listen.
  *
  * `connectPostgres` proves the connection with one round trip before anything
  * listens, so a bad `DATABASE_URL` is a boot failure rather than the 500 of
@@ -278,6 +304,7 @@ export async function start(): Promise<void> {
   await connectPostgres();
   const gateway = createGateway();
   gateway.watcher.start();
+  gateway.expirySweeper.start();
   gateway.httpServer.listen(config.port);
 }
 

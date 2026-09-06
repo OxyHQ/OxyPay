@@ -7,9 +7,6 @@ import type { DatabaseOrTransaction } from '../postgres';
 
 /**
  * Reads and writes for `payment_intents` — the money record.
- *
- * NOT WIRED TO ANY ROUTE YET; see `db/merchants/merchantRepository.ts`'s header
- * for why the repositories land before the switch. Do not delete as unreferenced.
  */
 
 export interface PaymentIntentRow {
@@ -376,4 +373,46 @@ export async function updateIntentState(
     .where(eq(paymentIntents.id, id))
     .returning(INTENT_COLUMNS);
   return row ? toIntentRow(row) : null;
+}
+
+/**
+ * The statuses an unpaid intent may expire FROM, derived from shared-types'
+ * `ALLOWED` table: exactly the two whose transition list contains `expired`.
+ * `approved`, `broadcast` and `confirming` are deliberately absent — money is
+ * in flight and the settlement watcher owns those rows. `expirableStatuses`
+ * in `services/__tests__/expirySweeper.test.ts` re-derives this from
+ * `applyEvent` so the constant cannot drift from the table.
+ */
+export const EXPIRABLE_STATUSES: readonly PaymentIntentStatus[] = [
+  'created',
+  'awaiting_approval',
+];
+
+/**
+ * Claim every intent whose expiry has passed, in ONE statement.
+ *
+ * The claim and the read are the same `UPDATE … RETURNING`, for the same reason
+ * the derivation-index reservation is: the gateway runs on more than one ECS
+ * task and every one of them sweeps. Under READ COMMITTED a second sweeper
+ * blocks on the row lock, then re-evaluates its `WHERE` against the committed
+ * new version — where `status` is already `expired` — so each row is returned to
+ * exactly ONE caller. Split into a SELECT followed by an UPDATE, both sweepers
+ * would read the same rows and the merchant would get `payment_intent.expired`
+ * twice for one intent.
+ */
+export async function expireDueIntents(
+  db: DatabaseOrTransaction,
+  now: Date
+): Promise<PaymentIntentRow[]> {
+  const rows = await db
+    .update(paymentIntents)
+    .set({ status: 'expired' })
+    .where(
+      and(
+        inArray(paymentIntents.status, [...EXPIRABLE_STATUSES]),
+        lt(paymentIntents.expiresAt, now)
+      )
+    )
+    .returning(INTENT_COLUMNS);
+  return rows.map(toIntentRow);
 }
