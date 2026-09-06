@@ -8,6 +8,7 @@
 
 import { isValidUsername } from "@oxyhq/core";
 import type { NetworkType } from "@fairco.in/core";
+import { PROFILE_WEB_ORIGIN } from "../config";
 
 /**
  * Read the Oxy handle out of the route's `[username]` segment.
@@ -93,4 +94,18 @@ export function decideProfilePayAction(input: {
   if (network !== "testnet") return { kind: "mainnet-blocked" };
 
   return { kind: "send" };
+}
+
+/**
+ * The shareable link for a handle — what `peable.to/@john` literally is.
+ *
+ * Built from `PROFILE_WEB_ORIGIN` rather than the current location so the same
+ * string is produced on native, where there is no location to read, and in a
+ * browser, where reading one would bake a preview deployment's hostname into a
+ * QR someone photographs. Takes the BARE handle (no `@`) that
+ * `parseProfileHandle` returns, and re-adds the prefix itself — the two
+ * functions are the only places that know the URL shape.
+ */
+export function buildProfileUrl(handle: string): string {
+  return `${PROFILE_WEB_ORIGIN}/@${handle}`;
 }
