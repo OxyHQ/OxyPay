@@ -135,6 +135,21 @@ Only `broadcast` and `confirming` intents carrying a payer-reported txid are
 watchable; terminal and pre-broadcast intents are never polled. Its timer is
 `.unref()`-ed so it cannot hold a test run or the event loop open.
 
+**The gateway is not a chain proxy for wallets.** It reads the chain to settle
+intents and nothing else. `/api/address/:a` DOES answer (balance, txCount,
+utxos, plus `/txs` for paginated history) — a note in `services/explorer.ts`
+claimed `addressindex` was off and it was unusable, which was false and stopped
+a feature being designed the obvious way. The surface that needs address
+balances is the wallet, and `frontend/src/services/explorer-address.ts` reads
+them directly: the Explorer echoes the request Origin in
+`access-control-allow-origin`, so a browser reaches it with no proxy.
+
+Take `balanceSat` and not the cumulative `totalReceivedSat` / `totalSentSat`
+beside it. Those grow without bound and one live address already reports
+6_969_626_939_280_430 — within 1.3x of `Number.MAX_SAFE_INTEGER`, so
+`JSON.parse` rounds them before any code can widen them to a bigint. A balance
+is bounded by the money supply and has ~14x of headroom.
+
 ## Non-custody is enforced in code, not by policy
 
 A merchant registers a **watch-only account xpub**. `services/derivation.ts`
@@ -176,6 +191,32 @@ from `@oxyhq/services` (`app/_layout.tsx`, `src/services/oxy-services.ts`).
 
 The hosted checkout is deliberately **anonymous**: a payer has no Oxy session, so
 do not add an Oxy auth requirement to a payer-facing route.
+
+## The web build is read-only, not unsupported
+
+Only SIGNING is native-only, and the reason is narrow: the identity wallet's
+seed derives from a key in the on-device keystore (`@oxyhq/core` keyManager ->
+`expo-secure-store`), and a browser has none. `Platform.OS === "web"` in
+`wallet-store.ts`'s `initializeFromIdentity` is the proxy for that one question
+and is the ONLY platform gate in the store — `createNewWallet`, `importWallet`
+and `importWatchOnly` carry none, and `storage/kv-store.ts` has a real web
+branch. Peable's fork deleted FAIRWallet's create/restore SCREENS (`4287418`),
+not the capability.
+
+Everything else a wallet shows needs no private key: balances and history are
+public chain data, the receive address derives from a public xpub, and
+`GET /v1/social/me/payments` answers by identity rather than by derived
+addresses, which is the only payment view a keyless surface can ask for. So the
+probe result is `"no-keystore"` and the route is `"read-only"`.
+
+**Say what is absent, not which platform you are on, and never redirect to say
+it.** The predecessor named the platform (`"web-unsupported"`) and acted on it
+by redirecting to `/@you`; that landed on a screen whose back arrow falls
+through to `router.replace("/(tabs)")`, and since a route group adds no URL
+segment, `(tabs)` and `app/index.tsx` both answer `/` — so the entry decision
+re-ran and bounced back, flashing a wallet UI with no wallet behind it. Render
+capability branches in place. `(tabs)` refuses to mount without an initialized
+wallet, because `app/index.tsx` is not the only way in.
 
 ## `packages/frontend` is FAIRWallet, and upstream is alive
 
