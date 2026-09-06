@@ -112,6 +112,37 @@ export type RailsAreComplete = AssertAllListed<
  */
 export { CHAIN_ONLY_STATUSES, CARD_ONLY_STATUSES } from '@peable.to/shared-types';
 
+/**
+ * How a provider reports one capability on a connected account.
+ *
+ * NULL is the fourth state and is deliberately NOT in this tuple: it means the
+ * capability was never REQUESTED, which is a different fact from the provider
+ * declining (`inactive`) or still working (`pending`). A tuple member for it
+ * would make the column say "requested and unknown", which is not a thing a
+ * provider ever reports.
+ */
+export const CAPABILITY_STATUSES = ['active', 'pending', 'inactive'] as const;
+
+/**
+ * Where one transfer stands.
+ *
+ *  - `pending`             — created here, not yet confirmed by the provider.
+ *  - `paid`                — the provider moved it.
+ *  - `partially_reversed`  — some came back. `amount_reversed` says how much,
+ *                            cumulatively; a second partial reversal stays in
+ *                            this status and only the amount changes.
+ *  - `reversed`            — all of it came back.
+ *  - `failed`              — the provider refused. Terminal, and distinct from a
+ *                            reversal: nothing ever moved.
+ */
+export const TRANSFER_STATUSES = [
+  'pending',
+  'paid',
+  'partially_reversed',
+  'reversed',
+  'failed',
+] as const;
+
 /** Stripe-parity dotted webhook event types. */
 export const WEBHOOK_EVENT_TYPES = [
   'payment_intent.confirming',

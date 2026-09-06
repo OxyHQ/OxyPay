@@ -146,7 +146,7 @@ export function useGatewayDatabase(): void {
  */
 export async function resetGatewayTables(): Promise<void> {
   await gatewayDb().execute(
-    sql`truncate webhook_deliveries, checkout_sessions, payment_links, payment_intents, provider_events, social_send_attributions, social_receive_cursors, merchants restart identity`
+    sql`truncate transfers, connected_accounts, webhook_deliveries, checkout_sessions, payment_links, payment_intents, provider_events, social_send_attributions, social_receive_cursors, merchants restart identity`
   );
 }
 

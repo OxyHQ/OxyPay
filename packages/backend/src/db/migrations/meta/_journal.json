@@ -36,6 +36,13 @@
       "when": 1788730610558,
       "tag": "0004_low_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788732037286,
+      "tag": "0005_chunky_cable",
+      "breakpoints": true
     }
   ]
 }

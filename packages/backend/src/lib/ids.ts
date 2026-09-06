@@ -10,7 +10,9 @@ function randomHex(byteLength: number): string {
   return hex;
 }
 
-export function newId(prefix: 'pi' | 'evt' | 'merch' | 'link' | 'cs'): string {
+export function newId(
+  prefix: 'pi' | 'evt' | 'merch' | 'link' | 'cs' | 'ca' | 'tr'
+): string {
   return `${prefix}_${randomHex(ID_ENTROPY_BYTES)}`;
 }
 

@@ -11,12 +11,14 @@ import { phaseMarkerLine } from '@oxyhq/db/migrate';
 import { PROTECTED_COLUMNS } from '../protectedColumns';
 import {
   checkoutSessions,
+  connectedAccounts,
   merchants,
   paymentIntents,
   paymentLinks,
   providerEvents,
   socialReceiveCursors,
   socialSendAttributions,
+  transfers,
   webhookDeliveries,
 } from '../schema';
 import {
@@ -38,12 +40,14 @@ const MIGRATIONS_DIR = join(BACKEND_ROOT, 'db', 'migrations');
 
 const ALL_TABLES = [
   checkoutSessions,
+  connectedAccounts,
   merchants,
   paymentIntents,
   paymentLinks,
   providerEvents,
   socialReceiveCursors,
   socialSendAttributions,
+  transfers,
   webhookDeliveries,
 ] as const;
 
@@ -148,6 +152,29 @@ describe('id-column classification', () => {
         {
           column: 'provider_events.object_ids',
           reason: 'a jsonb map of the provider object ids an event refers to, under their names',
+        },
+        {
+          column: 'connected_accounts.public_id',
+          reason: "this row's own ca_… identifier, not a reference",
+        },
+        {
+          column: 'transfers.public_id',
+          reason: "this row's own tr_… identifier, not a reference",
+        },
+        {
+          column: 'connected_accounts.provider_account_id',
+          reason:
+            "the provider's own acct_…; a reference is not expressible because the row is at the provider, and uniqueness is held by connected_accounts_provider_account_id_key",
+        },
+        {
+          column: 'transfers.provider_object_id',
+          reason:
+            "the provider's own tr_…; uniqueness is held by transfers_provider_object_key and the row it names is at the provider",
+        },
+        {
+          column: 'transfers.source_payment_object_id',
+          reason:
+            "the provider's id for the CHARGE this transfer draws on — their numbering, and what makes the transfer wait for the charge's funds",
         },
         {
           column: 'payment_intents.provider_object_id',

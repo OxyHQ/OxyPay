@@ -107,14 +107,20 @@ describe('the base-unit amount pattern', () => {
     const files = readdirSync(migrationsDir).filter((entry) => entry.endsWith('.sql'));
     expect(files.length).toBeGreaterThanOrEqual(1);
 
+    // Searched WITHOUT the column name. It used to look for `amount ~ '…'`,
+    // which silently skipped `transfers.amount_reversed` — a column in the same
+    // canonical-integer domain, guarded by the same pattern, and invisible to a
+    // search anchored on `amount`. A test that cannot see a guarded column
+    // cannot notice the day that column stops being guarded.
     const occurrences = files
       .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
       .reduce(
-        (total, contents) =>
-          total + contents.split(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`).length - 1,
+        (total, contents) => total + contents.split(`~ '${BASE_UNIT_STRING_PATTERN}'`).length - 1,
         0
       );
-    // One per money-carrying table: payment_intents, checkout_sessions, payment_links.
-    expect(occurrences).toBe(3);
+    // One per money-carrying COLUMN, which is not one per table:
+    // payment_intents, checkout_sessions and payment_links carry one `amount`
+    // each; `transfers` carries `amount` AND the cumulative `amount_reversed`.
+    expect(occurrences).toBe(5);
   });
 });

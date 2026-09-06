@@ -222,12 +222,14 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('merchant derivation-index reservation'
     const names = rows.map((row) => String(row.table_name)).sort();
     expect(names).toEqual([
       'checkout_sessions',
+      'connected_accounts',
       'merchants',
       'payment_intents',
       'payment_links',
       'provider_events',
       'social_receive_cursors',
       'social_send_attributions',
+      'transfers',
       'webhook_deliveries',
     ]);
   });
