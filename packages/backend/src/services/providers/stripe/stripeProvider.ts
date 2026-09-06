@@ -35,6 +35,7 @@ import {
   type CreateTransferRequest,
   type PaymentOperationRequest,
   type ProviderAccountSnapshot,
+  type ProviderCapabilityStatus,
   type ProviderEventEnvelope,
   type ProviderEventInput,
   type ProviderPaymentResult,
@@ -78,6 +79,22 @@ function toStripeAmount(amount: string, stage: "createPayment" | "refund" | "tra
 /** Stripe wants a lowercase ISO code; the gateway's set is uppercase. */
 function toStripeCurrency(currency: string): string {
   return currency.toLowerCase();
+}
+
+/**
+ * A Stripe capability string, narrowed — or `null` when Stripe reports nothing.
+ *
+ * `null` and `"inactive"` are DIFFERENT facts: nothing reported means the
+ * capability was never requested, and Stripe declining it means it was. A
+ * mapper that collapsed them would make "why will readiness never fire on this
+ * account" unanswerable, which is precisely the six-hour failure ADR 0008 D2-D
+ * records.
+ */
+function toCapabilityStatus(
+  value: Stripe.Account.Capabilities[keyof Stripe.Account.Capabilities] | undefined,
+): ProviderCapabilityStatus | null {
+  if (value === "active" || value === "pending" || value === "inactive") return value;
+  return null;
 }
 
 export class StripePaymentProvider
@@ -333,16 +350,23 @@ export class StripePaymentProvider
     const account = await retrieveStripeAccount(providerAccountId);
     const requirements = account.requirements;
     const transfers = account.capabilities?.transfers;
+    const cardPayments = account.capabilities?.card_payments;
 
     return {
       providerAccountId: account.id,
       payoutsEnabled: account.payouts_enabled === true,
-      transfersCapability:
-        transfers === "active" ? "active" : transfers === "pending" ? "pending" : "inactive",
+      chargesEnabled: account.charges_enabled === true,
+      transfersCapability: toCapabilityStatus(transfers) ?? "inactive",
+      // NULL, not `inactive`, when Stripe reports nothing: never requested is a
+      // different fact from declined, and collapsing them makes "why is this
+      // seller stuck" unanswerable.
+      cardPaymentsCapability: toCapabilityStatus(cardPayments),
       // Requirement IDENTIFIERS only, never their values. The gateway records
       // that a seller owes a document; it never learns what the document says.
       currentlyDue: requirements?.currently_due ?? [],
+      eventuallyDue: requirements?.eventually_due ?? [],
       pastDue: requirements?.past_due ?? [],
+      pendingVerification: requirements?.pending_verification ?? [],
       ...(requirements?.disabled_reason
         ? { disabledReason: requirements.disabled_reason }
         : {}),

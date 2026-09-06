@@ -157,6 +157,25 @@ export async function findAccountByPublicId(
 }
 
 /**
+ * By INTERNAL id, scoped to the merchant.
+ *
+ * What a serializer needs: `transfers` stores the account's primary key, and
+ * the wire contract promises a `ca_…`. Resolving it here rather than joining in
+ * every read keeps that one translation in one place.
+ */
+export async function findAccountById(
+  db: DatabaseOrTransaction,
+  merchantId: string,
+  id: string
+): Promise<ConnectedAccountRow | null> {
+  const [row] = await db
+    .select(ACCOUNT_COLUMNS)
+    .from(connectedAccounts)
+    .where(and(eq(connectedAccounts.merchantId, merchantId), eq(connectedAccounts.id, id)));
+  return row ? toRow(row) : null;
+}
+
+/**
  * "Which seller is this?" — where every inbound account event starts.
  *
  * NOT scoped to a merchant: a provider event names an account and nothing else,

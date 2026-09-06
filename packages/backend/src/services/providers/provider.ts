@@ -304,15 +304,45 @@ export interface SettlingPaymentProvider extends PaymentProvider {
   ): Promise<ProviderTransferReversalResult>;
 }
 
+/** A capability's state as the provider reports it. */
+export type ProviderCapabilityStatus = "active" | "pending" | "inactive";
+
 /** How a sub-merchant's onboarding stands, in the gateway's vocabulary. */
 export interface ProviderAccountSnapshot {
   readonly providerAccountId: string;
   /** Whether this account can currently RECEIVE a settlement. */
   readonly payoutsEnabled: boolean;
-  readonly transfersCapability: "active" | "pending" | "inactive";
+  /**
+   * Whether the account may itself charge cards.
+   *
+   * Recorded because the provider reports it and an operator will ask, and
+   * deliberately part of NO readiness answer: under separate charges and
+   * transfers this account never charges anything, so `false` here does not
+   * stop a seller selling.
+   */
+  readonly chargesEnabled: boolean;
+  readonly transfersCapability: ProviderCapabilityStatus;
+  /**
+   * The `card_payments` capability, and it is here for a specific reason.
+   *
+   * It is requested alongside transfers not because this account charges
+   * anything, but because Stripe refuses the pair otherwise outside the US AND
+   * because a recipient-only account emits no `account.updated` — the only
+   * readiness trigger there is (Mercaria's ADR 0008 D2-C and D2-D, one
+   * decision). Recording its state is what makes "readiness will never fire on
+   * this account" an answerable question rather than a six-hour mystery.
+   */
+  readonly cardPaymentsCapability: ProviderCapabilityStatus | null;
   /** Requirement identifiers the provider is waiting on. Never the values. */
   readonly currentlyDue: readonly string[];
+  /**
+   * Requirements coming eventually. Collected up front so a seller's payouts
+   * are not interrupted weeks later by something that was always coming.
+   */
+  readonly eventuallyDue: readonly string[];
   readonly pastDue: readonly string[];
+  /** Submitted and being checked — nothing for the seller to do. */
+  readonly pendingVerification: readonly string[];
   readonly disabledReason?: string;
   readonly defaultCurrency?: CurrencyCode;
 }
