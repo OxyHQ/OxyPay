@@ -5,6 +5,13 @@
  *
  * Order (spec §4.2): resolve auth → sign in with Oxy → (native) derive wallet
  * or route keyless accounts to create an Oxy ID → PIN gate → home.
+ *
+ * `web-no-wallet` is signed in WITH NO WALLET POSSIBLE, not "unsupported": the
+ * seed derives from an on-device identity key held in the platform keystore
+ * (`@oxyhq/core` keyManager — "never leave the device"), and a browser has no
+ * equivalent. What a browser CAN do needs no private key at all — show you
+ * your handle and the QR people scan to pay you — so the screen routes there
+ * instead of dead-ending.
  */
 
 import type { IdentityInitResult } from "./wallet-store";
@@ -16,7 +23,7 @@ export type EntryRoute = {
     | "create-identity"
     | "needs-pin"
     | "ready"
-    | "web-unsupported";
+    | "web-no-wallet";
 };
 
 export function decideEntryRoute(input: {
@@ -32,7 +39,7 @@ export function decideEntryRoute(input: {
 
   // Signed in: the identity/wallet probe runs asynchronously; wait for it.
   if (identityInit === null) return { kind: "loading" };
-  if (identityInit === "web-unsupported") return { kind: "web-unsupported" };
+  if (identityInit === "web-unsupported") return { kind: "web-no-wallet" };
   if (identityInit === "no-identity") return { kind: "create-identity" };
 
   // Wallet initialized: PIN gate before any authenticated screen (spec §7).

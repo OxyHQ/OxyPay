@@ -5,7 +5,7 @@
  *   signed out          -> "Sign in with Oxy"
  *   signed in, keyless  -> "Set up your Oxy ID"
  *   signed in, native   -> derive the identity wallet -> PIN gate -> (tabs)
- *   web                 -> wallet unsupported (native-only, spec §9)
+ *   web                 -> your own profile: handle + QR to receive (no key)
  *
  * This screen is the sole authority for the swap; it renders neutral in-place
  * branches and never navigates a child across the boundary.
@@ -24,7 +24,7 @@ import { CreateOxyIdView } from "../src/ui/components/CreateOxyIdView";
 import { t } from "../src/i18n";
 
 export default function IndexScreen() {
-  const { isAuthResolved, isAuthenticated, signIn } = useAuth();
+  const { isAuthResolved, isAuthenticated, signIn, user } = useAuth();
   const initializeFromIdentity = useWalletStore((s) => s.initializeFromIdentity);
   const initialized = useWalletStore((s) => s.initialized);
   const markNoPinUnlocked = useLockStore((s) => s.markNoPinUnlocked);
@@ -101,11 +101,22 @@ export default function IndexScreen() {
       );
     case "create-identity":
       return <CreateOxyIdView />;
-    case "web-unsupported":
-      return (
+    // A browser cannot hold the wallet — the seed derives from an identity key
+    // that lives in the platform keystore and never leaves the device. It CAN
+    // do the half that needs no private key: your handle, and the QR people
+    // scan to pay you. `/@you` already renders exactly that (its `self` branch),
+    // so route there rather than dead-ending on "open it on your phone".
+    //
+    // `username` is always present here: this branch is only reachable once
+    // `isAuthenticated` is true. The fallback exists so a malformed session
+    // cannot render a blank screen.
+    case "web-no-wallet":
+      return user?.username ? (
+        <Redirect href={`/@${user.username}`} />
+      ) : (
         <View className="flex-1 bg-background items-center justify-center px-8">
-          <Text className="text-foreground text-2xl text-center mb-3">{t("onboarding.webUnsupportedTitle")}</Text>
-          <Text className="text-muted-foreground text-base text-center">{t("onboarding.webUnsupportedSubtitle")}</Text>
+          <Text className="text-foreground text-2xl text-center mb-3">{t("onboarding.webFallbackTitle")}</Text>
+          <Text className="text-muted-foreground text-base text-center">{t("onboarding.webFallbackSubtitle")}</Text>
         </View>
       );
     case "loading":

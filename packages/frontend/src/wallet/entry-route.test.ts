@@ -14,8 +14,12 @@ describe("decideEntryRoute", () => {
     expect(decideEntryRoute({ isAuthResolved: true, isAuthenticated: true, identityInit: null, hasPinConfigured: null }).kind).toBe("loading");
   });
 
-  test("signed in on web → wallet unsupported", () => {
-    expect(decideEntryRoute({ isAuthResolved: true, isAuthenticated: true, identityInit: "web-unsupported", hasPinConfigured: null }).kind).toBe("web-unsupported");
+  // The INPUT keeps `wallet-store`'s own name for the probe result; only the
+  // ROUTE was renamed. Collapsing the two would have hidden the case this
+  // guards: an unrecognised `identityInit` falls through to "loading", so a
+  // test that renamed both would have gone green while the screen hung.
+  test("signed in on web → no wallet is possible, route to the profile", () => {
+    expect(decideEntryRoute({ isAuthResolved: true, isAuthenticated: true, identityInit: "web-unsupported", hasPinConfigured: null }).kind).toBe("web-no-wallet");
   });
 
   test("signed in, keyless account → create Oxy ID", () => {

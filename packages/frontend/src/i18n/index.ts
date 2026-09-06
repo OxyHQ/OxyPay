@@ -443,8 +443,8 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "onboarding.createIdentityCta": "Continue in Commons",
     "onboarding.commonsNotInstalled": "Commons by Oxy isn't installed on this device. Install it to set up your Oxy ID.",
     "onboarding.createIdentityError": "Couldn't reach Oxy. Check your connection and try again.",
-    "onboarding.webUnsupportedTitle": "Open Peable on your phone",
-    "onboarding.webUnsupportedSubtitle": "The wallet is available on the mobile app only.",
+    "onboarding.webFallbackTitle": "Open Peable on your phone",
+    "onboarding.webFallbackSubtitle": "Spending needs the keys on your device. Sign in again, or open the app.",
 
     // PIN setup
     "onboarding.pin_setup": "Set a PIN",
@@ -1246,8 +1246,8 @@ const translations: Record<TranslatedLanguage, Record<string, string>> = {
     "onboarding.createIdentityCta": "Continuar en Commons",
     "onboarding.commonsNotInstalled": "Commons by Oxy no est\u00e1 instalada en este dispositivo. Inst\u00e1lala para configurar tu Oxy ID.",
     "onboarding.createIdentityError": "No se pudo conectar con Oxy. Comprueba tu conexi\u00f3n e int\u00e9ntalo de nuevo.",
-    "onboarding.webUnsupportedTitle": "Abre Peable en tu tel\u00e9fono",
-    "onboarding.webUnsupportedSubtitle": "El monedero solo est\u00e1 disponible en la app m\u00f3vil.",
+    "onboarding.webFallbackTitle": "Abre Peable en tu tel\u00e9fono",
+    "onboarding.webFallbackSubtitle": "Gastar necesita las claves de tu dispositivo. Vuelve a iniciar sesi\u00f3n o abre la app.",
 
     // PIN setup
     "onboarding.pin_setup": "Establecer un PIN",
