@@ -44,6 +44,7 @@ function stubRequireMerchant(appId: string, environment: string): RequestHandler
       appName: "t",
       scopes: ["payments:read", "payments:write"],
       credentialId: "c",
+      ownerAccountId: "owner",
       environment: environment as OxyAuthRequest["serviceApp"] extends infer T
         ? T extends { environment: infer E }
           ? E
@@ -236,6 +237,7 @@ describe("POST /v1/merchants", () => {
         appName: "t",
         scopes: [],
         credentialId: "c",
+        ownerAccountId: "owner",
         environment: "development",
       };
       next();

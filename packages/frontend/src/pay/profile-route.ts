@@ -6,7 +6,7 @@
  * renderer, mirroring `wallet/entry-route.ts` for `app/index.tsx`.
  */
 
-import { isValidUsername } from "@oxyhq/core";
+import { isValidUsername } from "@oxyhq/contracts";
 import type { NetworkType } from "@fairco.in/core";
 import { PROFILE_WEB_ORIGIN } from "../config";
 

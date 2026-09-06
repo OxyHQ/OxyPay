@@ -35,6 +35,7 @@ function signRealServiceToken(claims: Record<string, unknown>, secret: string): 
     iss: "oxy-auth",
     aud: "oxy-api",
     credentialId: "cred_wiring",
+    ownerAccountId: "acct_wiring",
     environment: "development",
     ...claims,
   };

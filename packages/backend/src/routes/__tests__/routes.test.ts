@@ -37,6 +37,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
     appName: "t",
     scopes: ["payments:read", "payments:write"],
     credentialId: "c",
+    ownerAccountId: "owner",
     environment: "development",
   };
   next();
@@ -56,6 +57,7 @@ const stubOptionalServiceAuth: RequestHandler = (req, _res, next) => {
       appName: "t",
       scopes: ["payments:read"],
       credentialId: "c",
+      ownerAccountId: "owner",
       environment: "development",
     };
   }
@@ -280,6 +282,7 @@ describe("POST /v1/payment_intents", () => {
         appName: "t",
         scopes: ["payments:read"],
         credentialId: "c",
+        ownerAccountId: "owner",
         environment: "development",
       };
       next();
@@ -377,6 +380,7 @@ describe("GET /v1/payment_intents/:id", () => {
           appName: "t",
           scopes: ["payments:write"],
           credentialId: "c",
+          ownerAccountId: "owner",
           environment: "development",
         };
       }
@@ -499,6 +503,7 @@ describe("POST /v1/payment_intents/:id/reject", () => {
         appName: "t",
         scopes: ["payments:read"],
         credentialId: "c",
+        ownerAccountId: "owner",
         environment: "development",
       };
       next();

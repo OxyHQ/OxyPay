@@ -34,6 +34,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
     appName: "t",
     scopes: ["payments:write"],
     credentialId: "c",
+    ownerAccountId: "owner",
     environment: "development",
   };
   next();
@@ -215,6 +216,7 @@ describe("POST /v1/webhook_deliveries/:id/redeliver", () => {
         appName: "t",
         scopes: ["payments:read"],
         credentialId: "c",
+        ownerAccountId: "owner",
         environment: "development",
       };
       next();
