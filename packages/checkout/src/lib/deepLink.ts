@@ -9,7 +9,7 @@
 // wallet's parser decodes every value with a plain `decodeURIComponent`
 // (which reads `+` literally, not as a space) — `encodeURIComponent` is its
 // exact inverse, `URLSearchParams`'s encoding is not.
-import type { NetworkType } from '@peable/shared-types';
+import type { NetworkType } from '@peable.to/shared-types';
 
 export interface PayDeepLinkParams {
   intentId: string;

@@ -13,7 +13,7 @@ import {
   PAYMENT_INTENT_STATUSES,
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantByAppEnvironment } from "../db/merchants/merchantRepository";
 import type { MerchantRow } from "../db/merchants/merchantRepository";

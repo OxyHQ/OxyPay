@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 
 // App renders IntentRoute for `/i/:intentId`, which touches
-// `@peable/sdk/checkout` through this app's one touchpoint,
+// `@peable.to/sdk/checkout` through this app's one touchpoint,
 // `lib/intentClient.ts`. Mock it here the same way every route suite does
 // (see routes/__tests__/IntentRoute.test.tsx) so this suite exercises App's
 // own routing/rendering behavior, independent of whatever state the SDK's

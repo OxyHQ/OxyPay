@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { signWebhook, type WebhookEvent } from '@peable/shared-types';
+import { signWebhook, type WebhookEvent } from '@peable.to/shared-types';
 import { WebhooksResource } from '../../src/resources/webhooks';
 import { PeableSignatureVerificationError } from '../../src/core/errors';
 

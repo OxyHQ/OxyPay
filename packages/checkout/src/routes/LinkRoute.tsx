@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { PaymentIntent, PublicPaymentLink } from '@peable/shared-types';
+import type { PaymentIntent, PublicPaymentLink } from '@peable.to/shared-types';
 import { formatFair } from '@fairco.in/core';
 import { gatewayGet, gatewayPost } from '../lib/gatewayFetch';
 import { getReusableIntentForLink, rememberIntentForLink } from '../lib/linkSession';

@@ -7,7 +7,7 @@
  * `payerClient.ts` imports `io` at module scope.
  */
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { createMockFetch } from '../support/mockFetch';
 import { TEST_GATEWAY_URL } from '../support/testGateway';
 

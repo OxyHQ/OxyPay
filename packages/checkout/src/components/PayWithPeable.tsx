@@ -1,4 +1,4 @@
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { formatFair } from '@fairco.in/core';
 import { buildPayDeepLink } from '../lib/deepLink';
 import { Qr } from './Qr';

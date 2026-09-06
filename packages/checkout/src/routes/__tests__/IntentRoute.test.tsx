@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 
-// Reuse-if-open (spec §6) never exercises the real `@peable/sdk/checkout`
+// Reuse-if-open (spec §6) never exercises the real `@peable.to/sdk/checkout`
 // stub — mock this app's one SDK touchpoint instead; `App.test.tsx` covers
 // the real (unmocked) stub behavior.
 const getPaymentIntentMock = mock(async (): Promise<PaymentIntent> => {

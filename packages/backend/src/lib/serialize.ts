@@ -7,7 +7,7 @@ import type {
   PaymentLink,
   PublicPaymentLink,
   WebhookDelivery,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { config } from "../config";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
@@ -49,7 +49,7 @@ export function toPaymentIntentDTO(row: PaymentIntentRow): PaymentIntent {
 /**
  * Serialize a persisted Merchant row to its public `Merchant` DTO.
  * `webhookSecret` and `nextDerivationIndex` are deliberately omitted (see
- * `@peable/shared-types`'s `Merchant` doc comment); the repository does not
+ * `@peable.to/shared-types`'s `Merchant` doc comment); the repository does not
  * select the secret at all.
  */
 export function toMerchantDTO(row: MerchantRow): Merchant {

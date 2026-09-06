@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { PaymentIntentsResource } from '../../src/resources/paymentIntents';
 import { PeableInvalidRequestError } from '../../src/core/errors';
 import { createMockFetch } from '../support/mockFetch';

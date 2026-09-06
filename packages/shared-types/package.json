@@ -1,5 +1,5 @@
 {
-  "name": "@peable/shared-types",
+  "name": "@peable.to/shared-types",
   "version": "0.2.0",
   "description": "Shared TypeScript types for the Peable Gateway — the wire contract shared by the backend, SDK, and frontend.",
   "main": "dist/cjs/index.js",

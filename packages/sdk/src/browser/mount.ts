@@ -10,7 +10,7 @@
 // machinery, so it carries none of the merchant-authed code out of bounds for
 // this browser bundle.
 import createQrCode from 'qrcode-generator';
-import type { PaymentIntent, PaymentIntentStatus } from '@peable/shared-types';
+import type { PaymentIntent, PaymentIntentStatus } from '@peable.to/shared-types';
 import { createPeableCheckout } from './payerClient';
 import { PeableApiError, PeableError, PeableInvalidRequestError } from '../core/errors';
 

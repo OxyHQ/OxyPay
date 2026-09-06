@@ -1,4 +1,4 @@
-# Deploy the hosted checkout (@peable/checkout) to Cloudflare Pages.
+# Deploy the hosted checkout (@peable.to/checkout) to Cloudflare Pages.
 #
 # Frontends go to Pages and backends go to the ALB — the split every Oxy zone
 # already follows (oxy.so itself, accounts, auth, console, inbox, allo, noted,
@@ -47,15 +47,15 @@ jobs:
       # The checkout resolves BOTH published packages through their `dist`, and
       # only one of them is built for you. Root `postinstall` builds
       # shared-types; the SDK is not built by anything an install runs, so
-      # `@peable/sdk/checkout` has no `dist` here and rolldown fails to resolve
+      # `@peable.to/sdk/checkout` has no `dist` here and rolldown fails to resolve
       # it. It resolves fine on a developer's machine, where some earlier
-      # `bun run --filter @peable/sdk build` left the output behind — which is
+      # `bun run --filter @peable.to/sdk build` left the output behind — which is
       # exactly why this cannot be left to chance in CI. `ci.yml` builds the
       # same pair before its typecheck for the same reason.
       - run: bun run build:shared-types
-      - run: bun run --filter @peable/sdk build
+      - run: bun run --filter @peable.to/sdk build
 
-      - run: bun run --filter @peable/checkout build
+      - run: bun run --filter @peable.to/checkout build
         env:
           # Injected rather than left to the fallback in `src/lib/config.ts`,
           # even though that fallback is this same URL. A default that happens

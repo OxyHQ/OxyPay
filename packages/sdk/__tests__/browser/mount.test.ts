@@ -8,7 +8,7 @@
  * issues.
  */
 import { describe, expect, test } from 'bun:test';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { getNetwork, validateAddress } from '@fairco.in/core';
 import {
   buildPayDeepLink,

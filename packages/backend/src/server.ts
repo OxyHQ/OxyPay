@@ -17,7 +17,7 @@ import { createOxyCors, createOxyRateLimit } from "@oxyhq/core/server";
 import type {
   PaymentIntentStatus,
   WebhookEventType,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { config } from "./config";
 import { connectPostgres } from "./db/postgres";
 import { getDb } from "./db/postgres";

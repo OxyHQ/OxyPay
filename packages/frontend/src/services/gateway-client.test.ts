@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import type { EnrichmentResult } from "@peable/shared-types";
+import type { EnrichmentResult } from "@peable.to/shared-types";
 
 const postMock = mock(async (_path: string, _body: unknown): Promise<unknown> => {
   throw new Error("postMock not configured for this test");

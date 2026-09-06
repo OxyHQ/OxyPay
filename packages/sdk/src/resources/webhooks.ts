@@ -1,4 +1,4 @@
-import { verifyWebhook, type WebhookEvent, type WebhookEventType } from '@peable/shared-types';
+import { verifyWebhook, type WebhookEvent, type WebhookEventType } from '@peable.to/shared-types';
 import { PeableSignatureVerificationError } from '../core/errors';
 
 /** Header the Gateway's `webhookDispatcher.deliver` signs with (`Peable-Signature`). */
@@ -45,7 +45,7 @@ export class WebhooksResource {
   /**
    * Verify a webhook delivery and parse it into a typed `WebhookEvent`.
    * Verifies via the SAME `verifyWebhook` the Gateway signs with
-   * (`@peable/shared-types`) so the algorithm can never drift between the two
+   * (`@peable.to/shared-types`) so the algorithm can never drift between the two
    * sides. Throws `PeableSignatureVerificationError` on a bad/stale/tampered
    * signature or a malformed payload — never returns a partially-trusted
    * event.

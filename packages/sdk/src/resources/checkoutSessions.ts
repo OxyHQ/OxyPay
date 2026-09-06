@@ -1,4 +1,4 @@
-import type { CheckoutSession, CreateCheckoutSessionParams } from '@peable/shared-types';
+import type { CheckoutSession, CreateCheckoutSessionParams } from '@peable.to/shared-types';
 import type { RestClient } from '../core/client';
 
 export class CheckoutSessionsResource {

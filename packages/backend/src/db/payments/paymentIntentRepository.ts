@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
-import type { PaymentIntentStatus } from '@peable/shared-types';
+import type { PaymentIntentStatus } from '@peable.to/shared-types';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
 import { paymentIntents } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';

@@ -1,4 +1,4 @@
-import type { MerchantDisplay } from '@peable/shared-types';
+import type { MerchantDisplay } from '@peable.to/shared-types';
 
 // `avatarUrl` is already a fully-resolved URL — the backend resolved it
 // server-side through the SDK's canonical media chokepoint. This component

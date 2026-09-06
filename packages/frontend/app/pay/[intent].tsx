@@ -43,7 +43,7 @@ import {
 import type {
   PaymentIntent,
   PaymentIntentStatus,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { SafeAreaView } from "../../src/ui/safe-area-view";
 import { ScreenHeader, Button } from "../../src/ui/components";
 import { FairCoinSymbol } from "../../src/ui/components/FairCoinSymbol";

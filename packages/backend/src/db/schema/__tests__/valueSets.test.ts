@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PAYMENT_INTENT_STATUSES, isBaseUnitString } from '@peable/shared-types';
+import { PAYMENT_INTENT_STATUSES, isBaseUnitString } from '@peable.to/shared-types';
 import {
   BASE_UNIT_STRING_PATTERN,
   NETWORK_TYPES,

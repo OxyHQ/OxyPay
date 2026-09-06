@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Peable Gateway's non-custodial `PaymentIntent` core — `@peable/shared-types` + a from-scratch `@peable/backend` that creates payment intents, derives per-intent watch-only addresses from a merchant xpub, watches FairCoin for settlement, and fires signed webhooks + realtime socket events — independently testable via API + FairCoin testnet, with **no wallet app required**.
+**Goal:** Build the Peable Gateway's non-custodial `PaymentIntent` core — `@peable.to/shared-types` + a from-scratch `@peable.to/backend` that creates payment intents, derives per-intent watch-only addresses from a merchant xpub, watches FairCoin for settlement, and fires signed webhooks + realtime socket events — independently testable via API + FairCoin testnet, with **no wallet app required**.
 
 **Architecture:** Merchant (authenticated via a Console-issued Oxy service app-key) calls `POST /v1/payment_intents`; the backend derives a fresh receive address from the merchant's **watch-only xpub** (public key only — cannot spend), returns a `pi_…` intent + `client_secret`. A tip-driven settlement watcher observes that address on the FairCoin Explorer; on mempool-seen → `confirming`, on N confs → `settled`, emitting Socket.io events and an HMAC-signed webhook. The payer's self-custody wallet (Track B, separate plan) signs the actual on-chain tx — the backend never holds keys or funds.
 
@@ -61,7 +61,7 @@ packages/backend/src/
 - Modify: `packages/backend/package.json`, `packages/shared-types/package.json`, root `tsconfig.json` refs
 
 **Interfaces:**
-- Produces: an empty, compiling `@peable/backend` + `@peable/shared-types` skeleton; `packages/frontend` left untouched (Track B).
+- Produces: an empty, compiling `@peable.to/backend` + `@peable.to/shared-types` skeleton; `packages/frontend` left untouched (Track B).
 
 - [ ] **Step 1: Preserve the current WIP so nothing is lost.** From `/home/nate/Oxy/Peable`:
 
@@ -79,19 +79,19 @@ Expected: the archive branch holds the full pre-rewrite tree; the feature branch
 git rm -r packages/backend/src packages/backend/server.ts packages/backend/dist
 ```
 
-- [ ] **Step 3: Rewrite `packages/backend/package.json`** — name `@peable/backend`, scripts `dev` (`bun --watch src/server.ts`), `build` (`tsc`), `test` (`bun test`), `typecheck` (`tsc --noEmit`); deps: `express`, `mongoose`, `socket.io`, `@oxyhq/core`, `@fairco.in/core`, `@scure/bip32`, `zod`; devDeps `@types/express`, `mongodb-memory-server`. Run `bun install` from root; commit `bun.lock` in this task's commit.
+- [ ] **Step 3: Rewrite `packages/backend/package.json`** — name `@peable.to/backend`, scripts `dev` (`bun --watch src/server.ts`), `build` (`tsc`), `test` (`bun test`), `typecheck` (`tsc --noEmit`); deps: `express`, `mongoose`, `socket.io`, `@oxyhq/core`, `@fairco.in/core`, `@scure/bip32`, `zod`; devDeps `@types/express`, `mongodb-memory-server`. Run `bun install` from root; commit `bun.lock` in this task's commit.
 
 - [ ] **Step 4: Reset `packages/shared-types/src`** — delete the custodial type files (`wallet.ts`, `paymentMethod.ts`, old `payment.ts`/`invoice.ts`/`transaction.ts`), leave `src/` empty except a placeholder `index.ts` (`export {};`).
 
 - [ ] **Step 5: Verify the monorepo still installs + compiles.**
 
-Run: `cd /home/nate/Oxy/Peable && bun install && bun run --filter @peable/shared-types typecheck && bun run --filter @peable/backend typecheck`
+Run: `cd /home/nate/Oxy/Peable && bun install && bun run --filter @peable.to/shared-types typecheck && bun run --filter @peable.to/backend typecheck`
 Expected: PASS (empty packages compile).
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add -A && git commit -m "chore(gateway): scaffold empty @peable/backend + reset shared-types"
+git add -A && git commit -m "chore(gateway): scaffold empty @peable.to/backend + reset shared-types"
 ```
 
 ---
@@ -155,7 +155,7 @@ export function isValidStatusTransition(from: PaymentIntentStatus, to: PaymentIn
 
 - [ ] **Step 5: Implement `event.ts`** + wire `index.ts` to export from `money`/`paymentIntent`/`event` (package entry, direct exports — not a compat shim).
 
-- [ ] **Step 6: Run tests + typecheck.** Run: `bun test packages/shared-types && bun run --filter @peable/shared-types typecheck` — Expected: PASS.
+- [ ] **Step 6: Run tests + typecheck.** Run: `bun test packages/shared-types && bun run --filter @peable.to/shared-types typecheck` — Expected: PASS.
 
 - [ ] **Step 7: Commit.** `git add -A && git commit -m "feat(shared-types): PaymentIntent + webhook event contract"`
 

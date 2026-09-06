@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { CheckoutSessionPublic } from '@peable/shared-types';
+import type { CheckoutSessionPublic } from '@peable.to/shared-types';
 import { gatewayGet } from '../lib/gatewayFetch';
 import type { LoadState } from '../lib/loadState';
 import { CheckoutView } from '../components/CheckoutView';

@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@peable/sdk"><img alt="@peable/sdk" src="https://img.shields.io/npm/v/@peable/sdk?style=flat-square&label=%40oxyhq%2Fpay&labelColor=440151&color=D26AE7"></a>
+  <a href="https://www.npmjs.com/package/@peable.to/sdk"><img alt="@peable.to/sdk" src="https://img.shields.io/npm/v/@peable.to/sdk?style=flat-square&label=%40oxyhq%2Fpay&labelColor=440151&color=D26AE7"></a>
   <img alt="Bun" src="https://img.shields.io/badge/bun-1.0+-440151?style=flat-square&logo=bun&logoColor=white">
   <img alt="Expo" src="https://img.shields.io/badge/Expo-57-440151?style=flat-square&logo=expo&logoColor=white">
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-Drizzle-440151?style=flat-square&logo=postgresql&logoColor=white">
@@ -54,11 +54,11 @@ A Bun workspace monorepo. Everything is under `packages/`.
 
 | Path | Package | What it is |
 |---|---|---|
-| [`packages/backend`](packages/backend/) | `@peable/backend` | The Gateway. Express, Drizzle on PostgreSQL and Socket.IO on Bun |
-| [`packages/sdk`](packages/sdk/) | [`@peable/sdk`](https://www.npmjs.com/package/@peable/sdk) | The published SDK. Server client plus a browser checkout client |
-| [`packages/checkout`](packages/checkout/) | `@peable/checkout` | The hosted, anonymous, payer facing checkout web app. Vite and React |
-| [`packages/frontend`](packages/frontend/) | `@peable/frontend` | Expo app for iOS, Android, web and Electron |
-| [`packages/shared-types`](packages/shared-types/) | `@peable/shared-types` | The wire contract shared by all of the above |
+| [`packages/backend`](packages/backend/) | `@peable.to/backend` | The Gateway. Express, Drizzle on PostgreSQL and Socket.IO on Bun |
+| [`packages/sdk`](packages/sdk/) | [`@peable.to/sdk`](https://www.npmjs.com/package/@peable.to/sdk) | The published SDK. Server client plus a browser checkout client |
+| [`packages/checkout`](packages/checkout/) | `@peable.to/checkout` | The hosted, anonymous, payer facing checkout web app. Vite and React |
+| [`packages/frontend`](packages/frontend/) | `@peable.to/frontend` | Expo app for iOS, Android, web and Electron |
+| [`packages/shared-types`](packages/shared-types/) | `@peable.to/shared-types` | The wire contract shared by all of the above |
 
 `shared-types` is the reason the webhook signer cannot drift: the Gateway signs and the
 SDK verifies through the same exported routine.
@@ -84,8 +84,8 @@ bun run dev:frontend           # expo start --clear
 `checkout` and `sdk` have no root alias, so reach them through the workspace filter:
 
 ```bash
-bun run --filter @peable/checkout dev
-bun run --filter @peable/sdk dev
+bun run --filter @peable.to/checkout dev
+bun run --filter @peable.to/sdk dev
 ```
 
 <details>
@@ -99,11 +99,11 @@ bun run --filter @peable/sdk dev
 
 | Package | Scripts |
 |---|---|
-| `@peable/backend` | `dev`, `start`, `build`, `typecheck`, `lint`, `test`, `clean` |
-| `@peable/sdk` | `build` (cjs, esm and types), `dev`, `typecheck`, `lint`, `test`, `clean` |
-| `@peable/checkout` | `dev`, `build`, `preview`, `typecheck`, `test` |
-| `@peable/frontend` | `dev`, `start`, `android`, `ios`, `web`, `electron`, `build`, `electron:build`, `typecheck`, `lint`, `test` |
-| `@peable/shared-types` | same build trio as the SDK, plus `dev`, `typecheck`, `lint`, `test`, `clean` |
+| `@peable.to/backend` | `dev`, `start`, `build`, `typecheck`, `lint`, `test`, `clean` |
+| `@peable.to/sdk` | `build` (cjs, esm and types), `dev`, `typecheck`, `lint`, `test`, `clean` |
+| `@peable.to/checkout` | `dev`, `build`, `preview`, `typecheck`, `test` |
+| `@peable.to/frontend` | `dev`, `start`, `android`, `ios`, `web`, `electron`, `build`, `electron:build`, `typecheck`, `lint`, `test` |
+| `@peable.to/shared-types` | same build trio as the SDK, plus `dev`, `typecheck`, `lint`, `test`, `clean` |
 
 </details>
 
@@ -112,11 +112,11 @@ bun run --filter @peable/sdk dev
 Install the SDK, not this repo.
 
 ```bash
-bun add @peable/sdk
+bun add @peable.to/sdk
 ```
 
 ```ts
-import { Peable } from '@peable/sdk';
+import { Peable } from '@peable.to/sdk';
 
 const peable = new Peable({
   publicKey: process.env.OXY_APP_PUBLIC_KEY,
@@ -130,7 +130,7 @@ const intent = await peable.paymentIntents.create(
 ```
 
 Hand `intent.clientSecret` to the browser and mount the payer side widget from
-`@peable/sdk/checkout`. Full walkthrough in
+`@peable.to/sdk/checkout`. Full walkthrough in
 [`docs/integrating-peable.md`](docs/integrating-peable.md).
 
 ## Authentication
@@ -175,4 +175,4 @@ from `confirming` to `settled` without polling.
 | Repo | What it is |
 |---|---|
 | [`OxyHQ/oxy`](https://github.com/OxyHQ/oxy) | The Oxy platform: identity, signed records, API and SDK |
-| [`OxyHQ/PeableSDK`](https://github.com/OxyHQ/PeableSDK) | Landing page for `@peable/sdk`. The source is here, in `packages/sdk` |
+| [`OxyHQ/PeableSDK`](https://github.com/OxyHQ/PeableSDK) | Landing page for `@peable.to/sdk`. The source is here, in `packages/sdk` |

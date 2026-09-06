@@ -9,12 +9,12 @@ Peable pivota de una plataforma **custodial** (muerta, no funcionaba) a una **pa
 
 **Restricción legal load-bearing (MiCA):** custodiar los FairCoins convertiría a Oxy en CASP (licencia, capital, AML, auditorías). Self-custody queda **fuera** de MiCA. Por tanto la **no-custodia es un invariante de diseño, no una feature** — es el firewall legal.
 
-Producto completo (fuera de alcance de esta fase, para orientar): **F1 cimiento** · F2 plataforma merchant/SDK `@peable/sdk` · F3 presencial/POS · F4 amplitud Stripe (billing/refunds/payouts). Dashboard developer = UI propia de Peable pero backend de apps/keys/tokens = **Oxy Console** (sin duplicar).
+Producto completo (fuera de alcance de esta fase, para orientar): **F1 cimiento** · F2 plataforma merchant/SDK `@peable.to/sdk` · F3 presencial/POS · F4 amplitud Stripe (billing/refunds/payouts). Dashboard developer = UI propia de Peable pero backend de apps/keys/tokens = **Oxy Console** (sin duplicar).
 
 ## Nomenclatura (productos)
 
 - **Peable** — la **app monedero** (consumer): self-custody FairCoin + identidad Oxy + aprobar-pago. → `packages/frontend`.
-- **Peable Gateway** — la **pasarela de pagos**: backend + API pública + SDK `@peable/sdk` + catálogo estilo Stripe (**one-time payments, payment links, invoices, subscriptions, checkout, webhooks**), integrable por apps del ecosistema Oxy (**Mercaria**, etc.) **y por terceros** que quieran Peable como su pasarela. → `packages/backend` + `shared-types` + `PeableSDK`. Registro de apps/keys/tokens vía **Oxy Console**; **dashboard propio** estilo Stripe.
+- **Peable Gateway** — la **pasarela de pagos**: backend + API pública + SDK `@peable.to/sdk` + catálogo estilo Stripe (**one-time payments, payment links, invoices, subscriptions, checkout, webhooks**), integrable por apps del ecosistema Oxy (**Mercaria**, etc.) **y por terceros** que quieran Peable como su pasarela. → `packages/backend` + `shared-types` + `PeableSDK`. Registro de apps/keys/tokens vía **Oxy Console**; **dashboard propio** estilo Stripe.
 - **Peable Terminal** — el **TPV**: terminal merchant (NFC, móvil/PC), app Expo aparte. → `packages/terminal`.
 - **FairWallet** — proyecto **aparte** (sin Oxy). Peable es el hermano vinculado a Oxy.
 
@@ -63,7 +63,7 @@ Un cambio que viole 1-4 es un bug legal, no solo técnico.
 - Backend nuevo de cero (`packages/backend`): modelo `PaymentIntent`, registro merchant (xpub watch-only + endpoint webhook), API de intents, **watcher de liquidación** (watch-only vía Explorer), dispatcher de webhooks, auth `@oxyhq/core/server`, Socket.io para updates realtime del intent al monedero.
 - `shared-types`: DTOs `PaymentIntent`, enum de estados, tipos de evento webhook.
 
-**Fuera (fases posteriores):** SDK `@peable/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia, on/off-ramp fiat, refunds, payouts, multi-merchant a escala, antifraude.
+**Fuera (fases posteriores):** SDK `@peable.to/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia, on/off-ramp fiat, refunds, payouts, multi-merchant a escala, antifraude.
 
 ## Arquitectura
 
@@ -143,7 +143,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 1. `bun install` desde root (linker hoisted); tras churn nativo `rm -rf packages/*/node_modules && bun install` + `expo-doctor`.
 2. Backend: `bun test` + `tsc --noEmit`. Levantar backend local.
-3. Frontend: `bun run --filter @peable/frontend typecheck`; `expo start`. **Verificar en pestaña de navegador EN PRIMER PLANO** (reglas Bloom/Reanimated/expo-router: pestaña en background congela rAF y da falsos "blank"): cold boot de OxyProvider + theming Bloom + bandeja de requests.
+3. Frontend: `bun run --filter @peable.to/frontend typecheck`; `expo start`. **Verificar en pestaña de navegador EN PRIMER PLANO** (reglas Bloom/Reanimated/expo-router: pestaña en background congela rAF y da falsos "blank"): cold boot de OxyProvider + theming Bloom + bandeja de requests.
 4. **Prueba del flujo atómico (testnet):** merchant registra xpub testnet → `POST /payment-intents` → llega push/QR al monedero → aprobar → el wallet firma+difunde → el watcher pasa `confirming`→`settled` → webhook recibido (verificar firma). Confirmar que el backend **nunca** tuvo claves ni fondos (auditar que solo hay xpub + direcciones observadas).
 5. Caso underpaid + caso expiry → estados `failed`/`expired` correctos.
 
@@ -161,7 +161,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 **Principio (lo confirma la investigación): NFC y el SDK NO son un core de pago nuevo — son canales de entrada del MISMO `PaymentIntent`.** Si el intent es agnóstico al canal (push/QR/NFC/SDK) y conserva `confirming` (0-conf) de primera clase, F2 y F3 son capas encima.
 
-**F2 — SDK `@peable/sdk` + apps (Mercaria) + plugins e-commerce:**
+**F2 — SDK `@peable.to/sdk` + apps (Mercaria) + plugins e-commerce:**
 - Apps como **Mercaria** (`~/Mercaria`, marketplace) embeben el SDK (checkout / pay-button). El SDK llama al backend F1 (`POST /payment-intents`) con la **app-key emitida por Console** y renderiza el estado (pending→settled) vía Socket.io.
 - Online/in-app: comprador (usuario Peable) recibe push o abre checkout → aprueba+firma → settle → webhook a Mercaria. Mercaria como merchant registra su **xpub watch-only** igual que en F1 (no-custodial).
 - **Plugins para webs de terceros:** un **plugin de WordPress/WooCommerce** (y equivalentes Shopify/PrestaShop más adelante) para que cualquier tienda acepte Peable en su web — igual que el plugin WooCommerce de Stripe. El plugin es solo un cliente del Gateway (crea intents con la app-key de Console + verifica webhooks firmados); nada de custodia.
@@ -179,7 +179,7 @@ Ambos convergen en el mismo `PaymentIntent`. F1 implementa los dos; el flujo hé
 
 ## Fuera de alcance explícito (no construir en F1)
 
-SDK `@peable/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia (per-approval o pre-firma nLockTime = fase R&D), on/off-ramp fiat (partner licenciado, no Oxy), refunds, payouts, antifraude, multi-currency.
+SDK `@peable.to/sdk`, dashboard en Console, POS/tap-to-pay, suscripciones/recurrencia (per-approval o pre-firma nLockTime = fase R&D), on/off-ramp fiat (partner licenciado, no Oxy), refunds, payouts, antifraude, multi-currency.
 
 ## Nota legal
 

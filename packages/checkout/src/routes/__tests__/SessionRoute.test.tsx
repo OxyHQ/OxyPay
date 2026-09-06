@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { CheckoutSessionPublic, PaymentIntent } from '@peable/shared-types';
+import type { CheckoutSessionPublic, PaymentIntent } from '@peable.to/shared-types';
 
 // SessionRoute never touches `../lib/intentClient` directly, but
 // CheckoutView -> subscribe() does — mock it the same way LinkRoute.test.tsx

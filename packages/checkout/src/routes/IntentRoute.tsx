@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { getPaymentIntent } from '../lib/intentClient';
 import type { LoadState } from '../lib/loadState';
 import { CheckoutView } from '../components/CheckoutView';

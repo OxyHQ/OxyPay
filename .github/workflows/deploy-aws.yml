@@ -1,4 +1,4 @@
-# Deploy the Peable Gateway backend (@peable/backend) to AWS ECS Fargate.
+# Deploy the Peable Gateway backend (@peable.to/backend) to AWS ECS Fargate.
 #
 # Adapted from the canonical Mention backend workflow. Builds a native arm64
 # image on an arm64 runner, pushes it to ECR, and rolls the ECS service. The
