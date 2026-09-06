@@ -188,9 +188,40 @@ export async function listPaymentIntentsForMerchant(
 export function createPaymentIntentsRouter(deps: {
   requireMerchant: RequestHandler;
   optionalServiceAuth: RequestHandler;
+  /**
+   * Fan a state change out to the payer's socket room and the merchant's
+   * webhook. Injected rather than imported because `server.ts` owns the
+   * Socket.io instance; the routes must not reach for a module-level one.
+   *
+   * Optional so a suite exercising only request/response shape need not stand
+   * one up — but production ALWAYS passes it. Without it, `submit_tx` and
+   * `reject` change status and tell nobody: the payer's checkout page stays on
+   * its initial snapshot, and `payment_intent.rejected` — whose only writer is
+   * the reject route — can never fire.
+   */
+  notifyIntentChange?: (intent: PaymentIntentRow) => Promise<void>;
 }): Router {
   const { requireMerchant, optionalServiceAuth } = deps;
   const router = Router();
+
+  /**
+   * Best-effort fanout. A broken socket or an unreachable webhook endpoint must
+   * never turn an already-committed transition into a 5xx: the payer would be
+   * told their broadcast failed when the gateway has in fact recorded it, and
+   * the row would still be advanced. Awaited rather than fired-and-forgotten so
+   * the delivery log is written before the response, matching how
+   * `SettlementWatcher` awaits `onChange` inline.
+   */
+  async function notify(intent: PaymentIntentRow): Promise<void> {
+    if (!deps.notifyIntentChange) return;
+    try {
+      await deps.notifyIntentChange(intent);
+    } catch (error) {
+      process.emitWarning(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
 
   router.post(
     "/v1/payment_intents",
@@ -396,6 +427,7 @@ export function createPaymentIntentsRouter(deps: {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      await notify(rejected);
       res.status(200).json(toPaymentIntentDTO(rejected));
     }),
   );
@@ -460,6 +492,7 @@ export function createPaymentIntentsRouter(deps: {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      await notify(broadcast);
       res.status(200).json(toPaymentIntentDTO(broadcast));
     }),
   );
