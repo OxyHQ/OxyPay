@@ -55,13 +55,27 @@ interface RefundDTO {
   readonly paymentIntentId: string;
   readonly amount: string;
   readonly currency: string;
+  /** The REFUND's own lifecycle — `pending`, `succeeded` or `failed`. */
   readonly status: string;
+  /**
+   * Where the PAYMENT stands after this refund.
+   *
+   * On the refund response deliberately: a caller that has just refunded needs
+   * to know whether the payment is now `partially_refunded` or `refunded`, and
+   * making them re-read the intent to find out is a second round trip whose
+   * answer can have moved on by the time it arrives.
+   */
+  readonly paymentStatus: string;
   readonly failureCode: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
-function toRefundDTO(row: RefundRow, paymentIntentPublicId: string): RefundDTO {
+function toRefundDTO(
+  row: RefundRow,
+  paymentIntentPublicId: string,
+  paymentStatus: string,
+): RefundDTO {
   return {
     id: row.publicId,
     object: "refund",
@@ -70,6 +84,7 @@ function toRefundDTO(row: RefundRow, paymentIntentPublicId: string): RefundDTO {
     amount: row.amount,
     currency: row.currency,
     status: row.status,
+    paymentStatus,
     failureCode: row.failureCode,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -127,18 +142,20 @@ export function createRefundsRouter(deps: { requireMerchant: RequestHandler }): 
        */
       const existing = await findRefundByExternalRef(db, merchant.id, body.externalRef);
       if (existing) {
-        res.status(200).json(toRefundDTO(existing, intent.publicId));
+        res.status(200).json(toRefundDTO(existing, intent.publicId, intent.status));
         return;
       }
 
       try {
-        const { refund, created } = await createRefund({
+        const { refund, created, paymentStatus } = await createRefund({
           merchantId: merchant.id,
           intent,
           externalRef: body.externalRef,
           amount: body.amount,
         });
-        res.status(created ? 201 : 200).json(toRefundDTO(refund, intent.publicId));
+        res
+          .status(created ? 201 : 200)
+          .json(toRefundDTO(refund, intent.publicId, paymentStatus));
       } catch (error) {
         if (
           error instanceof PaymentNotRefundableError ||
@@ -193,7 +210,7 @@ export function createRefundsRouter(deps: { requireMerchant: RequestHandler }): 
       const rows = await listRefundsForIntent(db, intent.id);
       res.status(200).json({
         object: "list",
-        data: rows.map((row) => toRefundDTO(row, intent.publicId)),
+        data: rows.map((row) => toRefundDTO(row, intent.publicId, intent.status)),
         remainingRefundable: await remainingRefundable(intent),
       });
     }),
