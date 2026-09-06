@@ -21,9 +21,6 @@ export interface WebhookTarget {
   secret: string;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = 50;
-const MAX_BACKOFF_MS = 2000;
 const MILLIS_PER_SECOND = 1000;
 const HTTP_OK_MIN = 200;
 const HTTP_OK_MAX = 300;
@@ -46,89 +43,82 @@ export function buildEvent(
   };
 }
 
-/** Exponential backoff, capped — kept short since delivery is in-line best-effort. */
-function backoffMs(attempt: number): number {
-  return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+/** One attempt's conclusion, in the outbox's vocabulary. */
+export type AttemptOutcome =
+  | { kind: "delivered" }
+  | { kind: "refused"; reason: string }
+  | { kind: "retry"; reason: string };
 
 /**
- * Deliver a signed webhook event to a merchant target via the SSRF-safe
- * `safeFetch`. Best-effort by contract: it NEVER throws, so a hostile or dead
- * endpoint can never break settlement.
+ * Make ONE signed POST to a merchant endpoint and classify what came back.
  *
- * - 2xx → `delivered: true`.
- * - 5xx or an `UpstreamError` (timeout/redirect) → transient; retry with a short
- *   bounded backoff up to `maxAttempts`.
- * - any other non-2xx (e.g. 4xx) → the target rejected the payload; give up now.
- * - `SsrfRejection` → the URL resolves to a blocked/private address; warn and
- *   give up (retrying cannot make a blocked target safe).
+ * One attempt, not a loop. The retry schedule belongs to the outbox — a
+ * function that slept through its own backoff could only ever retry for as long
+ * as one request handler was willing to wait, which is what made the old
+ * three-attempts-in-150ms delivery lose events to a merchant restart.
+ *
+ * Never throws. Every failure is classified, because the caller has to write an
+ * outcome to a row either way, and an exception here would leave that row
+ * leased and unrecorded until its lease expired.
+ *
+ * - 2xx → `delivered`.
+ * - 5xx, timeout, redirect (`UpstreamError`) → `retry`; the endpoint is having
+ *   a bad moment.
+ * - any other non-2xx (4xx) → `refused`; the target rejected the payload and no
+ *   number of retries turns that into an acceptance.
+ * - `SsrfRejection` → `refused`; the URL resolves to a blocked address, and
+ *   retrying cannot make a blocked target safe.
  *
  * The caller owns the `safeFetch` response stream — we do not read the body, so
  * every attempt destroys it in `finally`.
  */
-export async function deliver(
-  event: WebhookEvent,
+export async function attemptDelivery(
+  event: WebhookEvent | Record<string, unknown>,
   target: WebhookTarget,
-  deps: { safeFetch?: SafeFetchFn; maxAttempts?: number } = {},
-): Promise<{ delivered: boolean; attempts: number }> {
+  deps: { safeFetch?: SafeFetchFn } = {},
+): Promise<AttemptOutcome> {
   const safeFetch = deps.safeFetch ?? realSafeFetch;
-  const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const rawBody = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / MILLIS_PER_SECOND);
+  const signature = signWebhook(target.secret, rawBody, timestamp);
 
-  let attempts = 0;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    attempts = attempt;
-    const timestamp = Math.floor(Date.now() / MILLIS_PER_SECOND);
-    const signature = signWebhook(target.secret, rawBody, timestamp);
-
-    let result: SafeFetchResult | null = null;
-    try {
-      result = await safeFetch(target.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Peable-Signature": signature,
-        },
-        body: rawBody,
-      });
-      if (result.status >= HTTP_OK_MIN && result.status < HTTP_OK_MAX) {
-        return { delivered: true, attempts };
-      }
-      if (result.status < HTTP_SERVER_ERROR_MIN) {
-        // 4xx (or any non-2xx below 5xx): the target rejected the payload —
-        // retrying will not help.
-        return { delivered: false, attempts };
-      }
-      // 5xx → transient; fall through to the backoff + retry below.
-    } catch (error) {
-      if (error instanceof SsrfRejection) {
-        process.emitWarning(
-          `Peable webhook target refused as SSRF-unsafe: ${target.url} (${error.message})`,
-        );
-        return { delivered: false, attempts };
-      }
-      if (!(error instanceof UpstreamError)) {
-        // An unexpected failure: surface it (never silently) and stop rather
-        // than throwing out of a best-effort delivery.
-        const message = error instanceof Error ? error.message : String(error);
-        process.emitWarning(
-          `Peable webhook delivery error for ${target.url}: ${message}`,
-        );
-        return { delivered: false, attempts };
-      }
-      // UpstreamError → transient; fall through to the backoff + retry below.
-    } finally {
-      result?.response.destroy();
+  let result: SafeFetchResult | null = null;
+  try {
+    result = await safeFetch(target.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Peable-Signature": signature,
+      },
+      body: rawBody,
+    });
+    if (result.status >= HTTP_OK_MIN && result.status < HTTP_OK_MAX) {
+      return { kind: "delivered" };
     }
-
-    if (attempt < maxAttempts) await sleep(backoffMs(attempt));
+    if (result.status < HTTP_SERVER_ERROR_MIN) {
+      return { kind: "refused", reason: `target responded ${result.status}` };
+    }
+    return { kind: "retry", reason: `target responded ${result.status}` };
+  } catch (error) {
+    if (error instanceof SsrfRejection) {
+      // Warned, not just recorded: an SSRF-rejected target is a configuration
+      // an operator should see, and the row's `last_error` is only read by
+      // somebody already looking at that merchant.
+      process.emitWarning(
+        `Peable webhook target refused as SSRF-unsafe: ${target.url} (${error.message})`,
+      );
+      return { kind: "refused", reason: `ssrf rejection: ${error.message}` };
+    }
+    if (error instanceof UpstreamError) {
+      return { kind: "retry", reason: `upstream error: ${error.message}` };
+    }
+    // An unexpected failure. `retry` rather than `refused`, deliberately:
+    // assuming an unknown defect is permanent is how a recoverable outage
+    // becomes an abandoned event, and the attempt budget bounds the cost of
+    // being wrong in this direction.
+    const message = error instanceof Error ? error.message : String(error);
+    return { kind: "retry", reason: `unexpected error: ${message}` };
+  } finally {
+    result?.response.destroy();
   }
-
-  return { delivered: false, attempts };
 }

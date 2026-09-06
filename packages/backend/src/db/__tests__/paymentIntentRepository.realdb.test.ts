@@ -46,9 +46,12 @@ function intentParams(merchantId: string, overrides: Record<string, unknown> = {
   return {
     publicId: `pi_${unique}`,
     merchantId,
+    rail: 'faircoin' as const,
     amount: '100000000',
+    currency: 'FAIR' as const,
     network: 'testnet' as const,
     address: `T${unique}`,
+    provider: null,
     clientSecret: `pi_${unique}_secret_x`,
     idempotencyKey: unique,
     metadata: {},
@@ -95,6 +98,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('payment intent repository', () => {
         idempotencyKey: params.idempotencyKey,
         publicId: `pi_${uuidv7()}`,
         address: `T${uuidv7()}`,
+        provider: null,
       })
     );
     expect(second).toBeNull();
@@ -277,7 +281,15 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('payment intent repository', () => {
     const first = await insertPaymentIntent(suite!.db, intentParams(merchant.id));
     const second = await insertPaymentIntent(suite!.db, intentParams(merchant.id));
 
-    const found = await findIntentsByAddresses(suite!.db, [first!.address, second!.address, 'Tnope']);
+    // Non-null assertions rather than a guard: `intentParams` builds faircoin
+    // intents, and `payment_intents_faircoin_requires_chain_fields_check`
+    // refuses one without an address, so a null here would mean the constraint
+    // is gone — which this suite should fail on, loudly.
+    const found = await findIntentsByAddresses(suite!.db, [
+      first!.address!,
+      second!.address!,
+      'Tnope',
+    ]);
     expect(found.map((row) => row.publicId).sort()).toEqual(
       [first!.publicId, second!.publicId].sort()
     );

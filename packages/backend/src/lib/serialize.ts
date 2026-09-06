@@ -31,8 +31,12 @@ export function toPaymentIntentDTO(row: PaymentIntentRow): PaymentIntent {
     id: row.publicId,
     object: "payment_intent",
     status: row.status,
+    rail: row.rail,
     amount: row.amount,
-    currency: "FAIR",
+    // Read off the column, never written as a literal. The literal "FAIR" that
+    // stood here was the reason widening the CHECK alone would have produced
+    // rows the API described incorrectly, with every test green (ADR 0001 D4).
+    currency: row.currency,
     network: row.network,
     address: row.address,
     merchantId: row.merchantId,
@@ -95,6 +99,13 @@ export function toWebhookDeliveryDTO(
     attempts: row.attempts,
     delivered: row.delivered,
     lastStatus: row.lastStatus,
+    // Omitted rather than emitted as `null`: the DTO's optional fields mean
+    // "there is nothing to say", and a `lastError: null` on a delivered
+    // delivery reads like an error field a consumer has to check.
+    ...(row.lastError !== null ? { lastError: row.lastError } : {}),
+    ...(row.nextAttemptAt !== null
+      ? { nextAttemptAt: row.nextAttemptAt.toISOString() }
+      : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -110,6 +121,8 @@ export function toPaymentLinkDTO(row: PaymentLinkRow): PaymentLink {
     id: row.publicId,
     object: "payment_link",
     amount: row.amount,
+    currency: row.currency,
+    rail: row.rail,
     network: row.network,
     active: row.active,
     metadata: row.metadata,
@@ -135,6 +148,8 @@ export function toPublicPaymentLinkDTO(
     id: row.publicId,
     object: "payment_link",
     amount: row.amount,
+    currency: row.currency,
+    rail: row.rail,
     network: row.network,
     active: row.active,
     merchant,
@@ -160,6 +175,8 @@ export function toCheckoutSessionDTO(
     paymentIntentId: intent.publicId,
     clientSecret: intent.clientSecret,
     amount: row.amount,
+    currency: row.currency,
+    rail: row.rail,
     network: row.network,
     metadata: row.metadata,
     successUrl: row.successUrl ?? undefined,

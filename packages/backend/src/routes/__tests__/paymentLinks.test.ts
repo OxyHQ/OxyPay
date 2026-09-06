@@ -58,6 +58,8 @@ interface PublicPaymentLinkResponse {
   id: string;
   object: string;
   amount: string;
+  currency: string;
+  rail: string;
   network: string;
   active: boolean;
   merchant: { name: string; avatarUrl: string | null; description: string | null };
@@ -325,6 +327,12 @@ describe("GET /v1/payment_links/:id/public", () => {
       id: "link_public_display",
       object: "payment_link",
       amount: "300000000",
+      // `currency` and `rail` are new on this DTO (ADR 0001 D4/D1) and belong
+      // in an exact-shape assertion: a payer page that renders an amount
+      // without knowing its currency is the bug this test's `toEqual` exists
+      // to catch.
+      currency: "FAIR",
+      rail: "faircoin",
       network: "testnet",
       active: true,
       merchant: {

@@ -9,6 +9,7 @@ const SAMPLE_INTENT: PaymentIntent = {
   id: 'pi_1',
   object: 'payment_intent',
   status: 'created',
+  rail: 'faircoin',
   amount: '100000',
   currency: 'FAIR',
   network: 'testnet',

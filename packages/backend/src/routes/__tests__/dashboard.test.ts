@@ -404,8 +404,7 @@ describe("GET /v1/dashboard/applications/:applicationId/webhook_deliveries + red
       eventId: "evt_dash_0000000000000001",
       eventType: "payment_intent.settled",
       url: "https://merchant.example/hook",
-      attempts: 2,
-      delivered: false,
+      pending: true,
     });
 
     const listRes = await authedFetch(

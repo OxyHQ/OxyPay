@@ -89,6 +89,22 @@ export const merchants = pgTable(
       table.environment,
       table.network
     ),
+    /**
+     * The network-free half of the identity above — the target of the companion
+     * references ADR 0001 D6 requires.
+     *
+     * `checkout_sessions.network` and `payment_links.network` are NULL on a card
+     * row, and a NULL switches a `MATCH SIMPLE` composite reference off
+     * ENTIRELY: the four-column reference stops guaranteeing `oxy_app_id` and
+     * `environment` too, not just `network`. A card session could then claim a
+     * different application or environment than its merchant's. This target is
+     * what the narrower reference points at so it cannot.
+     */
+    unique('merchants_id_oxy_app_id_environment_key').on(
+      table.id,
+      table.oxyAppId,
+      table.environment
+    ),
     check(
       'merchants_environment_check',
       sql.raw(`environment in (${inList(SERVICE_ENVIRONMENTS)})`)

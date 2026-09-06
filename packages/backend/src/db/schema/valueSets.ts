@@ -15,7 +15,14 @@
 
 import type { NetworkType } from '@fairco.in/core';
 import { OXY_SERVICE_ENVIRONMENTS } from '@oxyhq/core/server';
-import type { PaymentIntentStatus, WebhookEventType } from '@peable.to/shared-types';
+import type {
+  PaymentIntentRail,
+  PaymentIntentStatus,
+  WebhookEventType,
+} from '@peable.to/shared-types';
+// TYPE-ONLY, and it must stay that way: the module it names imports the Stripe
+// SDK. `import type` is erased before `drizzle-kit generate` ever runs it.
+import type { ProviderId } from '../../services/providers/provider';
 
 /**
  * `true` when every member of `TUnion` appears in `TListed`, and a compile
@@ -49,7 +56,11 @@ export const PAYMENT_INTENT_STATUS_VALUES = [
   'approved',
   'broadcast',
   'confirming',
+  'requires_action',
+  'processing',
   'settled',
+  'refunded',
+  'partially_refunded',
   'expired',
   'failed',
   'rejected',
@@ -59,6 +70,89 @@ export type PaymentIntentStatusesAreComplete = AssertAllListed<
   (typeof PAYMENT_INTENT_STATUS_VALUES)[number]
 >;
 
+/**
+ * The payment providers this gateway can route a fiat payment through.
+ *
+ * Mirrors `services/providers/provider.ts`'s `ProviderId`. Re-listed rather
+ * than imported because that module pulls in the Stripe SDK transitively, and
+ * a schema file that dragged an HTTP client into `drizzle-kit generate` would
+ * make migration generation depend on a payment library being installable.
+ *
+ * The `import type` below is erased before anything runs, so the pin costs
+ * nothing at generation time — and it is the pin that matters: the dangerous
+ * direction is `ProviderId` gaining a member this tuple does not list, which
+ * type-checks everywhere and is then refused by the CHECK on the first write of
+ * the new provider, in production. `providersAreComplete` below makes that a
+ * compile error instead.
+ */
+export const PROVIDER_IDS = ['stripe'] as const;
+export type ProvidersAreComplete = AssertAllListed<
+  ProviderId,
+  (typeof PROVIDER_IDS)[number]
+>;
+
+/**
+ * Which rail moves a payment (ADR 0001 D1). The discriminator every
+ * rail-conditional CHECK in `schema/payments.ts` reads.
+ */
+export const RAIL_VALUES = ['faircoin', 'card'] as const satisfies readonly PaymentIntentRail[];
+export type RailsAreComplete = AssertAllListed<
+  PaymentIntentRail,
+  (typeof RAIL_VALUES)[number]
+>;
+
+/**
+ * The statuses only the FairCoin rail can reach, and the statuses only the card
+ * rail can reach (ADR 0001 D5).
+ *
+ * Re-exported from the contract rather than re-listed, because a second list
+ * here would be a second thing to keep in step with the transition table — and
+ * the failure mode of a drift is a CHECK refusing a status the application
+ * considers legal, in production, on the first payment that reaches it.
+ */
+export { CHAIN_ONLY_STATUSES, CARD_ONLY_STATUSES } from '@peable.to/shared-types';
+
+/**
+ * How a provider reports one capability on a connected account.
+ *
+ * NULL is the fourth state and is deliberately NOT in this tuple: it means the
+ * capability was never REQUESTED, which is a different fact from the provider
+ * declining (`inactive`) or still working (`pending`). A tuple member for it
+ * would make the column say "requested and unknown", which is not a thing a
+ * provider ever reports.
+ */
+export const CAPABILITY_STATUSES = ['active', 'pending', 'inactive'] as const;
+
+/**
+ * Where one transfer stands.
+ *
+ *  - `pending`             — created here, not yet confirmed by the provider.
+ *  - `paid`                — the provider moved it.
+ *  - `partially_reversed`  — some came back. `amount_reversed` says how much,
+ *                            cumulatively; a second partial reversal stays in
+ *                            this status and only the amount changes.
+ *  - `reversed`            — all of it came back.
+ *  - `failed`              — the provider refused. Terminal, and distinct from a
+ *                            reversal: nothing ever moved.
+ */
+export const TRANSFER_STATUSES = [
+  'pending',
+  'paid',
+  'partially_reversed',
+  'reversed',
+  'failed',
+] as const;
+
+/**
+ * Where one refund stands — the MONEY's own lifecycle, not the payment's.
+ *
+ * Deliberately not the payment's status set. `refunded` on a payment means "all
+ * of it came back"; `succeeded` on a refund means "this movement completed",
+ * and a payment can hold several of those. Sharing a vocabulary would make
+ * "which refund failed" unaskable.
+ */
+export const REFUND_STATUSES = ['pending', 'succeeded', 'failed'] as const;
+
 /** Stripe-parity dotted webhook event types. */
 export const WEBHOOK_EVENT_TYPES = [
   'payment_intent.confirming',
@@ -66,21 +160,53 @@ export const WEBHOOK_EVENT_TYPES = [
   'payment_intent.failed',
   'payment_intent.rejected',
   'payment_intent.expired',
+  'payment_intent.refunded',
+  'payment_intent.partially_refunded',
 ] as const satisfies readonly WebhookEventType[];
 export type WebhookEventTypesAreComplete = AssertAllListed<
   WebhookEventType,
   (typeof WEBHOOK_EVENT_TYPES)[number]
 >;
 
-/** Outcome of the last delivery attempt for a webhook. */
-export const WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed'] as const;
+/**
+ * Where one webhook delivery stands.
+ *
+ * Was `['delivered', 'failed']` — the two outcomes an inline, best-effort
+ * `deliver()` could report once it had already finished. ADR 0001 D7 makes
+ * delivery a durable outbox, so a row now exists BEFORE any attempt and the set
+ * has to say so.
+ *
+ *  - `pending`   — will be attempted. `next_attempt_at` says when; `attempts`
+ *                  may be 0 (never tried) or more (a transient failure backed
+ *                  off). These are the only rows the dispatcher claims.
+ *  - `delivered` — terminal success.
+ *  - `failed`    — terminal REFUSAL. The target answered something no retry can
+ *                  fix (a 4xx, an SSRF rejection). Distinct from `dead` because
+ *                  the causes need different operator responses: this one is a
+ *                  merchant endpoint problem.
+ *  - `dead`      — terminal EXHAUSTION. Every attempt was transient and the
+ *                  budget ran out. The event is still in the row and can be
+ *                  redelivered by hand.
+ */
+export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivered', 'failed', 'dead'] as const;
+
+/** The statuses from which no further attempt is made. */
+export const TERMINAL_WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed', 'dead'] as const;
 
 /**
- * The only currency this gateway denominates in. A single-member set still
- * earns a CHECK: it is what makes adding a second currency a migration with a
- * decision behind it rather than a value that appears one day in a row.
+ * The currencies this gateway denominates in.
+ *
+ * This set was `['FAIR']` alone, with a comment saying a single-member set
+ * still earns a CHECK because it is "what makes adding a second currency a
+ * migration with a decision behind it rather than a value that appears one day
+ * in a row". ADR 0001 D4 is that decision.
+ *
+ * Re-exported from `@peable.to/shared-types` rather than re-listed: the wire
+ * contract owns the set AND the per-currency scale (`CURRENCY_DECIMALS`), and a
+ * currency this column accepted but the contract could not name would be a row
+ * the API cannot describe.
  */
-export const CURRENCY_CODES = ['FAIR'] as const;
+export { CURRENCY_CODES } from '@peable.to/shared-types';
 
 /**
  * The highest derivation index this schema can store — `int4`'s ceiling, and

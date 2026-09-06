@@ -1,0 +1,404 @@
+/**
+ * `PaymentProvider` — the seam every fiat rail plugs into (ADR 0001 D2).
+ *
+ * Deliberately shaped after the port Mercaria already proved
+ * (`services/payments/provider.ts` there): that interface has a contract test
+ * suite behind it and a rail that passed it, and copying its SHAPE is what lets
+ * the adapter on Mercaria's side stay thin — the gateway's merchant API is this
+ * interface expressed over HTTP.
+ *
+ * ## What this interface deliberately does NOT do
+ *
+ * It does not decide anything. It converts a gateway request into a provider
+ * call and a provider answer back into the gateway's own vocabulary.
+ * Persistence, status transitions, the outbox and every merchant-visible
+ * consequence belong to the gateway, never to an adapter — so "what happens
+ * when a payment succeeds" is written ONCE and cannot drift between providers.
+ *
+ * ## Idempotency comes IN, it is never invented here
+ *
+ * Every mutating method takes an `idempotencyKey` derived from a durable
+ * gateway id. An adapter that minted its own would make a retry a second
+ * charge, which is the entire failure this shape exists to prevent — so the key
+ * is a required parameter rather than an option.
+ *
+ * ## `verifyEvent` is the trust boundary
+ *
+ * The ONLY method that takes untrusted input. It either returns a verified
+ * envelope or throws. A payment is never marked settled from anything else: a
+ * client callback is UX and a request body without a verified signature is a
+ * stranger's opinion.
+ */
+
+import type { CurrencyCode } from "@peable.to/shared-types";
+
+/** The providers this gateway can route a fiat payment through. */
+export type ProviderId = "stripe";
+
+/**
+ * The stages a payment can fail at — used by diagnostics and by the contract
+ * suite's failure injection, which walks every one of them.
+ */
+export type ProviderStage =
+  | "createPayment"
+  | "capture"
+  | "cancel"
+  | "refund"
+  | "transfer"
+  | "getStatus"
+  | "verifyEvent"
+  | "account";
+
+/**
+ * A failure from a payment provider.
+ *
+ * `retryable` means exactly one thing: could this same request, unchanged, ever
+ * succeed? A network blip is retryable; a declined card and a malformed request
+ * are not, because no number of attempts turns them into a payment. Anything
+ * that is NOT a `ProviderError` is treated as retryable, since assuming an
+ * unknown defect is permanent is how a recoverable outage becomes an abandoned
+ * payment — the same direction `attemptDelivery` takes in the outbox, and for
+ * the same reason.
+ */
+export class ProviderError extends Error {
+  readonly provider: ProviderId;
+  readonly stage: ProviderStage;
+  readonly retryable: boolean;
+  /** The provider's own machine-readable code, when it gave one. */
+  readonly code?: string;
+
+  constructor(input: {
+    provider: ProviderId;
+    stage: ProviderStage;
+    message: string;
+    retryable: boolean;
+    code?: string;
+  }) {
+    super(input.message);
+    this.name = "ProviderError";
+    this.provider = input.provider;
+    this.stage = input.stage;
+    this.retryable = input.retryable;
+    if (input.code !== undefined) this.code = input.code;
+    Object.setPrototypeOf(this, ProviderError.prototype);
+  }
+}
+
+/** Whether trying the same request again could ever work. */
+export function isRetryableProviderError(error: unknown): boolean {
+  if (error instanceof ProviderError) return error.retryable;
+  return true;
+}
+
+/**
+ * An amount in a currency's smallest unit.
+ *
+ * A `string` rather than a `number`, matching `payment_intents.amount` and the
+ * wire contract: the application works in JS `bigint`, which is unbounded,
+ * and a `number` here would be a silent precision ceiling on a money value.
+ * Adapters convert to whatever their SDK wants at the boundary and nowhere
+ * else.
+ */
+export interface ProviderAmount {
+  readonly amount: string;
+  readonly currency: CurrencyCode;
+}
+
+/**
+ * What a payer's client must do next, when the provider needs it to do
+ * anything.
+ *
+ * Opaque on purpose: `value` is whatever the provider's own SDK consumes (a
+ * client secret, a redirect URL). The gateway never interprets it and never
+ * stores it — it is handed to the payer in the same response and forgotten, so
+ * it cannot become a credential sitting in a database.
+ */
+export interface ProviderClientAction {
+  readonly kind: "client_secret" | "redirect";
+  readonly value: string;
+}
+
+/**
+ * Where a payment stands, in the GATEWAY's vocabulary.
+ *
+ * A deliberately smaller set than `PaymentIntentStatus`: an adapter reports
+ * what the provider says about the money, and the gateway's state machine
+ * decides what that means for the intent. Mapping straight onto
+ * `PaymentIntentStatus` would put `applyEvent`'s job inside every adapter.
+ */
+export type ProviderPaymentStatus =
+  | "created"
+  | "requires_action"
+  | "processing"
+  | "succeeded"
+  | "failed"
+  | "canceled"
+  | "refunded"
+  | "partially_refunded";
+
+export interface CreatePaymentRequest {
+  /** The intent's PUBLIC id — the basis of the provider idempotency key. */
+  readonly intentId: string;
+  readonly amount: ProviderAmount;
+  readonly idempotencyKey: string;
+  /**
+   * Minimal, stable ids for event correlation.
+   *
+   * Never an email, a phone number or a payer token: a provider's metadata is
+   * readable by everyone with dashboard access, and a raw contact value there
+   * is a disclosure with no audit trail.
+   */
+  readonly metadata: Readonly<Record<string, string>>;
+  /**
+   * The connected account this payment will eventually settle to, when the
+   * merchant is a marketplace paying ONE seller. Absent for a payment the
+   * merchant settles itself, and absent for a multi-seller payment — those
+   * settle through `createTransfer` after the charge, because one charge
+   * cannot fund two destinations.
+   */
+  readonly onBehalfOf?: string;
+}
+
+export interface ProviderPaymentResult {
+  /** The provider's own id for the payment. Never a gateway primary key. */
+  readonly providerObjectId: string;
+  readonly status: ProviderPaymentStatus;
+  readonly clientAction?: ProviderClientAction;
+}
+
+/** Act on a payment the provider already knows about. */
+export interface PaymentOperationRequest {
+  readonly intentId: string;
+  readonly providerObjectId: string;
+  readonly idempotencyKey: string;
+}
+
+export interface RefundRequest {
+  readonly intentId: string;
+  readonly providerObjectId: string;
+  /** The gateway's refund id — what the idempotency key is derived from. */
+  readonly refundId: string;
+  readonly amount: ProviderAmount;
+  readonly idempotencyKey: string;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface ProviderRefundResult {
+  /** The provider's id for the REFUND, not for the payment. */
+  readonly providerObjectId: string;
+  /** Where the PAYMENT stands after it. */
+  readonly status: ProviderPaymentStatus;
+  /** Where the REFUND itself stands — the money's own lifecycle. */
+  readonly state: "pending" | "succeeded" | "failed";
+  readonly failureCode?: string;
+}
+
+/** A signed, untrusted delivery from a provider, exactly as it arrived. */
+export interface ProviderEventInput {
+  /** The RAW body. Never a parsed object: a signature covers bytes, not a re-serialization. */
+  readonly payload: string;
+  readonly signature: string;
+}
+
+/** A verified inbound event, normalized. */
+export interface ProviderEventEnvelope {
+  readonly provider: ProviderId;
+  /** The connected account the event is scoped to; absent for platform scope. */
+  readonly providerAccountId?: string;
+  readonly providerEventId: string;
+  readonly type: string;
+  readonly livemode: boolean;
+  readonly apiVersion?: string;
+  /** The provider object ids this event refers to, keyed by the provider's own names. */
+  readonly objectIds: Readonly<Record<string, string>>;
+  /**
+   * What this event says about the payment, already mapped. `undefined` when
+   * the event is about something else (a payout, an account) — the envelope is
+   * still stored, because an event the gateway cannot act on is evidence rather
+   * than noise.
+   */
+  readonly paymentStatus?: ProviderPaymentStatus;
+  readonly payload: unknown;
+}
+
+/** One fiat rail. Every mutating method is idempotent given the same key. */
+export interface PaymentProvider {
+  readonly id: ProviderId;
+  createPayment(request: CreatePaymentRequest): Promise<ProviderPaymentResult>;
+  /**
+   * Move a created payment toward capture.
+   *
+   * For a card rail that captures immediately this collapses into re-reading
+   * the payment. It stays a method because a rail that genuinely holds funds
+   * needs it, and discovering that after the interface froze would be
+   * expensive.
+   */
+  capture(request: PaymentOperationRequest): Promise<ProviderPaymentResult>;
+  cancel(request: PaymentOperationRequest): Promise<ProviderPaymentResult>;
+  refund(request: RefundRequest): Promise<ProviderRefundResult>;
+  /** Read the provider's current view. The only method with no idempotency key. */
+  getStatus(providerObjectId: string): Promise<ProviderPaymentResult>;
+  /**
+   * @throws {ProviderError} with `retryable: false` when the signature does not
+   *   verify. A bad signature is never transient, and retrying one is how a
+   *   forged event eventually gets a lucky window.
+   */
+  verifyEvent(input: ProviderEventInput): Promise<ProviderEventEnvelope>;
+}
+
+// ---------------------------------------------------------------------------
+// Optional capabilities
+// ---------------------------------------------------------------------------
+
+export interface CreateTransferRequest {
+  readonly intentId: string;
+  /** The gateway's transfer id — the basis of the idempotency key. */
+  readonly transferId: string;
+  /** The provider's own id for the payment being settled. */
+  readonly sourcePaymentObjectId: string;
+  /** The seller's account AT THE PROVIDER. */
+  readonly destinationAccountId: string;
+  readonly amount: ProviderAmount;
+  /** Ties every movement of one checkout together at the provider. */
+  readonly groupRef: string;
+  readonly idempotencyKey: string;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface ProviderTransferResult {
+  readonly providerObjectId: string;
+  readonly status: "pending" | "paid" | "failed" | "reversed";
+}
+
+export interface ReverseTransferRequest {
+  readonly transferId: string;
+  /** The provider's own id for the transfer being reversed. */
+  readonly transferObjectId: string;
+  readonly amount: ProviderAmount;
+  readonly idempotencyKey: string;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface ProviderTransferReversalResult {
+  readonly providerObjectId: string;
+  /** What the transfer has now had reversed in TOTAL — cumulative, not this leg. */
+  readonly totalReversed: string;
+}
+
+/**
+ * A provider that can settle a sub-merchant out of a funded payment.
+ *
+ * OPTIONAL rather than part of `PaymentProvider`, because it is not a property
+ * every rail has and pretending otherwise would force a lie. The FairCoin rail
+ * implements neither half and that is the TRUTH about it rather than a gap: the
+ * gateway never holds those funds, so it has nothing to move and nothing to
+ * take back.
+ *
+ * The two halves are one capability. A rail that could settle and not reverse
+ * would refund buyers with no way to make the seller bear it.
+ */
+export interface SettlingPaymentProvider extends PaymentProvider {
+  createTransfer(request: CreateTransferRequest): Promise<ProviderTransferResult>;
+  reverseTransfer(
+    request: ReverseTransferRequest,
+  ): Promise<ProviderTransferReversalResult>;
+}
+
+/** A capability's state as the provider reports it. */
+export type ProviderCapabilityStatus = "active" | "pending" | "inactive";
+
+/** How a sub-merchant's onboarding stands, in the gateway's vocabulary. */
+export interface ProviderAccountSnapshot {
+  readonly providerAccountId: string;
+  /** Whether this account can currently RECEIVE a settlement. */
+  readonly payoutsEnabled: boolean;
+  /**
+   * Whether the account may itself charge cards.
+   *
+   * Recorded because the provider reports it and an operator will ask, and
+   * deliberately part of NO readiness answer: under separate charges and
+   * transfers this account never charges anything, so `false` here does not
+   * stop a seller selling.
+   */
+  readonly chargesEnabled: boolean;
+  readonly transfersCapability: ProviderCapabilityStatus;
+  /**
+   * The `card_payments` capability, and it is here for a specific reason.
+   *
+   * It is requested alongside transfers not because this account charges
+   * anything, but because Stripe refuses the pair otherwise outside the US AND
+   * because a recipient-only account emits no `account.updated` — the only
+   * readiness trigger there is (Mercaria's ADR 0008 D2-C and D2-D, one
+   * decision). Recording its state is what makes "readiness will never fire on
+   * this account" an answerable question rather than a six-hour mystery.
+   */
+  readonly cardPaymentsCapability: ProviderCapabilityStatus | null;
+  /** Requirement identifiers the provider is waiting on. Never the values. */
+  readonly currentlyDue: readonly string[];
+  /**
+   * Requirements coming eventually. Collected up front so a seller's payouts
+   * are not interrupted weeks later by something that was always coming.
+   */
+  readonly eventuallyDue: readonly string[];
+  readonly pastDue: readonly string[];
+  /** Submitted and being checked — nothing for the seller to do. */
+  readonly pendingVerification: readonly string[];
+  readonly disabledReason?: string;
+  readonly defaultCurrency?: CurrencyCode;
+}
+
+export interface CreateAccountRequest {
+  /** The gateway's account id — the basis of the idempotency key. */
+  readonly accountId: string;
+  /** ISO 3166-1 alpha-2. Constrained by the provider's own transfer region. */
+  readonly country: string;
+  readonly businessType: "individual" | "company";
+  readonly idempotencyKey: string;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface AccountLinkRequest {
+  readonly providerAccountId: string;
+  /** Where the provider sends a payer whose link expired mid-flow. */
+  readonly refreshUrl: string;
+  readonly returnUrl: string;
+}
+
+/**
+ * A provider that holds sub-merchant accounts.
+ *
+ * Also optional, and for the same reason: FairCoin sellers are identities with
+ * their own keys, not accounts this gateway creates.
+ *
+ * `accountLink` returns a SINGLE-USE, short-lived URL that must never be sent
+ * over email or chat, and a `returnUrl` redirect proves NOTHING — only the
+ * provider's own account events and a reconciliation read do.
+ */
+export interface AccountHoldingProvider extends PaymentProvider {
+  createAccount(request: CreateAccountRequest): Promise<ProviderAccountSnapshot>;
+  accountLink(request: AccountLinkRequest): Promise<{ url: string; expiresAt: Date }>;
+  getAccount(providerAccountId: string): Promise<ProviderAccountSnapshot>;
+}
+
+/** Whether this rail can settle sub-merchants. Both halves, never one. */
+export function isSettlingProvider(
+  provider: PaymentProvider,
+): provider is SettlingPaymentProvider {
+  const candidate = provider as Partial<SettlingPaymentProvider>;
+  return (
+    typeof candidate.createTransfer === "function" &&
+    typeof candidate.reverseTransfer === "function"
+  );
+}
+
+/** Whether this rail holds sub-merchant accounts. */
+export function isAccountHoldingProvider(
+  provider: PaymentProvider,
+): provider is AccountHoldingProvider {
+  const candidate = provider as Partial<AccountHoldingProvider>;
+  return (
+    typeof candidate.createAccount === "function" &&
+    typeof candidate.accountLink === "function" &&
+    typeof candidate.getAccount === "function"
+  );
+}

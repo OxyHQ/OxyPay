@@ -1,7 +1,9 @@
-import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
-import type { PaymentIntentStatus } from '@peable.to/shared-types';
+import type { CurrencyCode, PaymentIntentRail, PaymentIntentStatus } from '@peable.to/shared-types';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
+// Type-only: this repository must not pull the Stripe SDK into a query path.
+import type { ProviderId } from '../../services/providers/provider';
 import { paymentIntents } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
 
@@ -16,13 +18,20 @@ export interface PaymentIntentRow {
   readonly id: string;
   readonly publicId: string;
   readonly status: PaymentIntentStatus;
+  readonly rail: PaymentIntentRail;
   readonly amount: string;
-  readonly currency: 'FAIR';
-  readonly network: NetworkType;
-  readonly address: string;
+  readonly currency: CurrencyCode;
+  /** FairCoin rail only — `null` on a card intent (ADR 0001 D6). */
+  readonly network: NetworkType | null;
+  /** FairCoin rail only — `null` on a card intent, which reserves no address. */
+  readonly address: string | null;
   readonly merchantId: string;
   readonly txid: string | null;
   readonly confirmations: number;
+  /** Card rail only — `null` on a FairCoin intent, where the chain is the provider. */
+  readonly provider: ProviderId | null;
+  /** The provider's own id for the object that moves the money. `null` until it exists. */
+  readonly providerObjectId: string | null;
   readonly clientSecret: string;
   readonly metadata: Record<string, string>;
   readonly expiresAt: Date;
@@ -39,6 +48,7 @@ const INTENT_COLUMNS = {
   id: paymentIntents.id,
   publicId: paymentIntents.publicId,
   status: paymentIntents.status,
+  rail: paymentIntents.rail,
   amount: paymentIntents.amount,
   currency: paymentIntents.currency,
   network: paymentIntents.network,
@@ -46,6 +56,8 @@ const INTENT_COLUMNS = {
   merchantId: paymentIntents.merchantId,
   txid: paymentIntents.txid,
   confirmations: paymentIntents.confirmations,
+  provider: paymentIntents.provider,
+  providerObjectId: paymentIntents.providerObjectId,
   clientSecret: paymentIntents.clientSecret,
   metadata: paymentIntents.metadata,
   expiresAt: paymentIntents.expiresAt,
@@ -55,8 +67,10 @@ const INTENT_COLUMNS = {
 
 interface RawIntentRow {
   readonly status: string;
+  readonly rail: string;
   readonly currency: string;
-  readonly network: string;
+  readonly network: string | null;
+  readonly provider: string | null;
   readonly [key: string]: unknown;
 }
 
@@ -65,17 +79,29 @@ function toIntentRow(row: RawIntentRow): PaymentIntentRow {
   return {
     ...row,
     status: row.status as PaymentIntentStatus,
-    currency: row.currency as 'FAIR',
-    network: row.network as NetworkType,
+    rail: row.rail as PaymentIntentRail,
+    currency: row.currency as CurrencyCode,
+    network: row.network as NetworkType | null,
+    provider: row.provider as ProviderId | null,
   } as unknown as PaymentIntentRow;
 }
 
 export interface InsertPaymentIntentParams {
   readonly publicId: string;
   readonly merchantId: string;
+  readonly rail: PaymentIntentRail;
   readonly amount: string;
-  readonly network: NetworkType;
-  readonly address: string;
+  readonly currency: CurrencyCode;
+  /** FairCoin rail only. Both of these are `null` together on a card intent, and
+   *  `payment_intents_faircoin_requires_chain_fields_check` refuses the mix. */
+  readonly network: NetworkType | null;
+  readonly address: string | null;
+  /**
+   * Card rail only, and REQUIRED there —
+   * `payment_intents_card_requires_provider_check` refuses a card intent
+   * without one. Never set on faircoin.
+   */
+  readonly provider: ProviderId | null;
   readonly clientSecret: string;
   readonly idempotencyKey: string;
   readonly metadata: Record<string, string>;
@@ -96,18 +122,22 @@ export async function insertPaymentIntent(
   params: InsertPaymentIntentParams
 ): Promise<PaymentIntentRow | null> {
   try {
-    // Explicit field list, never a spread. `status`, `currency` and
-    // `confirmations` take their column defaults: a caller does not get to mint
-    // an intent that is already settled.
+    // Explicit field list, never a spread. `status` and `confirmations` take
+    // their column defaults: a caller does not get to mint an intent that is
+    // already settled. `currency` and `rail` are now ARGUMENTS rather than
+    // defaults — a default would silently make every card intent a FairCoin one.
     const [row] = await db
       .insert(paymentIntents)
       .values({
         id: uuidv7(),
         publicId: params.publicId,
         status: 'created',
+        rail: params.rail,
         amount: params.amount,
+        currency: params.currency,
         network: params.network,
         address: params.address,
+        provider: params.provider,
         merchantId: params.merchantId,
         clientSecret: params.clientSecret,
         idempotencyKey: params.idempotencyKey,
@@ -328,6 +358,44 @@ export async function findIntentsByAddresses(
 }
 
 /**
+ * Intents that have run out of time.
+ *
+ * The statuses are a CLOSED, hand-written list and not "everything
+ * non-terminal", and that is the whole safety of this query. `approved`,
+ * `broadcast` and `confirming` are deliberately absent: a payer has committed
+ * funds by then, and expiring one of those would abandon a payment that is
+ * on its way — the intent would read `expired` while coins arrived at an address
+ * nobody is watching any more. Only the states where nothing has been sent yet
+ * are expirable.
+ *
+ * `requires_action` and `processing` are the card rail's equivalents and are
+ * included for the same reason: an SCA challenge nobody completed, and a charge
+ * the provider never resolved, are both a checkout the buyer walked away from.
+ */
+export async function findExpiredIntents(
+  db: DatabaseOrTransaction,
+  params: { readonly now: Date; readonly limit: number }
+): Promise<PaymentIntentRow[]> {
+  const rows = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(
+      and(
+        inArray(paymentIntents.status, [
+          'created',
+          'awaiting_approval',
+          'requires_action',
+          'processing',
+        ]),
+        lt(paymentIntents.expiresAt, params.now)
+      )
+    )
+    .orderBy(paymentIntents.expiresAt)
+    .limit(params.limit);
+  return rows.map(toIntentRow);
+}
+
+/**
  * What the settlement watcher polls: in-flight intents carrying a payer-reported
  * txid. Terminal and pre-broadcast intents are never watched, and an intent with
  * no txid has nothing to look up on chain.
@@ -341,7 +409,19 @@ export async function findWatchableIntents(
     .select(INTENT_COLUMNS)
     .from(paymentIntents)
     .where(
-      and(inArray(paymentIntents.status, [...statuses]), isNotNull(paymentIntents.txid))
+      and(
+        // The rail predicate is NOT redundant with the status one, even though
+        // `payment_intents_chain_statuses_are_faircoin_check` makes every
+        // `broadcast`/`confirming` row a FairCoin row today. `settled` is a
+        // SHARED status: the day this query is asked for one — a reorg sweep, a
+        // reconciliation — it would start handing card payments to a watcher
+        // that dereferences `address` and `network`. Stating the rail here is
+        // what makes "only the FairCoin rail is watchable" a property of the
+        // query rather than of the caller's current status list.
+        eq(paymentIntents.rail, 'faircoin'),
+        inArray(paymentIntents.status, [...statuses]),
+        isNotNull(paymentIntents.txid)
+      )
     );
   return rows.map(toIntentRow);
 }
@@ -375,5 +455,64 @@ export async function updateIntentState(
     .set(values)
     .where(eq(paymentIntents.id, id))
     .returning(INTENT_COLUMNS);
+  return row ? toIntentRow(row) : null;
+}
+
+/**
+ * Record the provider object this intent became, once the provider has told us
+ * what it is.
+ *
+ * The second half of the two-step create. Guarded on `provider_object_id IS
+ * NULL` so it can only ever fill the gap, never overwrite a link — a second
+ * provider call for an intent that already has one is a bug (a duplicate
+ * charge, or a recovery that raced), and silently repointing the row at the new
+ * object would orphan the first charge with nothing recording that it exists.
+ *
+ * @returns `true` when this call did the linking; `false` when the row was
+ *   already linked, which the caller should treat as "someone else got there"
+ *   rather than as an error.
+ */
+export async function linkProviderObject(
+  db: DatabaseOrTransaction,
+  intentId: string,
+  provider: ProviderId,
+  providerObjectId: string
+): Promise<boolean> {
+  const rows = await db
+    .update(paymentIntents)
+    .set({ providerObjectId })
+    .where(
+      and(
+        eq(paymentIntents.id, intentId),
+        eq(paymentIntents.provider, provider),
+        isNull(paymentIntents.providerObjectId)
+      )
+    )
+    .returning({ id: paymentIntents.id });
+  return rows.length === 1;
+}
+
+/**
+ * The event drain's lookup: which intent is this provider object?
+ *
+ * `provider` is part of the key rather than decoration. Object ids are unique
+ * within a provider's own numbering and nowhere else, so matching on the id
+ * alone would, the day a second provider exists, let one provider's event act
+ * on another provider's payment.
+ */
+export async function findIntentByProviderObject(
+  db: DatabaseOrTransaction,
+  provider: ProviderId,
+  providerObjectId: string
+): Promise<PaymentIntentRow | null> {
+  const [row] = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(
+      and(
+        eq(paymentIntents.provider, provider),
+        eq(paymentIntents.providerObjectId, providerObjectId)
+      )
+    );
   return row ? toIntentRow(row) : null;
 }

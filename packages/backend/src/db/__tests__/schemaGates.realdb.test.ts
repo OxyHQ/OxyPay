@@ -11,11 +11,15 @@ import { phaseMarkerLine } from '@oxyhq/db/migrate';
 import { PROTECTED_COLUMNS } from '../protectedColumns';
 import {
   checkoutSessions,
+  connectedAccounts,
   merchants,
   paymentIntents,
   paymentLinks,
+  providerEvents,
+  refunds,
   socialReceiveCursors,
   socialSendAttributions,
+  transfers,
   webhookDeliveries,
 } from '../schema';
 import {
@@ -37,11 +41,15 @@ const MIGRATIONS_DIR = join(BACKEND_ROOT, 'db', 'migrations');
 
 const ALL_TABLES = [
   checkoutSessions,
+  connectedAccounts,
   merchants,
   paymentIntents,
   paymentLinks,
+  providerEvents,
+  refunds,
   socialReceiveCursors,
   socialSendAttributions,
+  transfers,
   webhookDeliveries,
 ] as const;
 
@@ -131,6 +139,58 @@ describe('id-column classification', () => {
         {
           column: 'webhook_deliveries.event_id',
           reason: 'the evt_… envelope id that was signed and sent; events are never persisted',
+        },
+        // `provider_events` holds a PROVIDER's numbering, not this database's.
+        // None of these can carry a foreign key: the rows they name live at
+        // Stripe, and a reference to them is not expressible here.
+        {
+          column: 'provider_events.provider_event_id',
+          reason: "the provider's own evt_… id — their numbering, not ours",
+        },
+        {
+          column: 'provider_events.provider_account_id',
+          reason: "the provider's own acct_… id; NULL for platform scope",
+        },
+        {
+          column: 'provider_events.object_ids',
+          reason: 'a jsonb map of the provider object ids an event refers to, under their names',
+        },
+        {
+          column: 'refunds.public_id',
+          reason: "this row's own re_… identifier, not a reference",
+        },
+        {
+          column: 'refunds.provider_object_id',
+          reason:
+            "the provider's own re_…; uniqueness is held by refunds_provider_object_key and the row it names is at the provider",
+        },
+        {
+          column: 'connected_accounts.public_id',
+          reason: "this row's own ca_… identifier, not a reference",
+        },
+        {
+          column: 'transfers.public_id',
+          reason: "this row's own tr_… identifier, not a reference",
+        },
+        {
+          column: 'connected_accounts.provider_account_id',
+          reason:
+            "the provider's own acct_…; a reference is not expressible because the row is at the provider, and uniqueness is held by connected_accounts_provider_account_id_key",
+        },
+        {
+          column: 'transfers.provider_object_id',
+          reason:
+            "the provider's own tr_…; uniqueness is held by transfers_provider_object_key and the row it names is at the provider",
+        },
+        {
+          column: 'transfers.source_payment_object_id',
+          reason:
+            "the provider's id for the CHARGE this transfer draws on — their numbering, and what makes the transfer wait for the charge's funds",
+        },
+        {
+          column: 'payment_intents.provider_object_id',
+          reason:
+            "the provider's own id for the object that moves the money; uniqueness is held by payment_intents_provider_object_key, and a reference is not expressible because the row is at the provider",
         },
       ],
       minimumTables: ALL_TABLES.length,

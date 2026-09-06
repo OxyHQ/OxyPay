@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
-import { isBaseUnitString, type CreatePaymentLinkParams } from "@peable.to/shared-types";
+import type { CreatePaymentLinkParams } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import {
@@ -12,12 +12,20 @@ import {
   listLinksForMerchant,
   updatePaymentLink,
 } from "../db/payments/paymentLinkRepository";
-import { createIntent, NetworkMismatchError } from "../services/createIntent";
+import {
+  createIntent,
+  NetworkMismatchError,
+  RailMismatchError,
+  RailUnavailableError,
+  assertRailAvailable,
+  resolveRail,
+} from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
 import { toPaymentLinkDTO, toPublicPaymentLinkDTO, toPaymentIntentDTO } from "../lib/serialize";
 import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
+import { railBodyFields } from "../lib/railSchema";
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -28,10 +36,7 @@ const listQuerySchema = z.object({
 });
 
 const createBodySchema = z.object({
-  amount: z
-    .string()
-    .refine(isBaseUnitString, "amount must be a base-unit integer string"),
-  network: z.enum(["mainnet", "testnet"]),
+  ...railBodyFields,
   metadata: z.record(z.string(), z.string()).optional(),
   successUrl: z.string().url().optional(),
 });
@@ -77,20 +82,35 @@ export function createPaymentLinksRouter(deps: {
         );
         return;
       }
-      const params: CreatePaymentLinkParams = parsed.data;
+      const params: CreatePaymentLinkParams = parsed.data as CreatePaymentLinkParams;
 
       // Same data-integrity firewall as `createIntent`'s network check
       // (F2.0 task 1a): a link's `network` must match the merchant it was
       // created under, since every intent it later mints derives its
       // watch-only address from THIS merchant's xpub.
-      if (params.network !== merchant.network) {
-        sendError(
-          res,
-          422,
-          "invalid_request_error",
-          `network '${params.network}' does not match the merchant's configured network '${merchant.network}'`,
-        );
-        return;
+      //
+      // Delegated to `resolveRail` rather than re-checked here, because the
+      // rules a link must satisfy are exactly the rules its future intents must
+      // satisfy — and a link storing a combination `createIntent` would refuse
+      // is a price a payer can see and can never pay.
+      let resolved;
+      try {
+        resolved = resolveRail(merchant, params);
+        // ...and the same argument one step further: a link is a URL a merchant
+        // SENDS to customers, so a rail this deployment cannot serve has to be
+        // refused here, to the merchant, rather than at mint time to a payer
+        // who is already looking at the price.
+        assertRailAvailable(resolved.rail);
+      } catch (err) {
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
+          sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
+          return;
+        }
+        throw err;
       }
 
       // Explicit field whitelist — never spread `req.body`. `active` takes its
@@ -102,7 +122,9 @@ export function createPaymentLinksRouter(deps: {
         oxyAppId: merchant.oxyAppId,
         environment: merchant.environment,
         amount: params.amount,
-        network: params.network,
+        currency: resolved.currency,
+        rail: resolved.rail,
+        network: resolved.network,
         metadata: params.metadata ?? {},
         successUrl: params.successUrl,
       });
@@ -301,23 +323,39 @@ export function createPaymentLinksRouter(deps: {
       }
 
       try {
-        const { intent } = await createIntent({
+        const { intent, clientAction } = await createIntent({
           merchant,
           amount: link.amount,
-          network: link.network,
+          rail: link.rail,
+          currency: link.currency,
+          // `?? undefined` rather than passing the null through: `createIntent`
+          // distinguishes "no network given" (legal on the card rail) from a
+          // network it must validate, and a null would be neither.
+          ...(link.network !== null ? { network: link.network } : {}),
           metadata: link.metadata,
         });
-        res
-          .status(201)
-          .json({ ...toPaymentIntentDTO(intent), client_secret: intent.clientSecret });
+        res.status(201).json({
+          ...toPaymentIntentDTO(intent),
+          client_secret: intent.clientSecret,
+          // The payer is anonymous here and this is their only chance to be
+          // handed the card rail's next step — there is no authenticated read
+          // they could make later to fetch it.
+          ...(clientAction ? { client_action: clientAction } : {}),
+        });
       } catch (err) {
         // Structurally unreachable today (a link's `network` is validated
         // against its merchant at creation, and `Merchant.network` has no
         // mutation route) — kept as a defensive translation, same as every
         // other `createIntent` caller, rather than letting it fall through
         // to a bare 500 if that invariant is ever loosened.
-        if (err instanceof NetworkMismatchError) {
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        // 503, not 422: the rail is not configured on this deployment, which is
+        // not something the caller can fix by sending different fields.
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;

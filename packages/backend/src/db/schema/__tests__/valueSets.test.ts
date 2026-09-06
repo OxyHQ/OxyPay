@@ -7,6 +7,7 @@ import {
   BASE_UNIT_STRING_PATTERN,
   NETWORK_TYPES,
   PAYMENT_INTENT_STATUS_VALUES,
+  PROVIDER_IDS,
   WEBHOOK_EVENT_TYPES,
 } from '../valueSets';
 
@@ -26,12 +27,39 @@ describe('closed value sets', () => {
     expect([...PAYMENT_INTENT_STATUS_VALUES].sort()).toEqual([...PAYMENT_INTENT_STATUSES].sort());
   });
 
+  /**
+   * The runtime half of the provider pin.
+   *
+   * `ProvidersAreComplete` in `valueSets.ts` already makes a `ProviderId` this
+   * tuple does not list a compile error. What no type can see is whether the
+   * tuple actually reached the database: the CHECK is rendered from it once, at
+   * generation time, and a regeneration that dropped it would leave a column
+   * that accepts any string with every test still green.
+   */
+  it('renders the provider CHECK into the migrations from this tuple', () => {
+    const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
+    const sqlText = readdirSync(migrationsDir)
+      .filter((entry) => entry.endsWith('.sql'))
+      .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
+      .join('\n');
+
+    const rendered = PROVIDER_IDS.map((id) => `'${id}'`).join(', ');
+    expect(sqlText).toContain(`provider in (${rendered})`);
+  });
+
   it('lists both networks', () => {
     expect([...NETWORK_TYPES].sort()).toEqual(['mainnet', 'testnet']);
   });
 
-  it('lists the five webhook event types', () => {
-    expect(WEBHOOK_EVENT_TYPES).toHaveLength(5);
+  /**
+   * A COUNT rather than a list, so widening the contract is a deliberate edit
+   * here. The `satisfies` on the tuple already proves every member is a legal
+   * `WebhookEventType`; what no type can see is a member being ADDED without
+   * anyone noticing that merchants now receive an event they never subscribed
+   * to.
+   */
+  it('lists the seven webhook event types', () => {
+    expect(WEBHOOK_EVENT_TYPES).toHaveLength(7);
     for (const type of WEBHOOK_EVENT_TYPES) {
       expect(type.startsWith('payment_intent.')).toBe(true);
     }
@@ -86,14 +114,21 @@ describe('the base-unit amount pattern', () => {
     const files = readdirSync(migrationsDir).filter((entry) => entry.endsWith('.sql'));
     expect(files.length).toBeGreaterThanOrEqual(1);
 
+    // Searched WITHOUT the column name. It used to look for `amount ~ '…'`,
+    // which silently skipped `transfers.amount_reversed` — a column in the same
+    // canonical-integer domain, guarded by the same pattern, and invisible to a
+    // search anchored on `amount`. A test that cannot see a guarded column
+    // cannot notice the day that column stops being guarded.
     const occurrences = files
       .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
       .reduce(
-        (total, contents) =>
-          total + contents.split(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`).length - 1,
+        (total, contents) => total + contents.split(`~ '${BASE_UNIT_STRING_PATTERN}'`).length - 1,
         0
       );
-    // One per money-carrying table: payment_intents, checkout_sessions, payment_links.
-    expect(occurrences).toBe(3);
+    // One per money-carrying COLUMN, which is not one per table:
+    // payment_intents, checkout_sessions, payment_links and refunds carry one
+    // `amount` each; `transfers` carries `amount` AND the cumulative
+    // `amount_reversed`.
+    expect(occurrences).toBe(6);
   });
 });

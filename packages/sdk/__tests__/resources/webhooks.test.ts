@@ -16,6 +16,7 @@ const EVENT: WebhookEvent = {
       id: 'pi_1',
       object: 'payment_intent',
       status: 'settled',
+  rail: 'faircoin',
       amount: '100000',
       currency: 'FAIR',
       network: 'testnet',

@@ -1,14 +1,19 @@
 import { and, desc, eq, lt } from 'drizzle-orm';
-import type { WebhookEventType } from '@peable.to/shared-types';
-import { uuidv7 } from '@oxyhq/db';
+import type { WebhookDeliveryStatus, WebhookEventType } from '@peable.to/shared-types';
 import { paymentIntents, webhookDeliveries } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
 
 /**
- * Reads and writes for `webhook_deliveries` — the append-only log of delivery
- * attempts.
+ * READS for `webhook_deliveries` — what the merchant API and the dashboard ask
+ * about a delivery.
  *
- * NOT WIRED TO ANY ROUTE YET; see `db/merchants/merchantRepository.ts`'s header.
+ * The writes moved to `webhookOutboxRepository.ts` when delivery became an
+ * outbox (ADR 0001 D7), and `insertWebhookDelivery` went with them: a row is
+ * now created by `enqueueWebhook` BEFORE any attempt and updated by
+ * `recordDeliveryAttempt` after each one. There is deliberately no function
+ * here that writes a finished delivery in one shot — that shape is what made
+ * the old inline delivery possible, and re-adding it would let a caller record
+ * an outcome for an attempt the dispatcher never made.
  */
 
 export interface WebhookDeliveryRow {
@@ -17,10 +22,16 @@ export interface WebhookDeliveryRow {
   readonly paymentIntentId: string;
   readonly eventId: string;
   readonly eventType: WebhookEventType;
+  /** The event envelope as enqueued — replayed verbatim, never rebuilt. */
+  readonly payload: Record<string, unknown>;
   readonly url: string;
   readonly attempts: number;
   readonly delivered: boolean;
-  readonly lastStatus: 'delivered' | 'failed';
+  readonly lastStatus: WebhookDeliveryStatus;
+  /** Why the last attempt did not succeed. `null` while pending or delivered. */
+  readonly lastError: string | null;
+  /** When the next attempt is due. `null` exactly when the row is terminal. */
+  readonly nextAttemptAt: Date | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -31,10 +42,13 @@ const DELIVERY_COLUMNS = {
   paymentIntentId: webhookDeliveries.paymentIntentId,
   eventId: webhookDeliveries.eventId,
   eventType: webhookDeliveries.eventType,
+  payload: webhookDeliveries.payload,
   url: webhookDeliveries.url,
   attempts: webhookDeliveries.attempts,
   delivered: webhookDeliveries.delivered,
   lastStatus: webhookDeliveries.lastStatus,
+  lastError: webhookDeliveries.lastError,
+  nextAttemptAt: webhookDeliveries.nextAttemptAt,
   createdAt: webhookDeliveries.createdAt,
   updatedAt: webhookDeliveries.updatedAt,
 } as const;
@@ -47,7 +61,7 @@ function toDeliveryRow(row: {
   return {
     ...row,
     eventType: row.eventType as WebhookEventType,
-    lastStatus: row.lastStatus as 'delivered' | 'failed',
+    lastStatus: row.lastStatus as WebhookDeliveryStatus,
   } as unknown as WebhookDeliveryRow;
 }
 
@@ -61,50 +75,8 @@ function toDeliveryWithIntentRow(row: {
   return {
     ...row,
     eventType: row.eventType as WebhookEventType,
-    lastStatus: row.lastStatus as 'delivered' | 'failed',
+    lastStatus: row.lastStatus as WebhookDeliveryStatus,
   } as unknown as WebhookDeliveryWithIntentRow;
-}
-
-export interface InsertWebhookDeliveryParams {
-  readonly merchantId: string;
-  /** The INTERNAL id of the intent the event was about, not its `pi_…`. */
-  readonly paymentIntentId: string;
-  readonly eventId: string;
-  readonly eventType: WebhookEventType;
-  readonly url: string;
-  readonly attempts: number;
-  readonly delivered: boolean;
-}
-
-/**
- * Record one delivery attempt set.
- *
- * `last_status` is DERIVED here from `delivered` rather than accepted from the
- * caller, which is why the parameters have no field for it. Both original
- * writers computed it the same way, and `webhook_deliveries_status_agrees_check`
- * refuses the pair disagreeing — so deriving it at the single write point means
- * the constraint can never be the thing that fails.
- */
-export async function insertWebhookDelivery(
-  db: DatabaseOrTransaction,
-  params: InsertWebhookDeliveryParams
-): Promise<WebhookDeliveryRow> {
-  const [row] = await db
-    .insert(webhookDeliveries)
-    .values({
-      id: uuidv7(),
-      merchantId: params.merchantId,
-      paymentIntentId: params.paymentIntentId,
-      eventId: params.eventId,
-      eventType: params.eventType,
-      url: params.url,
-      attempts: params.attempts,
-      delivered: params.delivered,
-      lastStatus: params.delivered ? 'delivered' : 'failed',
-    })
-    .returning(DELIVERY_COLUMNS);
-  if (!row) throw new Error('webhook delivery insert returned no row');
-  return toDeliveryRow(row);
 }
 
 /**

@@ -34,6 +34,7 @@ function makeIntent(overrides: Partial<PaymentIntent> = {}): PaymentIntent {
     id: 'pi_test123',
     object: 'payment_intent',
     status: 'created',
+    rail: 'faircoin',
     amount: '100000000',
     currency: 'FAIR',
     network: 'testnet',

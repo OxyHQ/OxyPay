@@ -133,6 +133,69 @@ with `42830 there is no unique constraint matching given keys` — the target do
 not exist yet at that point in the file. Measured against a real server; `tsc`
 and `drizzle-kit generate` are both clean either way.
 
+**And `unique()` is not enough once the table already exists.** The rule above
+works because a `unique()` constraint is emitted INSIDE its `CREATE TABLE`. Add a
+new unique target to a table that is already there and it becomes its own
+`ALTER TABLE … ADD CONSTRAINT … UNIQUE` — which drizzle-kit again orders AFTER
+every foreign key, including the ones pointing at it. MEASURED on PostgreSQL
+16.13 while adding `merchants_id_oxy_app_id_environment_key` in `0001`:
+
+```
+ERROR:  there is no unique constraint matching given keys for referenced table "merchants"
+```
+
+There is no drizzle-kit knob for this. **Move the `ADD CONSTRAINT … UNIQUE`
+above the foreign keys by hand in the generated `.sql`, and say in a comment
+that you did and why** — `0001_certain_skin.sql` is the worked example. This is
+the one kind of hand edit a migration may carry; renaming the file, editing
+`meta/_journal.json` and hand-writing a snapshot are still forbidden. Apply it
+against a real server before committing: nothing earlier in the pipeline fails.
+
+### A NULL in a composite reference switches the whole reference OFF
+
+`network` is nullable, because a card intent has no network (ADR 0001 D1/D6).
+That interacts with the two references above in a way nothing in the schema
+shows, so it is written down here.
+
+A composite foreign key defaults to **`MATCH SIMPLE`**, which is satisfied with
+**no check performed** as soon as ANY referencing column is NULL. That is the
+semantics wanted — the network firewall binds a FairCoin intent and is vacuous
+for a card one — and it means the reference stops constraining its OTHER columns
+too. The composite reference was the only thing pointing `payment_intents.merchant_id`
+at `merchants`, so a card intent could name a merchant that does not exist.
+MEASURED, PostgreSQL 16.13:
+
+```
+-- (merchant_id, network) → merchants(id, network), network NULL
+insert into intents values ('i4','ghost-merchant',null);
+INSERT 0 1                     -- accepted; no referential integrity at all
+```
+
+**So every composite reference whose nullable column may be NULL carries a
+narrower companion reference over the columns that are always present:**
+
+- `payment_intents (merchant_id) → merchants (id)`, beside the
+  `(merchant_id, network)` firewall.
+- `checkout_sessions` / `payment_links` `(merchant_id, oxy_app_id, environment)
+  → merchants (id, oxy_app_id, environment)`, beside the four-column identity
+  reference. Without it, a card session's denormalized `oxy_app_id` and
+  `environment` stop being guaranteed the moment `network` is NULL.
+
+With both present the FairCoin firewall still refuses a wrong network, the card
+row still cannot name a ghost merchant, and a card session still cannot claim
+the wrong `environment` — all MEASURED.
+
+**`MATCH FULL` is the obvious alternative and is wrong.** It demands
+all-or-nothing nullity across the referencing columns, and `merchant_id` is NOT
+NULL, so it refuses every card row. MEASURED:
+
+```
+ERROR:  MATCH FULL does not allow mixing of null and nonnull key values.
+```
+
+The rail's own requirement is a CHECK, not a reference, because it is one row of
+one table: `rail <> 'faircoin' OR (address IS NOT NULL AND network IS NOT NULL)`.
+
 ## `ON DELETE`
 
 Decided per relation, never defaulted:

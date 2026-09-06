@@ -1,6 +1,7 @@
 import { and, desc, eq, lt } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
+import type { CurrencyCode, PaymentIntentRail } from '@peable.to/shared-types';
 import { uuidv7 } from '@oxyhq/db';
 import { paymentLinks } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
@@ -19,7 +20,10 @@ export interface PaymentLinkRow {
   readonly oxyAppId: string;
   readonly environment: OxyServiceEnvironment;
   readonly amount: string;
-  readonly network: NetworkType;
+  readonly currency: CurrencyCode;
+  readonly rail: PaymentIntentRail;
+  /** FairCoin rail only — `null` on a card link (ADR 0001 D6). */
+  readonly network: NetworkType | null;
   readonly active: boolean;
   readonly metadata: Record<string, string>;
   readonly successUrl: string | null;
@@ -34,6 +38,8 @@ const LINK_COLUMNS = {
   oxyAppId: paymentLinks.oxyAppId,
   environment: paymentLinks.environment,
   amount: paymentLinks.amount,
+  currency: paymentLinks.currency,
+  rail: paymentLinks.rail,
   network: paymentLinks.network,
   active: paymentLinks.active,
   metadata: paymentLinks.metadata,
@@ -42,11 +48,19 @@ const LINK_COLUMNS = {
   updatedAt: paymentLinks.updatedAt,
 } as const;
 
-function toLinkRow(row: { environment: string; network: string; [key: string]: unknown }): PaymentLinkRow {
+function toLinkRow(row: {
+  environment: string;
+  currency: string;
+  rail: string;
+  network: string | null;
+  [key: string]: unknown;
+}): PaymentLinkRow {
   return {
     ...row,
     environment: row.environment as OxyServiceEnvironment,
-    network: row.network as NetworkType,
+    currency: row.currency as CurrencyCode,
+    rail: row.rail as PaymentIntentRail,
+    network: row.network as NetworkType | null,
   } as unknown as PaymentLinkRow;
 }
 
@@ -56,7 +70,10 @@ export interface InsertPaymentLinkParams {
   readonly oxyAppId: string;
   readonly environment: OxyServiceEnvironment;
   readonly amount: string;
-  readonly network: NetworkType;
+  readonly currency: CurrencyCode;
+  readonly rail: PaymentIntentRail;
+  /** FairCoin rail only; `null` on a card link. */
+  readonly network: NetworkType | null;
   readonly metadata: Record<string, string>;
   readonly successUrl?: string | undefined;
 }
@@ -69,6 +86,10 @@ export interface InsertPaymentLinkParams {
  * `payment_links_merchant_identity_fkey` references all four columns together.
  * A caller that passed a mismatched triple is refused by the database rather
  * than silently creating a link that claims the wrong application.
+ *
+ * On a CARD link `network` is null, which switches that four-column reference
+ * off (`MATCH SIMPLE`); `payment_links_merchant_identity_no_network_fkey` is
+ * what keeps the other three guaranteed. ADR 0001 D6.
  */
 export async function insertPaymentLink(
   db: DatabaseOrTransaction,
@@ -83,6 +104,8 @@ export async function insertPaymentLink(
       oxyAppId: params.oxyAppId,
       environment: params.environment,
       amount: params.amount,
+      currency: params.currency,
+      rail: params.rail,
       network: params.network,
       metadata: params.metadata,
       successUrl: params.successUrl ?? null,

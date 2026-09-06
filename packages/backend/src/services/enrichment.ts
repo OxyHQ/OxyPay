@@ -42,6 +42,12 @@ export async function enrichAddresses(
   const intents = await findIntentsByAddresses(db, addresses);
   const merchantIdByAddress = new Map<string, string>();
   for (const intent of intents) {
+    // `address` is nullable since ADR 0001 D6, and every row this query returns
+    // matched one of the requested addresses — so a null here is unreachable
+    // rather than an unhandled case. Skipping is still the right shape: a
+    // non-null assertion would turn an impossible row into a crash on a
+    // read-only display path a wallet calls to render a transaction list.
+    if (intent.address === null) continue;
     merchantIdByAddress.set(intent.address, intent.merchantId);
   }
   const merchants = await findMerchantsByIds(db, [...new Set(merchantIdByAddress.values())]);

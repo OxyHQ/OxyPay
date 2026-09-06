@@ -9,7 +9,6 @@ import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
 import type { OxyAuthRequest, OxyServiceEnvironment } from "@oxyhq/core/server";
 import {
-  isBaseUnitString,
   PAYMENT_INTENT_STATUSES,
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
@@ -21,13 +20,19 @@ import {
   findIntentByPublicId,
   findIntentForMerchant,
   listIntentsForMerchant,
-  updateIntentState,
 } from "../db/payments/paymentIntentRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
-import { createIntent, NetworkMismatchError } from "../services/createIntent";
+import {
+  createIntent,
+  NetworkMismatchError,
+  RailMismatchError,
+  RailUnavailableError,
+} from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
+import { announceIntentChange, transitionIntent } from "../services/intentTransition";
 import { toPaymentIntentDTO } from "../lib/serialize";
 import { sendError, wrap, requireServiceApp, requireAuthenticated } from "../lib/http";
+import { railBodyFields } from "../lib/railSchema";
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -45,10 +50,7 @@ export const listQuerySchema = z.object({
 // `CreatePaymentIntentParams` (see `params` below) so the wire contract and the
 // shared type can never silently drift apart.
 const createBodySchema = z.object({
-  amount: z
-    .string()
-    .refine(isBaseUnitString, "amount must be a base-unit integer string"),
-  network: z.enum(["mainnet", "testnet"]),
+  ...railBodyFields,
   metadata: z.record(z.string(), z.string()).optional(),
   expiresInSeconds: z.number().int().positive().optional(),
 });
@@ -222,28 +224,46 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      const params: CreatePaymentIntentParams = parsed.data;
+      const params: CreatePaymentIntentParams = parsed.data as CreatePaymentIntentParams;
 
       try {
-        const { intent, reused } = await createIntent({
+        const { intent, reused, clientAction } = await createIntent({
           merchant,
           amount: params.amount,
-          network: params.network,
+          ...(params.rail !== undefined ? { rail: params.rail } : {}),
+          ...(params.currency !== undefined ? { currency: params.currency } : {}),
+          ...(params.network !== undefined ? { network: params.network } : {}),
           metadata: params.metadata,
           expiresInSeconds: params.expiresInSeconds,
           idempotencyKey,
         });
-        res
-          .status(reused ? 200 : 201)
-          .json({ ...toPaymentIntentDTO(intent), client_secret: intent.clientSecret });
+        res.status(reused ? 200 : 201).json({
+          ...toPaymentIntentDTO(intent),
+          client_secret: intent.clientSecret,
+          // The card rail's next step for the PAYER's client, present only on
+          // that rail and only in this response. Never on the DTO: re-reading an
+          // intent tomorrow must not hand out a confirmation credential, and a
+          // merchant listing their intents must not receive one per row.
+          ...(clientAction ? { client_action: clientAction } : {}),
+        });
       } catch (err) {
         // Data-integrity firewall (F2.0 task 1a): the watch-only address is
         // derived using the MERCHANT's network (`reserveAddress.ts`), never
         // the caller's claimed `network` — `createIntent` rejects a mismatch
         // up front, or the returned intent's `network` label would lie about
         // the network its `address` actually encodes.
-        if (err instanceof NetworkMismatchError) {
+        // `RailMismatchError` rides the same branch: both are a caller
+        // describing a payment this gateway cannot make, and neither is a
+        // server fault. Which mistake they made is in the message.
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        // 503, not 422: the caller cannot fix this by sending different fields.
+        // The rail they asked for is not configured on this deployment, and
+        // telling them their request was invalid would send them off editing it.
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;
@@ -391,11 +411,18 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      const rejected = await updateIntentState(getDb(), intent.id, { status: nextStatus });
+      // `transitionIntent`, not `updateIntentState`. This route mutated the
+      // status and returned, so `payment_intent.rejected` was emitted by NO
+      // path a merchant could trigger — the only way to see one was the
+      // settlement watcher, which never produces that status, or a manual
+      // redelivery of a row that therefore never existed. The event type has
+      // been in the published contract since the first release.
+      const rejected = await transitionIntent(intent.id, { status: nextStatus });
       if (!rejected) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      announceIntentChange(rejected);
       res.status(200).json(toPaymentIntentDTO(rejected));
     }),
   );
@@ -452,7 +479,13 @@ export function createPaymentIntentsRouter(deps: {
       // Status and txid move in ONE statement: `payment_intents_broadcast_requires_txid_check`
       // refuses `broadcast` without the txid beside it, so two writes could not
       // satisfy the constraint in either order.
-      const broadcast = await updateIntentState(getDb(), intent.id, {
+      //
+      // `broadcast` maps to no webhook event — a merchant acts on outcomes, not
+      // on a payer pressing send — so `transitionIntent` enqueues nothing here.
+      // It is still the right entry point: the announce below is what puts the
+      // "payment sent, waiting to be seen on-chain" frame on the payer's own
+      // checkout page, which this route previously left to the next poll.
+      const broadcast = await transitionIntent(intent.id, {
         status: nextStatus,
         txid: parsed.data.txid,
       });
@@ -460,6 +493,7 @@ export function createPaymentIntentsRouter(deps: {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      announceIntentChange(broadcast);
       res.status(200).json(toPaymentIntentDTO(broadcast));
     }),
   );

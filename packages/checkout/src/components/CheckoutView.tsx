@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { MerchantDisplay, PaymentIntent } from '@peable.to/shared-types';
 import { subscribe } from '../lib/intentClient';
 import { MerchantIdentity } from './MerchantIdentity';
-import { PayWithPeable } from './PayWithPeable';
+import { PayWithPeable, isChainIntent } from './PayWithPeable';
 import { StatusPanel } from './StatusPanel';
 
 export interface CheckoutViewProps {
@@ -65,9 +65,13 @@ export function CheckoutView({ intent: initialIntent, merchant, successUrl }: Ch
   return (
     <div className="checkout-view">
       {merchant && <MerchantIdentity merchant={merchant} />}
-      {awaitingPayment ? (
+      {awaitingPayment && isChainIntent(intent) ? (
         <PayWithPeable intent={intent} />
       ) : (
+        // A card intent awaiting payment falls through to `StatusPanel` for
+        // now: this page has no card surface yet, and showing a wallet QR for
+        // a payment no wallet can make would be worse than showing its status.
+        // The card branch belongs here, beside this one.
         <StatusPanel intent={intent} successUrl={successUrl} />
       )}
     </div>

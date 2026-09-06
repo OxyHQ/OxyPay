@@ -4,7 +4,12 @@ import { deriveKeyFromSeed, getNetwork, mnemonicToSeed } from '@fairco.in/core';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
 import { uuidv7 } from '@oxyhq/db';
-import type { WebhookEventType } from '@peable.to/shared-types';
+import type { ProviderId } from '../../services/providers/provider';
+import type {
+  CurrencyCode,
+  PaymentIntentRail,
+  WebhookEventType,
+} from '@peable.to/shared-types';
 import { insertMerchant, type MerchantRow } from '../../db/merchants/merchantRepository';
 import {
   insertCheckoutSession,
@@ -18,9 +23,14 @@ import { insertPaymentLink, type PaymentLinkRow } from '../../db/payments/paymen
 import { insertSendAttribution } from '../../db/social/sendAttribution';
 import type { SocialSendAttributionRow } from '../../db/social/sendAttribution';
 import {
-  insertWebhookDelivery,
+  findDeliveryForMerchant,
   type WebhookDeliveryRow,
 } from '../../db/webhooks/webhookDeliveryRepository';
+import {
+  enqueueWebhook,
+  recordDeliveryAttempt,
+} from '../../db/webhooks/webhookOutboxRepository';
+import { toPaymentIntentDTO } from '../../lib/serialize';
 import type { Database } from '../../db/postgres';
 import {
   createSuiteDatabase,
@@ -136,7 +146,7 @@ export function useGatewayDatabase(): void {
  */
 export async function resetGatewayTables(): Promise<void> {
   await gatewayDb().execute(
-    sql`truncate webhook_deliveries, checkout_sessions, payment_links, payment_intents, social_send_attributions, social_receive_cursors, merchants restart identity`
+    sql`truncate refunds, transfers, connected_accounts, webhook_deliveries, checkout_sessions, payment_links, payment_intents, provider_events, social_send_attributions, social_receive_cursors, merchants restart identity`
   );
 }
 
@@ -184,9 +194,12 @@ export async function seedMerchant(values: SeedMerchantValues = {}): Promise<Mer
 
 export interface SeedIntentValues {
   readonly publicId?: string;
+  readonly rail?: PaymentIntentRail;
   readonly amount?: string;
-  readonly network?: NetworkType;
-  readonly address?: string;
+  readonly currency?: CurrencyCode;
+  readonly network?: NetworkType | null;
+  readonly address?: string | null;
+  readonly provider?: ProviderId | null;
   readonly clientSecret?: string;
   readonly idempotencyKey?: string;
   readonly metadata?: Record<string, string>;
@@ -201,15 +214,28 @@ export async function seedIntent(
   values: SeedIntentValues = {}
 ): Promise<PaymentIntentRow> {
   const unique = uuidv7();
+  // The rail decides whether the chain fields mean anything, so it is resolved
+  // FIRST and the two chain defaults follow from it. Defaulting them
+  // independently would seed a card intent carrying an address, which
+  // `payment_intents_card_has_no_chain_fields_check` refuses — a fixture that
+  // fails on a constraint instead of on its subject.
+  const rail = values.rail ?? 'faircoin';
   const row = await insertPaymentIntent(gatewayDb(), {
     publicId: values.publicId ?? `pi_${unique}`,
     merchantId: merchant.id,
+    rail,
     amount: values.amount ?? '100000000',
+    currency: values.currency ?? (rail === 'faircoin' ? 'FAIR' : 'EUR'),
     // Defaults to the MERCHANT's network, never a literal: the composite
     // reference refuses a mismatch, so a hard-coded default here would make
     // every mainnet-merchant suite fail on a foreign key instead of its subject.
-    network: values.network ?? merchant.network,
-    address: values.address ?? `T${unique}`,
+    network: values.network !== undefined ? values.network : rail === 'faircoin' ? merchant.network : null,
+    address: values.address !== undefined ? values.address : rail === 'faircoin' ? `T${unique}` : null,
+    // Follows the rail for the same reason the chain fields do:
+    // `payment_intents_card_requires_provider_check` refuses a card intent with
+    // no provider, and `..._faircoin_has_no_provider_check` refuses a chain one
+    // that has one.
+    provider: values.provider !== undefined ? values.provider : rail === 'card' ? 'stripe' : null,
     clientSecret: values.clientSecret ?? `pi_${unique}_secret_${unique.slice(0, 8)}`,
     idempotencyKey: values.idempotencyKey ?? unique,
     metadata: values.metadata ?? {},
@@ -223,8 +249,10 @@ export async function seedIntent(
 
 export interface SeedLinkValues {
   readonly publicId?: string;
+  readonly rail?: PaymentIntentRail;
   readonly amount?: string;
-  readonly network?: NetworkType;
+  readonly currency?: CurrencyCode;
+  readonly network?: NetworkType | null;
   readonly metadata?: Record<string, string>;
   readonly successUrl?: string;
 }
@@ -234,6 +262,7 @@ export async function seedLink(
   values: SeedLinkValues = {}
 ): Promise<PaymentLinkRow> {
   const unique = uuidv7();
+  const rail = values.rail ?? 'faircoin';
   return insertPaymentLink(gatewayDb(), {
     publicId: values.publicId ?? `link_${unique}`,
     merchantId: merchant.id,
@@ -241,8 +270,11 @@ export async function seedLink(
     // composite reference refuses any other combination.
     oxyAppId: merchant.oxyAppId,
     environment: merchant.environment,
+    rail,
     amount: values.amount ?? '100000000',
-    network: values.network ?? merchant.network,
+    currency: values.currency ?? (rail === 'faircoin' ? 'FAIR' : 'EUR'),
+    network:
+      values.network !== undefined ? values.network : rail === 'faircoin' ? merchant.network : null,
     metadata: values.metadata ?? {},
     successUrl: values.successUrl,
   });
@@ -269,7 +301,12 @@ export async function seedSession(
     environment: merchant.environment,
     paymentIntentId: intent.id,
     amount: values.amount ?? intent.amount,
-    network: merchant.network,
+    // Denormalized from the WRAPPED INTENT, never chosen here: a session whose
+    // rail disagreed with its intent's would render a card form over a FairCoin
+    // payment, and no constraint spans the two tables to catch it.
+    currency: intent.currency,
+    rail: intent.rail,
+    network: intent.network,
     metadata: values.metadata ?? {},
     successUrl: values.successUrl,
     cancelUrl: values.cancelUrl,
@@ -284,24 +321,60 @@ export interface SeedDeliveryValues {
   readonly eventId?: string;
   readonly eventType?: WebhookEventType;
   readonly url?: string;
-  readonly attempts?: number;
-  readonly delivered?: boolean;
+  /**
+   * Leave a seeded delivery `pending` instead of settling it.
+   *
+   * The default is a DELIVERED row, because most suites want a delivery that
+   * already happened and must not have the outbox dispatcher pick their fixture
+   * up mid-test. A suite exercising the queue asks for `pending: true`.
+   */
+  readonly pending?: boolean;
 }
 
+/**
+ * Seed a delivery.
+ *
+ * Two writes, not one, and that is the outbox's shape rather than an
+ * inefficiency: `enqueueWebhook` is the only way a row is created, and
+ * `recordDeliveryAttempt` is the only way one reaches a terminal status. A
+ * helper that inserted a delivered row directly would be a second writer with
+ * no attempt behind it — exactly the shape `insertWebhookDelivery` had, and the
+ * reason it is gone.
+ */
 export async function seedDelivery(
   merchant: MerchantRow,
   intent: PaymentIntentRow,
   values: SeedDeliveryValues = {}
 ): Promise<WebhookDeliveryRow> {
-  return insertWebhookDelivery(gatewayDb(), {
+  const url = values.url ?? merchant.webhookUrl ?? 'https://merchant.example/hook';
+  const eventType = values.eventType ?? 'payment_intent.settled';
+  const eventId = values.eventId ?? `evt_${uuidv7()}`;
+
+  const id = await enqueueWebhook(gatewayDb(), {
     merchantId: merchant.id,
     paymentIntentId: intent.id,
-    eventId: values.eventId ?? `evt_${uuidv7()}`,
-    eventType: values.eventType ?? 'payment_intent.settled',
-    url: values.url ?? merchant.webhookUrl ?? 'https://merchant.example/hook',
-    attempts: values.attempts ?? 1,
-    delivered: values.delivered ?? true,
+    event: {
+      id: eventId,
+      object: 'event',
+      type: eventType,
+      created: new Date().toISOString(),
+      data: { object: toPaymentIntentDTO(intent) },
+    },
+    url,
   });
+
+  if (values.pending !== true) {
+    await recordDeliveryAttempt(gatewayDb(), {
+      id,
+      outcome: { kind: 'delivered' },
+      url,
+      nextAttemptAt: null,
+    });
+  }
+
+  const row = await findDeliveryForMerchant(gatewayDb(), id, merchant.id);
+  if (!row) throw new Error(`seedDelivery: delivery ${id} vanished after enqueue`);
+  return row;
 }
 
 export interface SeedAttributionValues {

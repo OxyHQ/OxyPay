@@ -4,11 +4,7 @@
 // mints fresh on request — this module is what decides, client-side,
 // whether the page even needs to ask for a fresh one.
 import { getPaymentIntent } from './intentClient';
-import {
-  PAYMENT_INTENT_STATUSES,
-  isValidStatusTransition,
-  type PaymentIntent,
-} from '@peable.to/shared-types';
+import { canStillBePaid, type PaymentIntent } from '@peable.to/shared-types';
 
 export interface OpenIntentRef {
   id: string;
@@ -53,19 +49,19 @@ function isExpired(intent: PaymentIntent): boolean {
   return Date.parse(intent.expiresAt) <= Date.now();
 }
 
-/** A status is terminal when the lifecycle table allows no further transition
- * out of it — derived from `isValidStatusTransition` rather than a second,
- * hand-maintained list of terminal statuses. Pure shared-types logic (no SDK
- * call), deliberately kept out of `intentClient.ts` so mocking that module's
- * SDK-touching functions in tests doesn't also require reimplementing this. */
-function isTerminalStatus(status: PaymentIntent['status']): boolean {
-  return !PAYMENT_INTENT_STATUSES.some((next) => isValidStatusTransition(status, next));
-}
-
-/** True when a remembered intent is still safe to reuse as-is: not terminal
- * (settled/expired/failed/rejected) and not past its own `expiresAt`. */
+/**
+ * True when a remembered intent is still safe to reuse as-is: the payer can
+ * still complete a payment against it, and it is not past its own `expiresAt`.
+ *
+ * This used to ask whether the status was a LEAF of the transition table, which
+ * meant `settled` right up until `settled` gained the refund edges — after
+ * which a settled payment stopped looking finished and this function started
+ * reusing it, showing a payer who had already paid their old receipt forever
+ * with no way to pay the link again. `canStillBePaid` asks the question in the
+ * payer's terms instead: is `settled` still reachable from here.
+ */
 function isReusable(intent: PaymentIntent): boolean {
-  return !isTerminalStatus(intent.status) && !isExpired(intent);
+  return canStillBePaid(intent.status) && !isExpired(intent);
 }
 
 /**

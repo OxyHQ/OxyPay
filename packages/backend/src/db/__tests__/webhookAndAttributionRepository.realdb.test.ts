@@ -1,12 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { sql } from 'drizzle-orm';
 import { isCheckViolation, isForeignKeyViolation, uuidv7 } from '@oxyhq/db';
 import { insertMerchant, type MerchantRow } from '../merchants/merchantRepository';
 import { insertPaymentIntent } from '../payments/paymentIntentRepository';
 import {
   findDeliveryForMerchant,
-  insertWebhookDelivery,
   listDeliveriesForMerchant,
 } from '../webhooks/webhookDeliveryRepository';
+import {
+  enqueueWebhook,
+  recordDeliveryAttempt,
+} from '../webhooks/webhookOutboxRepository';
 import {
   findAttributionsForViewer,
   insertSendAttribution,
@@ -39,9 +43,12 @@ async function makeIntent(merchant: MerchantRow) {
   return (await insertPaymentIntent(suite!.db, {
     publicId: `pi_${unique}`,
     merchantId: merchant.id,
+    rail: 'faircoin' as const,
     amount: '100000000',
+    currency: 'FAIR' as const,
     network: merchant.network,
     address: `T${unique}`,
+    provider: null,
     clientSecret: `pi_${unique}_secret_x`,
     idempotencyKey: unique,
     metadata: {},
@@ -60,8 +67,78 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
   });
 
   /**
+   * A minimal event body. The outbox stores the envelope verbatim, so a fixture
+   * only has to be a JSON object — nothing here parses it.
+   */
+  function eventFor(type: 'payment_intent.settled' | 'payment_intent.failed') {
+    const id = `evt_${uuidv7()}`;
+    return {
+      id,
+      object: 'event' as const,
+      type,
+      created: new Date().toISOString(),
+      data: { object: {} },
+    };
+  }
+
+  /**
+   * A settled delivery — enqueue, then record one successful attempt.
+   *
+   * Two writes because that is the only path a row now has: `enqueueWebhook`
+   * creates it and `recordDeliveryAttempt` finishes it. The cases below only
+   * need a delivery to EXIST, so the shape is hidden here rather than repeated.
+   */
+  async function makeDelivery(
+    merchant: MerchantRow,
+    intent: { id: string },
+    url = 'https://merchant.example/hook'
+  ) {
+    const id = await enqueueWebhook(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      event: eventFor('payment_intent.settled') as never,
+      url,
+    });
+    await recordDeliveryAttempt(suite!.db, {
+      id,
+      outcome: { kind: 'delivered' },
+      url,
+      nextAttemptAt: null,
+    });
+    const row = await findDeliveryForMerchant(suite!.db, id, merchant.id);
+    if (!row) throw new Error(`makeDelivery: delivery ${id} vanished`);
+    return row;
+  }
+
+  /**
+   * An enqueued delivery is PENDING with zero attempts and a due time.
+   *
+   * The row existing before any attempt is the whole of ADR 0001 D7, and it is
+   * also what the previous `attempts > 0` CHECK forbade — a constraint written
+   * when a row could only be created after `deliver()` had already run.
+   */
+  it('enqueues a pending delivery with no attempts and a schedule', async () => {
+    const merchant = await makeMerchant();
+    const intent = await makeIntent(merchant);
+
+    const id = await enqueueWebhook(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      event: eventFor('payment_intent.settled') as never,
+      url: 'https://merchant.example/hook',
+    });
+
+    const row = await findDeliveryForMerchant(suite!.db, id, merchant.id);
+    expect(row?.lastStatus).toBe('pending');
+    expect(row?.delivered).toBe(false);
+    expect(row?.attempts).toBe(0);
+    expect(row?.nextAttemptAt).not.toBeNull();
+    expect(row?.lastError).toBeNull();
+  });
+
+  /**
    * `last_status` is derived from `delivered` at the single write point, so the
-   * pair can never disagree — and the caller has no parameter with which to make
+   * pair can never disagree — and no caller has a parameter with which to make
    * them. Both truth values are exercised, because deriving only one correctly
    * would still pass a test that checked one.
    */
@@ -69,61 +146,116 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
     const merchant = await makeMerchant();
     const intent = await makeIntent(merchant);
 
-    const ok = await insertWebhookDelivery(suite!.db, {
+    const okId = await enqueueWebhook(suite!.db, {
       merchantId: merchant.id,
       paymentIntentId: intent.id,
-      eventId: `evt_${uuidv7()}`,
-      eventType: 'payment_intent.settled',
+      event: eventFor('payment_intent.settled') as never,
       url: 'https://merchant.example/hook',
-      attempts: 1,
-      delivered: true,
     });
-    expect(ok.lastStatus).toBe('delivered');
+    await recordDeliveryAttempt(suite!.db, {
+      id: okId,
+      outcome: { kind: 'delivered' },
+      url: 'https://merchant.example/hook',
+      nextAttemptAt: null,
+    });
+    const ok = await findDeliveryForMerchant(suite!.db, okId, merchant.id);
+    expect(ok?.lastStatus).toBe('delivered');
+    expect(ok?.delivered).toBe(true);
 
-    const failed = await insertWebhookDelivery(suite!.db, {
+    const badId = await enqueueWebhook(suite!.db, {
       merchantId: merchant.id,
       paymentIntentId: intent.id,
-      eventId: `evt_${uuidv7()}`,
-      eventType: 'payment_intent.failed',
+      event: eventFor('payment_intent.failed') as never,
       url: 'https://merchant.example/hook',
-      attempts: 3,
-      delivered: false,
     });
-    expect(failed.lastStatus).toBe('failed');
+    await recordDeliveryAttempt(suite!.db, {
+      id: badId,
+      outcome: { kind: 'refused', reason: 'target responded 410' },
+      url: 'https://merchant.example/hook',
+      nextAttemptAt: null,
+    });
+    const failed = await findDeliveryForMerchant(suite!.db, badId, merchant.id);
+    expect(failed?.lastStatus).toBe('failed');
+    expect(failed?.delivered).toBe(false);
+    expect(failed?.lastError).toBe('target responded 410');
   });
 
-  it('refuses a delivery that made no attempt', async () => {
+  /**
+   * A terminal delivery carries no schedule, and a pending one always does.
+   *
+   * Both directions are the failure this table was rebuilt to remove, from
+   * opposite ends: a pending row with no `next_attempt_at` is an event no query
+   * will ever surface again, and a terminal row that kept its schedule would be
+   * redelivered forever after it had already succeeded.
+   */
+  it('ties the schedule to the status in both directions', async () => {
     const merchant = await makeMerchant();
     const intent = await makeIntent(merchant);
+
+    const id = await enqueueWebhook(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      event: eventFor('payment_intent.settled') as never,
+      url: 'https://merchant.example/hook',
+    });
+
+    // Retrying: still pending, still scheduled.
+    await recordDeliveryAttempt(suite!.db, {
+      id,
+      outcome: { kind: 'retry', reason: 'target responded 503' },
+      url: 'https://merchant.example/hook',
+      nextAttemptAt: new Date(Date.now() + 5_000),
+    });
+    const retrying = await findDeliveryForMerchant(suite!.db, id, merchant.id);
+    expect(retrying?.lastStatus).toBe('pending');
+    expect(retrying?.attempts).toBe(1);
+    expect(retrying?.nextAttemptAt).not.toBeNull();
+
+    // Budget spent: dead, and unscheduled.
+    await recordDeliveryAttempt(suite!.db, {
+      id,
+      outcome: { kind: 'retry', reason: 'target responded 503' },
+      url: 'https://merchant.example/hook',
+      nextAttemptAt: null,
+    });
+    const dead = await findDeliveryForMerchant(suite!.db, id, merchant.id);
+    expect(dead?.lastStatus).toBe('dead');
+    expect(dead?.attempts).toBe(2);
+    expect(dead?.nextAttemptAt).toBeNull();
+  });
+
+  it('refuses a pending delivery with no schedule', async () => {
+    const merchant = await makeMerchant();
+    const intent = await makeIntent(merchant);
+    const id = await enqueueWebhook(suite!.db, {
+      merchantId: merchant.id,
+      paymentIntentId: intent.id,
+      event: eventFor('payment_intent.settled') as never,
+      url: 'https://merchant.example/hook',
+    });
+
     let raised: unknown;
     try {
-      await insertWebhookDelivery(suite!.db, {
-        merchantId: merchant.id,
-        paymentIntentId: intent.id,
-        eventId: `evt_${uuidv7()}`,
-        eventType: 'payment_intent.settled',
-        url: 'https://merchant.example/hook',
-        attempts: 0,
-        delivered: false,
-      });
+      // The shape no writer produces and every writer must be unable to: still
+      // claimable in principle, but with nothing to make it due.
+      await suite!.db.execute(
+        sql`update webhook_deliveries set next_attempt_at = null where id = ${id}`
+      );
     } catch (error) {
       raised = error;
     }
-    expect(isCheckViolation(raised, 'webhook_deliveries_attempts_check')).toBe(true);
+    expect(isCheckViolation(raised, 'webhook_deliveries_schedule_agrees_check')).toBe(true);
   });
 
   it('refuses a delivery for an intent that does not exist', async () => {
     const merchant = await makeMerchant();
     let raised: unknown;
     try {
-      await insertWebhookDelivery(suite!.db, {
+      await enqueueWebhook(suite!.db, {
         merchantId: merchant.id,
         paymentIntentId: uuidv7(),
-        eventId: `evt_${uuidv7()}`,
-        eventType: 'payment_intent.settled',
+        event: eventFor('payment_intent.settled') as never,
         url: 'https://merchant.example/hook',
-        attempts: 1,
-        delivered: true,
       });
     } catch (error) {
       raised = error;
@@ -137,15 +269,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
     const owner = await makeMerchant();
     const stranger = await makeMerchant();
     const intent = await makeIntent(owner);
-    const delivery = await insertWebhookDelivery(suite!.db, {
-      merchantId: owner.id,
-      paymentIntentId: intent.id,
-      eventId: `evt_${uuidv7()}`,
-      eventType: 'payment_intent.settled',
-      url: 'https://merchant.example/hook',
-      attempts: 1,
-      delivered: true,
-    });
+    const delivery = await makeDelivery(owner, intent, 'https://merchant.example/hook');
 
     expect((await findDeliveryForMerchant(suite!.db, delivery.id, owner.id))?.id).toBe(delivery.id);
     expect(await findDeliveryForMerchant(suite!.db, delivery.id, stranger.id)).toBeNull();
@@ -161,15 +285,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
     const merchant = await makeMerchant();
     const intent = await makeIntent(merchant);
     for (let index = 0; index < 3; index += 1) {
-      await insertWebhookDelivery(suite!.db, {
-        merchantId: merchant.id,
-        paymentIntentId: intent.id,
-        eventId: `evt_${uuidv7()}`,
-        eventType: 'payment_intent.settled',
-        url: 'https://merchant.example/hook',
-        attempts: 1,
-        delivered: true,
-      });
+      await makeDelivery(merchant, intent, 'https://merchant.example/hook');
     }
 
     const first = await listDeliveriesForMerchant(suite!.db, { merchantId: merchant.id, limit: 2 });
@@ -215,26 +331,10 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('webhook delivery and social attributio
 
     const expectedPublicId = new Map<string, string>();
     for (const intent of [first, second, first]) {
-      const row = await insertWebhookDelivery(suite!.db, {
-        merchantId: merchant.id,
-        paymentIntentId: intent.id,
-        eventId: `evt_${uuidv7()}`,
-        eventType: 'payment_intent.settled',
-        url: 'https://merchant.example/hook',
-        attempts: 1,
-        delivered: true,
-      });
+      const row = await makeDelivery(merchant, intent, 'https://merchant.example/hook');
       expectedPublicId.set(row.id, intent.publicId);
     }
-    const strangerDelivery = await insertWebhookDelivery(suite!.db, {
-      merchantId: stranger.id,
-      paymentIntentId: strangerIntent.id,
-      eventId: `evt_${uuidv7()}`,
-      eventType: 'payment_intent.settled',
-      url: 'https://stranger.example/hook',
-      attempts: 1,
-      delivered: true,
-    });
+    const strangerDelivery = await makeDelivery(stranger, strangerIntent, 'https://stranger.example/hook');
 
     const page = await listDeliveriesForMerchant(suite!.db, {
       merchantId: merchant.id,

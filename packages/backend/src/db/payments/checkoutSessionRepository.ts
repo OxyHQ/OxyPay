@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
+import type { CurrencyCode, PaymentIntentRail } from '@peable.to/shared-types';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
 import { checkoutSessions } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
@@ -26,7 +27,10 @@ export interface CheckoutSessionRow {
   readonly environment: OxyServiceEnvironment;
   readonly paymentIntentId: string;
   readonly amount: string;
-  readonly network: NetworkType;
+  readonly currency: CurrencyCode;
+  readonly rail: PaymentIntentRail;
+  /** FairCoin rail only — `null` on a card session (ADR 0001 D6). */
+  readonly network: NetworkType | null;
   readonly metadata: Record<string, string>;
   readonly successUrl: string | null;
   readonly cancelUrl: string | null;
@@ -42,6 +46,8 @@ const SESSION_COLUMNS = {
   environment: checkoutSessions.environment,
   paymentIntentId: checkoutSessions.paymentIntentId,
   amount: checkoutSessions.amount,
+  currency: checkoutSessions.currency,
+  rail: checkoutSessions.rail,
   network: checkoutSessions.network,
   metadata: checkoutSessions.metadata,
   successUrl: checkoutSessions.successUrl,
@@ -52,13 +58,17 @@ const SESSION_COLUMNS = {
 
 function toSessionRow(row: {
   environment: string;
-  network: string;
+  currency: string;
+  rail: string;
+  network: string | null;
   [key: string]: unknown;
 }): CheckoutSessionRow {
   return {
     ...row,
     environment: row.environment as OxyServiceEnvironment,
-    network: row.network as NetworkType,
+    currency: row.currency as CurrencyCode,
+    rail: row.rail as PaymentIntentRail,
+    network: row.network as NetworkType | null,
   } as unknown as CheckoutSessionRow;
 }
 
@@ -70,7 +80,10 @@ export interface InsertCheckoutSessionParams {
   /** The INTERNAL id of the wrapped intent, not its `pi_…`. */
   readonly paymentIntentId: string;
   readonly amount: string;
-  readonly network: NetworkType;
+  readonly currency: CurrencyCode;
+  readonly rail: PaymentIntentRail;
+  /** FairCoin rail only; `null` on a card session. */
+  readonly network: NetworkType | null;
   readonly metadata: Record<string, string>;
   readonly successUrl?: string | undefined;
   readonly cancelUrl?: string | undefined;
@@ -101,6 +114,8 @@ export async function insertCheckoutSession(
         environment: params.environment,
         paymentIntentId: params.paymentIntentId,
         amount: params.amount,
+        currency: params.currency,
+        rail: params.rail,
         network: params.network,
         metadata: params.metadata,
         successUrl: params.successUrl ?? null,

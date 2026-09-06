@@ -4,8 +4,8 @@ import { Socket } from "node:net";
 import { SsrfRejection, type SafeFetchResult } from "@oxyhq/core/server";
 import { verifyWebhook, type PaymentIntent } from "@peable.to/shared-types";
 import {
+  attemptDelivery,
   buildEvent,
-  deliver,
   type SafeFetchFn,
   type WebhookTarget,
 } from "../webhookDispatcher";
@@ -21,6 +21,7 @@ const INTENT: PaymentIntent = {
   id: "pi_0000000000000000000000a1",
   object: "payment_intent",
   status: "settled",
+  rail: "faircoin",
   amount: "100000000",
   currency: "FAIR",
   network: "testnet",
@@ -64,9 +65,9 @@ test("delivers a correctly-signed webhook and destroys the response on 2xx", asy
   };
 
   const event = buildEvent("payment_intent.settled", INTENT);
-  const outcome = await deliver(event, TARGET, { safeFetch: fakeSafeFetch });
+  const outcome = await attemptDelivery(event, TARGET, { safeFetch: fakeSafeFetch });
 
-  expect(outcome).toEqual({ delivered: true, attempts: 1 });
+  expect(outcome).toEqual({ kind: "delivered" });
   expect(captured.contentType).toBe("application/json");
   if (captured.body === undefined || captured.signature === undefined) {
     throw new Error("safeFetch was not called with a body + signature header");
@@ -84,52 +85,72 @@ test("delivers a correctly-signed webhook and destroys the response on 2xx", asy
   expect(wasDestroyed()).toBe(true);
 });
 
-test("retries on 5xx and succeeds on the third attempt", async () => {
-  const statuses = [500, 500, 200];
-  const destroyChecks: Array<() => boolean> = [];
-  let call = 0;
-  const fakeSafeFetch: SafeFetchFn = async () => {
-    const status = statuses[call] ?? 200;
-    call += 1;
-    const { result, wasDestroyed } = fakeResult(status);
-    destroyChecks.push(wasDestroyed);
-    return result;
-  };
-
-  const outcome = await deliver(buildEvent("payment_intent.settled", INTENT), TARGET, {
-    safeFetch: fakeSafeFetch,
-  });
-
-  expect(outcome).toEqual({ delivered: true, attempts: 3 });
-  expect(call).toBe(3);
-  expect(destroyChecks.every((check) => check())).toBe(true);
+/**
+ * ONE request per call, whatever happens.
+ *
+ * This function used to loop internally — three attempts inside 150ms — and
+ * that loop is what made a merchant's brief outage a lost event: it could only
+ * retry for as long as one caller was willing to wait. The retry schedule now
+ * belongs to the outbox, so the property to pin here is that this makes exactly
+ * one attempt and reports what it saw.
+ */
+test("makes exactly one request, whatever the response", async () => {
+  for (const status of [200, 500, 422]) {
+    let calls = 0;
+    const fakeSafeFetch: SafeFetchFn = async () => {
+      calls += 1;
+      return fakeResult(status).result;
+    };
+    await attemptDelivery(buildEvent("payment_intent.settled", INTENT), TARGET, {
+      safeFetch: fakeSafeFetch,
+    });
+    expect(calls).toBe(1);
+  }
 });
 
-test("does not retry a 4xx and reports failure", async () => {
-  const { result, wasDestroyed } = fakeResult(422);
-  let call = 0;
-  const fakeSafeFetch: SafeFetchFn = async () => {
-    call += 1;
-    return result;
-  };
-
-  const outcome = await deliver(buildEvent("payment_intent.failed", INTENT), TARGET, {
-    safeFetch: fakeSafeFetch,
+/**
+ * The classification IS the retry policy — the outbox reschedules a `retry` and
+ * closes a `refused`, so getting these the wrong way round either abandons a
+ * recoverable endpoint or hammers one that will never accept the payload.
+ */
+test("classifies a 5xx as retryable and a 4xx as refused", async () => {
+  const { result: serverError, wasDestroyed: serverDestroyed } = fakeResult(503);
+  const retry = await attemptDelivery(buildEvent("payment_intent.settled", INTENT), TARGET, {
+    safeFetch: async () => serverError,
   });
+  expect(retry.kind).toBe("retry");
+  expect(serverDestroyed()).toBe(true);
 
-  expect(outcome).toEqual({ delivered: false, attempts: 1 });
-  expect(call).toBe(1);
-  expect(wasDestroyed()).toBe(true);
+  const { result: rejected, wasDestroyed: rejectedDestroyed } = fakeResult(422);
+  const refused = await attemptDelivery(buildEvent("payment_intent.failed", INTENT), TARGET, {
+    safeFetch: async () => rejected,
+  });
+  expect(refused.kind).toBe("refused");
+  expect(rejectedDestroyed()).toBe(true);
 });
 
-test("swallows an SsrfRejection without throwing", async () => {
-  const fakeSafeFetch: SafeFetchFn = async () => {
-    throw new SsrfRejection("blocked");
-  };
-
-  const outcome = await deliver(buildEvent("payment_intent.settled", INTENT), TARGET, {
-    safeFetch: fakeSafeFetch,
+test("an SsrfRejection is refused, not retried", async () => {
+  const outcome = await attemptDelivery(buildEvent("payment_intent.settled", INTENT), TARGET, {
+    safeFetch: async () => {
+      throw new SsrfRejection("blocked");
+    },
   });
 
-  expect(outcome).toEqual({ delivered: false, attempts: 1 });
+  expect(outcome.kind).toBe("refused");
+});
+
+/**
+ * An unrecognised failure is RETRYABLE, and the direction is deliberate:
+ * assuming an unknown defect is permanent is how a recoverable outage becomes
+ * an abandoned event, and the attempt budget bounds the cost of being wrong
+ * this way round.
+ */
+test("an unrecognised error is retryable", async () => {
+  const outcome = await attemptDelivery(buildEvent("payment_intent.settled", INTENT), TARGET, {
+    safeFetch: async () => {
+      throw new Error("something nobody anticipated");
+    },
+  });
+
+  expect(outcome.kind).toBe("retry");
 });
