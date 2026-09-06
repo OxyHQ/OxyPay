@@ -79,6 +79,47 @@ export interface AppConfig {
    * `oxyClient` singleton itself was constructed with, so the two never drift.
    */
   oxyApiUrl: string;
+  /**
+   * The Stripe card rail (ADR 0001 D2/D3).
+   *
+   * `enabled` is a CONJUNCTION, not a flag: it is true only when the operator
+   * asked for the rail AND every secret it cannot work without is present. A
+   * half-configured integration stays OFF and says so once at boot, rather than
+   * accepting a checkout and failing mid-request on the first missing secret —
+   * the same shape Mercaria's `resolveStripeEnabled` uses, and it is why
+   * `resolveProvider` can answer "this rail is off" instead of throwing.
+   *
+   * There is deliberately no account-id variable: the platform account is
+   * implied by the secret key, and connected-account ids live only in rows.
+   */
+  stripe: StripeConfig;
+}
+
+export interface StripeConfig {
+  /** True only when `STRIPE_ENABLED` is set AND every required secret is present. */
+  enabled: boolean;
+  secretKey: string | undefined;
+  /** Platform-scope endpoint secret. */
+  webhookSecret: string | undefined;
+  /** Connect-scope endpoint secret — a DIFFERENT endpoint with its own secret. */
+  connectWebhookSecret: string | undefined;
+  /**
+   * The rotation window. Stripe cannot atomically swap an endpoint secret, so a
+   * rotation is: add the new one here as the previous, switch, remove. Without
+   * these, every in-flight delivery signed with the old secret is rejected as a
+   * forgery during the swap.
+   */
+  webhookSecretPrevious: string | undefined;
+  connectWebhookSecretPrevious: string | undefined;
+  /**
+   * Whether this deployment's key is a LIVE key, derived from the key itself
+   * rather than configured separately.
+   *
+   * Read by the webhook ingress to drop events of the other mode: a production
+   * URL receives test events too, and processing one would settle a payment
+   * that does not exist.
+   */
+  livemode: boolean;
 }
 
 function readOrigins(raw: string | undefined): string[] {
@@ -128,6 +169,34 @@ function readOptional(raw: string | undefined): string | undefined {
  * absent, because `DATABASE_URL=""` in a task definition is a misconfiguration
  * that would otherwise reach postgres.js as a connection string.
  */
+/**
+ * Whether the Stripe rail is on.
+ *
+ * `STRIPE_ENABLED` alone is not enough. A deployment that set the flag and
+ * forgot a webhook secret would accept payments it can never confirm — the
+ * money would move and the gateway would never learn it did. Refusing to turn
+ * the rail on, loudly and once, is the only safe reading of a partial
+ * configuration.
+ */
+function resolveStripeEnabled(env: Record<string, string | undefined>): boolean {
+  const asked = readOptional(env.STRIPE_ENABLED) === "true";
+  if (!asked) return false;
+  const required = [
+    ["STRIPE_SECRET_KEY", readOptional(env.STRIPE_SECRET_KEY)],
+    ["STRIPE_WEBHOOK_SECRET", readOptional(env.STRIPE_WEBHOOK_SECRET)],
+    ["STRIPE_CONNECT_WEBHOOK_SECRET", readOptional(env.STRIPE_CONNECT_WEBHOOK_SECRET)],
+  ] as const;
+  const missing = required.filter(([, value]) => value === undefined).map(([name]) => name);
+  if (missing.length > 0) {
+    // Once, at boot, naming what is missing. Not per request, and not silent.
+    process.emitWarning(
+      `[Stripe] STRIPE_ENABLED is set but the integration is incomplete; staying OFF. Missing: ${missing.join(", ")}`,
+    );
+    return false;
+  }
+  return true;
+}
+
 function readRequired(raw: string | undefined, name: string): string {
   const value = raw?.trim();
   if (!value) {
@@ -156,6 +225,17 @@ export function loadConfig(
     serviceJwtSecret: readOptional(env.OXY_ACCESS_TOKEN_SECRET),
     checkoutBaseUrl: readNonEmpty(env.PEABLE_CHECKOUT_BASE_URL, DEFAULT_CHECKOUT_BASE_URL),
     oxyApiUrl: readNonEmpty(env.OXY_API_URL, DEFAULT_OXY_API_URL),
+    stripe: {
+      enabled: resolveStripeEnabled(env),
+      secretKey: readOptional(env.STRIPE_SECRET_KEY),
+      webhookSecret: readOptional(env.STRIPE_WEBHOOK_SECRET),
+      connectWebhookSecret: readOptional(env.STRIPE_CONNECT_WEBHOOK_SECRET),
+      webhookSecretPrevious: readOptional(env.STRIPE_WEBHOOK_SECRET_PREVIOUS),
+      connectWebhookSecretPrevious: readOptional(env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS),
+      // Derived, never configured: a deployment cannot claim live mode with a
+      // test key or the reverse, so the two cannot disagree.
+      livemode: (readOptional(env.STRIPE_SECRET_KEY) ?? "").startsWith("sk_live_"),
+    },
   };
 }
 

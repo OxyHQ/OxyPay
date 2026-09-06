@@ -15,3 +15,4 @@ export {
   socialSendAttributions,
 } from './social';
 export { webhookDeliveries } from './webhooks';
+export { providerEvents } from './providerEvents';

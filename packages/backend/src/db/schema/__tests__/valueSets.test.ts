@@ -7,6 +7,7 @@ import {
   BASE_UNIT_STRING_PATTERN,
   NETWORK_TYPES,
   PAYMENT_INTENT_STATUS_VALUES,
+  PROVIDER_IDS,
   WEBHOOK_EVENT_TYPES,
 } from '../valueSets';
 
@@ -24,6 +25,26 @@ import {
 describe('closed value sets', () => {
   it('lists exactly the statuses the shared transition table defines', () => {
     expect([...PAYMENT_INTENT_STATUS_VALUES].sort()).toEqual([...PAYMENT_INTENT_STATUSES].sort());
+  });
+
+  /**
+   * The runtime half of the provider pin.
+   *
+   * `ProvidersAreComplete` in `valueSets.ts` already makes a `ProviderId` this
+   * tuple does not list a compile error. What no type can see is whether the
+   * tuple actually reached the database: the CHECK is rendered from it once, at
+   * generation time, and a regeneration that dropped it would leave a column
+   * that accepts any string with every test still green.
+   */
+  it('renders the provider CHECK into the migrations from this tuple', () => {
+    const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
+    const sqlText = readdirSync(migrationsDir)
+      .filter((entry) => entry.endsWith('.sql'))
+      .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
+      .join('\n');
+
+    const rendered = PROVIDER_IDS.map((id) => `'${id}'`).join(', ');
+    expect(sqlText).toContain(`provider in (${rendered})`);
   });
 
   it('lists both networks', () => {

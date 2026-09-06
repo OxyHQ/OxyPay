@@ -24,6 +24,7 @@ import { createCheckoutSessionsRouter } from "./routes/checkoutSessions";
 import { createSocialRouter } from "./routes/social";
 import { createEnrichRouter } from "./routes/enrich";
 import { createDashboardRouter } from "./routes/dashboard";
+import { createProviderWebhooksRouter } from "./routes/providerWebhooks";
 import { SettlementWatcher } from "./services/settlementWatcher";
 import type { PaymentIntentRow } from "./db/payments/paymentIntentRepository";
 import { getTransaction } from "./services/explorer";
@@ -151,6 +152,21 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   // `config.allowedOrigins` (`PEABLE_ALLOWED_ORIGINS`) — the SAME list the
   // Socket.io `cors.origin` check below already reads.
   app.use(createOxyCors({ appOrigins: config.allowedOrigins }));
+
+  // ─── MOUNTED BEFORE `express.json()` AND BEFORE THE GLOBAL RATE LIMITER ───
+  //
+  // Stripe signs the exact bytes it sent, so a JSON parser reaching the stream
+  // first does not weaken verification — it breaks EVERY delivery, permanently.
+  // This router brings its own `express.raw`. Moving it below `express.json()`,
+  // or "unifying" its parser, silently fails every signature; moving it below
+  // `createOxyRateLimit` puts the entire provider in one per-IP bucket, because
+  // every Stripe delivery on earth comes from a small pool of their addresses.
+  //
+  // `routes/providerWebhooks.ts` has the full argument, and
+  // `routes/__tests__/providerWebhooks.integration.test.ts` asserts this
+  // ordering against the real chain so a reorder is a red build.
+  app.use(createProviderWebhooksRouter());
+
   app.use(createOxyRateLimit(oxyClient));
   app.use(express.json());
   app.use(((_req, res, next) => {

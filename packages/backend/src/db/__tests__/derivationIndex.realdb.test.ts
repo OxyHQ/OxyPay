@@ -225,6 +225,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('merchant derivation-index reservation'
       'merchants',
       'payment_intents',
       'payment_links',
+      'provider_events',
       'social_receive_cursors',
       'social_send_attributions',
       'webhook_deliveries',

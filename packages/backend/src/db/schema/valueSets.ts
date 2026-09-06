@@ -20,6 +20,9 @@ import type {
   PaymentIntentStatus,
   WebhookEventType,
 } from '@peable.to/shared-types';
+// TYPE-ONLY, and it must stay that way: the module it names imports the Stripe
+// SDK. `import type` is erased before `drizzle-kit generate` ever runs it.
+import type { ProviderId } from '../../services/providers/provider';
 
 /**
  * `true` when every member of `TUnion` appears in `TListed`, and a compile
@@ -65,6 +68,27 @@ export const PAYMENT_INTENT_STATUS_VALUES = [
 export type PaymentIntentStatusesAreComplete = AssertAllListed<
   PaymentIntentStatus,
   (typeof PAYMENT_INTENT_STATUS_VALUES)[number]
+>;
+
+/**
+ * The payment providers this gateway can route a fiat payment through.
+ *
+ * Mirrors `services/providers/provider.ts`'s `ProviderId`. Re-listed rather
+ * than imported because that module pulls in the Stripe SDK transitively, and
+ * a schema file that dragged an HTTP client into `drizzle-kit generate` would
+ * make migration generation depend on a payment library being installable.
+ *
+ * The `import type` below is erased before anything runs, so the pin costs
+ * nothing at generation time — and it is the pin that matters: the dangerous
+ * direction is `ProviderId` gaining a member this tuple does not list, which
+ * type-checks everywhere and is then refused by the CHECK on the first write of
+ * the new provider, in production. `providersAreComplete` below makes that a
+ * compile error instead.
+ */
+export const PROVIDER_IDS = ['stripe'] as const;
+export type ProvidersAreComplete = AssertAllListed<
+  ProviderId,
+  (typeof PROVIDER_IDS)[number]
 >;
 
 /**
