@@ -15,14 +15,14 @@ There are **five**, not three. Two of them are published to npm, so a change in
 
 | Path | Name | What it is |
 |---|---|---|
-| `packages/backend/` | `@peable/backend` | Express + Socket.IO gateway API. PostgreSQL-native — see below |
-| `packages/frontend/` | `@peable/frontend` | Expo / expo-router self-custodial FairCoin wallet, forked from FAIRWallet, with Oxy identity. Also packages as an Electron desktop app |
-| `packages/checkout/` | `@peable/checkout` | Vite + React + react-router-dom SPA. The **anonymous** payer-facing hosted checkout at checkout.peable.to. Not Expo, not React Native |
-| `packages/sdk/` | **`@peable/sdk`** | Published client. Server entry mints Oxy service tokens from an `ApplicationCredential` and exposes `paymentIntents` / `paymentLinks` / `checkout.sessions` / `webhooks`; the `@peable/sdk/checkout` browser entry is the payer-side core |
-| `packages/shared-types/` | `@peable/shared-types` | Published wire contract shared by backend, SDK and frontend |
+| `packages/backend/` | `@peable.to/backend` | Express + Socket.IO gateway API. PostgreSQL-native — see below |
+| `packages/frontend/` | `@peable.to/frontend` | Expo / expo-router self-custodial FairCoin wallet, forked from FAIRWallet, with Oxy identity. Also packages as an Electron desktop app |
+| `packages/checkout/` | `@peable.to/checkout` | Vite + React + react-router-dom SPA. The **anonymous** payer-facing hosted checkout at checkout.peable.to. Not Expo, not React Native |
+| `packages/sdk/` | **`@peable.to/sdk`** | Published client. Server entry mints Oxy service tokens from an `ApplicationCredential` and exposes `paymentIntents` / `paymentLinks` / `checkout.sessions` / `webhooks`; the `@peable.to/sdk/checkout` browser entry is the payer-side core |
+| `packages/shared-types/` | `@peable.to/shared-types` | Published wire contract shared by backend, SDK and frontend |
 
 The package directory name and the npm name differ for the SDK: `packages/sdk`
-publishes as `@peable/sdk`.
+publishes as `@peable.to/sdk`.
 
 `bunfig.toml` sets `linker = "hoisted"`. Expo, Metro and Babel resolve transitive
 deps through the standard `node_modules` chain, and the default isolated linker
@@ -41,8 +41,8 @@ bun run build:shared-types
 
 The named root shortcuts only cover `frontend`, `backend` and `shared-types`.
 **`checkout` and `sdk` have no root shortcut**: reach them with
-`bun run --filter @peable/checkout <script>` (`dev` is `vite`, `build` is
-`vite build`) and `bun run --filter @peable/sdk <script>`, or run the script from
+`bun run --filter @peable.to/checkout <script>` (`dev` is `vite`, `build` is
+`vite build`) and `bun run --filter @peable.to/sdk <script>`, or run the script from
 inside the package. The unnamed root scripts (`dev`, `build`, `test`, `lint`)
 use `--filter '*'` and do cover all five.
 

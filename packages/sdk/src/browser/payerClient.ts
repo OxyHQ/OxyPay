@@ -12,7 +12,7 @@
 // carry any of the merchant-authed code `checkout.ts` warns against into the
 // browser bundle.
 import { io, type Socket } from 'socket.io-client';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { errorFromResponse, PeableApiError, PeableInvalidRequestError } from '../core/errors';
 
 const DEFAULT_GATEWAY_URL = 'https://api.peable.to';

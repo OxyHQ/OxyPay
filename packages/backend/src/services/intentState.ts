@@ -1,7 +1,7 @@
 import {
   type PaymentIntentStatus,
   isValidStatusTransition,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 
 /**
  * Events that drive a PaymentIntent through its lifecycle. Each event maps to a

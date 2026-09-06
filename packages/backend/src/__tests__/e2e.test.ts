@@ -20,7 +20,7 @@ import type {
   OxyAuthRequest,
   SafeFetchResult,
 } from "@oxyhq/core/server";
-import { verifyWebhook } from "@peable/shared-types";
+import { verifyWebhook } from "@peable.to/shared-types";
 import { merchants, paymentIntents } from "../db/schema";
 import {
   findMerchantByAppEnvironment,

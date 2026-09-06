@@ -2,7 +2,7 @@ import type {
   CreatePaymentIntentParams,
   PaymentIntent,
   PaymentIntentStatus,
-} from '@peable/shared-types';
+} from '@peable.to/shared-types';
 import type { RestClient } from '../core/client';
 
 export interface PaymentIntentListParams {

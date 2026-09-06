@@ -102,11 +102,11 @@ jobs:
 
       # Both published packages are built before the typecheck, because two
       # consumers resolve them through their `dist`: the backend imports
-      # `@peable/shared-types`' compiled output, and `@peable/checkout` imports
-      # `@peable/sdk/checkout`. Without these, the typecheck fails with a TS2307
+      # `@peable.to/shared-types`' compiled output, and `@peable.to/checkout` imports
+      # `@peable.to/sdk/checkout`. Without these, the typecheck fails with a TS2307
       # that says nothing about the change under review.
       - run: bun run build:shared-types
-      - run: bun run --filter @peable/sdk build
+      - run: bun run --filter @peable.to/sdk build
 
       - name: Typecheck every package
         run: bun run --filter '*' typecheck

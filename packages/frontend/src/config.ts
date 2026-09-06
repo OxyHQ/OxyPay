@@ -37,3 +37,12 @@ export const GATEWAY_SOCKET_URL =
 // that constant belongs to the external FairCoin protocol package and equals
 // "FAIRWallet", a different app's brand. Keep in sync with `app.json`'s `name`.
 export const APP_DISPLAY_NAME = 'Peable';
+
+/**
+ * Public web origin a Peable profile link resolves against — the `peable.to`
+ * in `peable.to/@john`. Its own value rather than a reuse of any API base: the
+ * profile page is served by Cloudflare Pages at the apex while the gateway
+ * lives on `api.peable.to`, so the two move independently.
+ */
+export const PROFILE_WEB_ORIGIN =
+  process.env.EXPO_PUBLIC_PROFILE_WEB_ORIGIN ?? 'https://peable.to';

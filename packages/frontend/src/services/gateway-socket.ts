@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { oxyServices } from '@/services/oxy-services';
 import { GATEWAY_SOCKET_URL } from '@/config';
 

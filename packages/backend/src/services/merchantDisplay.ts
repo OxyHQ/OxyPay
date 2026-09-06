@@ -1,5 +1,5 @@
 import { oxyClient } from "@oxyhq/core";
-import type { MerchantDisplay } from "@peable/shared-types";
+import type { MerchantDisplay } from "@peable.to/shared-types";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
 
 /** Neutral fallback shown when a merchant hasn't set a `displayName`. */

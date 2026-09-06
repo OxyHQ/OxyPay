@@ -1,12 +1,12 @@
-// The ONLY place this app touches `@peable/sdk/checkout`. Every route reads a
+// The ONLY place this app touches `@peable.to/sdk/checkout`. Every route reads a
 // `PaymentIntent` through the functions below, never through
 // `createPeableCheckout` directly — swapping the workspace SDK for the
 // published one later is a one-line change here, and tests mock this module
 // instead of the SDK package (the frozen client core throws "not
 // implemented" for every method until the SDK plan's Task 5 lands on
 // feat/peable-sdk-embed and merges back).
-import { createPeableCheckout } from '@peable/sdk/checkout';
-import type { PaymentIntent } from '@peable/shared-types';
+import { createPeableCheckout } from '@peable.to/sdk/checkout';
+import type { PaymentIntent } from '@peable.to/shared-types';
 import { GATEWAY_URL } from './config';
 
 const client = createPeableCheckout({ gatewayUrl: GATEWAY_URL });

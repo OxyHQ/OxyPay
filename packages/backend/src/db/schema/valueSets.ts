@@ -15,7 +15,7 @@
 
 import type { NetworkType } from '@fairco.in/core';
 import { OXY_SERVICE_ENVIRONMENTS } from '@oxyhq/core/server';
-import type { PaymentIntentStatus, WebhookEventType } from '@peable/shared-types';
+import type { PaymentIntentStatus, WebhookEventType } from '@peable.to/shared-types';
 
 /**
  * `true` when every member of `TUnion` appears in `TListed`, and a compile
@@ -37,7 +37,7 @@ export const SERVICE_ENVIRONMENTS = OXY_SERVICE_ENVIRONMENTS;
 /**
  * The payment-intent lifecycle.
  *
- * `@peable/shared-types` publishes `PAYMENT_INTENT_STATUSES` as a
+ * `@peable.to/shared-types` publishes `PAYMENT_INTENT_STATUSES` as a
  * `readonly PaymentIntentStatus[]` derived from `Object.keys(...)`, which
  * carries no literal types and therefore cannot type a column. This tuple is
  * the literal form; `schema/__tests__/valueSets.test.ts` asserts the two hold
@@ -103,7 +103,7 @@ export const MAX_DERIVATION_INDEX = 2147483647;
 
 /**
  * A canonical non-negative base-unit integer string — the exact pattern
- * `isBaseUnitString` (`@peable/shared-types`) enforces in the application,
+ * `isBaseUnitString` (`@peable.to/shared-types`) enforces in the application,
  * restated here because the database is where a value that skipped the
  * application guard would otherwise land unchallenged. Kept byte-identical to
  * the TypeScript source; `schema/__tests__/valueSets.test.ts` pins that.

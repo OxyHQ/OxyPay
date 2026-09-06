@@ -1,5 +1,5 @@
 // Thin fetch wrapper for the Gateway's plain REST routes that sit outside
-// `@peable/sdk/checkout` — payment links and checkout sessions have no SDK
+// `@peable.to/sdk/checkout` — payment links and checkout sessions have no SDK
 // client core (only payment intents do; see `intentClient.ts`), so
 // LinkRoute/SessionRoute call the Gateway directly. Centralizes the base URL
 // + error handling so neither route hand-rolls response checking.

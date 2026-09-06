@@ -9,7 +9,7 @@ import {
   type PaymentIntent,
   type WebhookEvent,
   type WebhookEventType,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { newId } from "../lib/ids";
 
 /** The concrete `safeFetch` signature — injected in tests, real one in prod. */

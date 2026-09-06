@@ -7,7 +7,7 @@ import { createOxyAuthMiddleware, getRequiredOxyUserId } from "@oxyhq/core/serve
 import type {
   SocialNextAddressResponse,
   SocialReceiveCursorResponse,
-} from "@peable/shared-types";
+} from "@peable.to/shared-types";
 import { reserveNextSocialAddress, getReservedThrough } from "../services/socialReceive";
 import { getDb } from "../db/postgres";
 import { insertSendAttribution } from "../db/social/sendAttribution";

@@ -1,4 +1,4 @@
-# Build context excludes for the @peable/backend image (context = repo root).
+# Build context excludes for the @peable.to/backend image (context = repo root).
 #
 # Use the **/ prefix so BuildKit matches NESTED directories too — a bare
 # `node_modules` / `dist` only matches the top-level entry, leaving stale

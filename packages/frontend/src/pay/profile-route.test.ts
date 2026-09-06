@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { parseProfileHandle, decideProfilePayAction } from "./profile-route";
+import {
+  parseProfileHandle,
+  decideProfilePayAction,
+  buildProfileUrl,
+} from "./profile-route";
 
 test("reads the handle out of an @-prefixed segment", () => {
   expect(parseProfileHandle("@john")).toBe("john");
@@ -105,4 +109,17 @@ test("a signed-out mainnet wallet still reads as sign-in, not a network warning"
   expect(
     decideProfilePayAction({ ...READY, network: "mainnet", isAuthenticated: false }),
   ).toEqual({ kind: "signin" });
+});
+
+test("builds the shareable profile link from the bare handle", () => {
+  expect(buildProfileUrl("john")).toBe("https://peable.to/@john");
+  expect(buildProfileUrl("Nate_99")).toBe("https://peable.to/@Nate_99");
+});
+
+test("round-trips with parseProfileHandle", () => {
+  // The two are the only places that know the URL shape, so what one builds
+  // the other must read back — otherwise a scanned QR lands on a 404.
+  const handle = "john";
+  const path = new URL(buildProfileUrl(handle)).pathname.slice(1);
+  expect(parseProfileHandle(path)).toBe(handle);
 });

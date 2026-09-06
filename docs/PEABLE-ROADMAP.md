@@ -16,7 +16,7 @@ documents:
 
 - **Peable** is the self-custodial wallet in `packages/frontend`.
 - **Peable Gateway** is the API in `packages/backend`, its wire contract in
-  `packages/shared-types`, the published `@peable/sdk` SDK in `packages/sdk`, and
+  `packages/shared-types`, the published `@peable.to/sdk` SDK in `packages/sdk`, and
   the payer-facing web application in `packages/checkout`.
 - **Peable Terminal** is the future point-of-sale product. No
   `packages/terminal` implementation exists yet.
@@ -65,7 +65,7 @@ documents:
 
 ### SDK and hosted checkout
 
-- [x] `@peable/sdk@0.1.1` is published and contains server-side payment-intent,
+- [x] `@peable.to/sdk@0.1.1` is published and contains server-side payment-intent,
   payment-link, checkout-session and webhook resources.
 - [x] The browser entry and `packages/checkout` implement payer retrieval,
   deep-link handoff, QR presentation and live status.

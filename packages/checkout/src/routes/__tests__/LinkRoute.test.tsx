@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { PaymentIntent, PublicPaymentLink } from '@peable/shared-types';
+import type { PaymentIntent, PublicPaymentLink } from '@peable.to/shared-types';
 
-// Reuse-if-open (spec §6) never exercises the real `@peable/sdk/checkout`
+// Reuse-if-open (spec §6) never exercises the real `@peable.to/sdk/checkout`
 // stub — it's frozen to always reject, so it can't produce the open/terminal
 // fixtures this suite needs. Mock this app's one SDK touchpoint instead;
 // `App.test.tsx` is the file that covers the real (unmocked) stub behavior.

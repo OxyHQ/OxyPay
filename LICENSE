@@ -684,9 +684,9 @@ libraries, not the application, and they keep the license they are published
 under today. Their own package.json license field governs them, and it is
 unchanged by this file.
 
-  -   @peable/sdk (packages/sdk)
+  -   @peable.to/sdk (packages/sdk)
 
-  -   @peable/shared-types (packages/shared-types)
+  -   @peable.to/shared-types (packages/shared-types)
 
 They are held back deliberately. Sweeping them into these terms would narrow
 the license under every consumer who already depends on them, which is the

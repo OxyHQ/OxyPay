@@ -1,4 +1,4 @@
-import type { PaymentIntent } from '@peable/shared-types';
+import type { PaymentIntent } from '@peable.to/shared-types';
 
 interface StatusVisual {
   title: string;

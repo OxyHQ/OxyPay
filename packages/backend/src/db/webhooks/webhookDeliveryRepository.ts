@@ -1,5 +1,5 @@
 import { and, desc, eq, lt } from 'drizzle-orm';
-import type { WebhookEventType } from '@peable/shared-types';
+import type { WebhookEventType } from '@peable.to/shared-types';
 import { uuidv7 } from '@oxyhq/db';
 import { paymentIntents, webhookDeliveries } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';

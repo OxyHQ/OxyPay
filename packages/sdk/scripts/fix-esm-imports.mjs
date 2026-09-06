@@ -5,7 +5,7 @@
  * 2. Resolves directory imports to index.js
  * 3. Adds import attributes for JSON imports
  *
- * Mirrors `@peable/shared-types`'s post-build script. `@peable/sdk`'s two
+ * Mirrors `@peable.to/shared-types`'s post-build script. `@peable.to/sdk`'s two
  * entry points (`index.ts` server, `checkout.ts` browser) both compile under
  * this one pass — tsc preserves the `src/` directory layout in `dist/esm/`,
  * so relative specifiers inside `core/`, `resources/`, and `browser/` all

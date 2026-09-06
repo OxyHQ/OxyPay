@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { SsrfRejection, type SafeFetchResult } from "@oxyhq/core/server";
-import { verifyWebhook, type PaymentIntent } from "@peable/shared-types";
+import { verifyWebhook, type PaymentIntent } from "@peable.to/shared-types";
 import {
   buildEvent,
   deliver,

@@ -4,7 +4,7 @@ import type {
   SocialNextAddressResponse,
   SocialReceiveCursorResponse,
   EnrichmentResult,
-} from '@peable/shared-types';
+} from '@peable.to/shared-types';
 import { oxyServices } from '@/services/oxy-services';
 import { GATEWAY_API_URL } from '@/config';
 

@@ -8,7 +8,7 @@ import {
   PAYMENT_INTENT_STATUSES,
   isValidStatusTransition,
   type PaymentIntent,
-} from '@peable/shared-types';
+} from '@peable.to/shared-types';
 
 export interface OpenIntentRef {
   id: string;

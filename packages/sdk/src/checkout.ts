@@ -1,4 +1,4 @@
-// Browser entry (`@peable/sdk/checkout`) — the anonymous payer-side client
+// Browser entry (`@peable.to/sdk/checkout`) — the anonymous payer-side client
 // core (Task 5) plus the embeddable pay-button widget (Task 6). Deliberately
 // imports nothing from `./core/*` beyond `core/errors.ts` (a pure
 // status-mapper with no service-token/secret machinery): the browser bundle

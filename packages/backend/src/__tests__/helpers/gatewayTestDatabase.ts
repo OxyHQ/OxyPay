@@ -4,7 +4,7 @@ import { deriveKeyFromSeed, getNetwork, mnemonicToSeed } from '@fairco.in/core';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
 import { uuidv7 } from '@oxyhq/db';
-import type { WebhookEventType } from '@peable/shared-types';
+import type { WebhookEventType } from '@peable.to/shared-types';
 import { insertMerchant, type MerchantRow } from '../../db/merchants/merchantRepository';
 import {
   insertCheckoutSession,

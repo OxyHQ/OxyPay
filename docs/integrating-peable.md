@@ -1,4 +1,4 @@
-# Integrating Peable (`@peable/sdk`)
+# Integrating Peable (`@peable.to/sdk`)
 
 A Stripe-ergonomics SDK over the Peable Gateway. **Non-custodial**: the merchant
 never holds keys or funds — the buyer pays from their own self-custody Peable
@@ -29,11 +29,11 @@ Keep `secret` server-side only. The browser never sees it.
 ## 1. Install
 
 ```bash
-bun add @peable/sdk        # (npm/yarn work too)
+bun add @peable.to/sdk        # (npm/yarn work too)
 ```
 
 Node 18+ (global `fetch`). Server entry is zero-runtime-dep; the browser entry
-(`@peable/sdk/checkout`) pulls in `socket.io-client` for live status.
+(`@peable.to/sdk/checkout`) pulls in `socket.io-client` for live status.
 
 ---
 
@@ -43,7 +43,7 @@ A **Checkout Session** wraps exactly one payment and gives you a hosted URL to
 redirect the buyer to — the least code, Stripe-Checkout parity.
 
 ```ts
-import { Peable } from '@peable/sdk';
+import { Peable } from '@peable.to/sdk';
 
 const peable = new Peable({
   publicKey: process.env.PEABLE_PUBLIC_KEY!, // oxy_dk_…
@@ -99,7 +99,7 @@ const link = await peable.paymentLinks.create({ amount: '250000000', network: 't
 
 Just `redirect(session.url)` (above). Nothing to build.
 
-### (B) Embed the pay button inline — `@peable/sdk/checkout`
+### (B) Embed the pay button inline — `@peable.to/sdk/checkout`
 
 Pass the session's/intent's **public `clientSecret`** to the browser (never the
 service secret):
@@ -107,7 +107,7 @@ service secret):
 ```html
 <div id="peable-button"></div>
 <script type="module">
-  import { PeableCheckout } from '@peable/sdk/checkout';
+  import { PeableCheckout } from '@peable.to/sdk/checkout';
 
   const checkout = PeableCheckout.mount('#peable-button', {
     clientSecret: 'pi_…_secret_…',   // from the session/intent, safe to expose
@@ -132,7 +132,7 @@ Point a Gateway webhook at your endpoint, then verify every delivery with the
 **same** signer the Gateway uses (algorithm can't drift):
 
 ```ts
-import { Peable, WEBHOOK_SIGNATURE_HEADER } from '@peable/sdk';
+import { Peable, WEBHOOK_SIGNATURE_HEADER } from '@peable.to/sdk';
 
 app.post('/webhooks/peable', express.raw({ type: 'application/json' }), (req, res) => {
   let event;
@@ -188,7 +188,7 @@ Every non-2xx maps to a typed error — catch what you need:
 import {
   PeableError, PeableAuthenticationError, PeableInvalidRequestError,
   PeablePermissionError, PeableApiError, PeableSignatureVerificationError,
-} from '@peable/sdk';
+} from '@peable.to/sdk';
 ```
 
 ---
@@ -200,7 +200,7 @@ import {
 - [ ] Owner: register Mercaria as a Gateway `Merchant` (watch-only xpub, testnet).
 - [ ] Mercaria server: `PEABLE_PUBLIC_KEY` / `PEABLE_SECRET` / `PEABLE_WEBHOOK_SECRET` in env.
 - [ ] Mercaria server: create a Checkout Session at checkout, redirect to `session.url`
-      (or embed `@peable/sdk/checkout`).
+      (or embed `@peable.to/sdk/checkout`).
 - [ ] Mercaria server: webhook endpoint verifying `Peable-Signature`, fulfill on `settled`.
 - [ ] Test the full flow on **testnet** end-to-end.
 - [ ] Go live: swap to a production-environment credential + `network: 'mainnet'`

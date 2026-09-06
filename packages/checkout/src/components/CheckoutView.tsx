@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MerchantDisplay, PaymentIntent } from '@peable/shared-types';
+import type { MerchantDisplay, PaymentIntent } from '@peable.to/shared-types';
 import { subscribe } from '../lib/intentClient';
 import { MerchantIdentity } from './MerchantIdentity';
 import { PayWithPeable } from './PayWithPeable';

@@ -1,4 +1,4 @@
-// Server entry (`@peable/sdk`) — the merchant-authed SDK. Configured with a
+// Server entry (`@peable.to/sdk`) — the merchant-authed SDK. Configured with a
 // confidential `ApplicationCredential` (`{publicKey, secret}`); mints and
 // caches an Oxy service token, and exposes Stripe-ergonomics resource
 // namespaces over the Gateway REST contract.

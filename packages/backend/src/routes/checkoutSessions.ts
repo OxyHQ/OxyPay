@@ -3,7 +3,7 @@ import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
-import { isBaseUnitString, type CreateCheckoutSessionParams } from "@peable/shared-types";
+import { isBaseUnitString, type CreateCheckoutSessionParams } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import { findIntentById } from "../db/payments/paymentIntentRepository";
