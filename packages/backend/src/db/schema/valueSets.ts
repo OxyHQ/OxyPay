@@ -143,6 +143,16 @@ export const TRANSFER_STATUSES = [
   'failed',
 ] as const;
 
+/**
+ * Where one refund stands — the MONEY's own lifecycle, not the payment's.
+ *
+ * Deliberately not the payment's status set. `refunded` on a payment means "all
+ * of it came back"; `succeeded` on a refund means "this movement completed",
+ * and a payment can hold several of those. Sharing a vocabulary would make
+ * "which refund failed" unaskable.
+ */
+export const REFUND_STATUSES = ['pending', 'succeeded', 'failed'] as const;
+
 /** Stripe-parity dotted webhook event types. */
 export const WEBHOOK_EVENT_TYPES = [
   'payment_intent.confirming',
@@ -150,6 +160,8 @@ export const WEBHOOK_EVENT_TYPES = [
   'payment_intent.failed',
   'payment_intent.rejected',
   'payment_intent.expired',
+  'payment_intent.refunded',
+  'payment_intent.partially_refunded',
 ] as const satisfies readonly WebhookEventType[];
 export type WebhookEventTypesAreComplete = AssertAllListed<
   WebhookEventType,

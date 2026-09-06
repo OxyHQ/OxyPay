@@ -11,7 +11,7 @@ function randomHex(byteLength: number): string {
 }
 
 export function newId(
-  prefix: 'pi' | 'evt' | 'merch' | 'link' | 'cs' | 'ca' | 'tr'
+  prefix: 'pi' | 'evt' | 'merch' | 'link' | 'cs' | 'ca' | 'tr' | 're'
 ): string {
   return `${prefix}_${randomHex(ID_ENTROPY_BYTES)}`;
 }

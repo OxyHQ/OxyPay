@@ -27,6 +27,7 @@ import { createDashboardRouter } from "./routes/dashboard";
 import { createProviderWebhooksRouter } from "./routes/providerWebhooks";
 import { createConnectedAccountsRouter } from "./routes/connectedAccounts";
 import { createTransfersRouter } from "./routes/transfers";
+import { createRefundsRouter } from "./routes/refunds";
 import { SettlementWatcher } from "./services/settlementWatcher";
 import type { PaymentIntentRow } from "./db/payments/paymentIntentRepository";
 import { getTransaction } from "./services/explorer";
@@ -204,6 +205,7 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
   app.use(createMerchantsRouter({ requireMerchant }));
   app.use(createConnectedAccountsRouter({ requireMerchant }));
   app.use(createTransfersRouter({ requireMerchant }));
+  app.use(createRefundsRouter({ requireMerchant }));
   app.use(
     createWebhookDeliveriesRouter({ requireMerchant, safeFetch: deps.safeFetch }),
   );

@@ -16,6 +16,7 @@ import {
   paymentIntents,
   paymentLinks,
   providerEvents,
+  refunds,
   socialReceiveCursors,
   socialSendAttributions,
   transfers,
@@ -45,6 +46,7 @@ const ALL_TABLES = [
   paymentIntents,
   paymentLinks,
   providerEvents,
+  refunds,
   socialReceiveCursors,
   socialSendAttributions,
   transfers,
@@ -152,6 +154,15 @@ describe('id-column classification', () => {
         {
           column: 'provider_events.object_ids',
           reason: 'a jsonb map of the provider object ids an event refers to, under their names',
+        },
+        {
+          column: 'refunds.public_id',
+          reason: "this row's own re_… identifier, not a reference",
+        },
+        {
+          column: 'refunds.provider_object_id',
+          reason:
+            "the provider's own re_…; uniqueness is held by refunds_provider_object_key and the row it names is at the provider",
         },
         {
           column: 'connected_accounts.public_id',

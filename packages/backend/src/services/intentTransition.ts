@@ -46,6 +46,11 @@ export const WEBHOOK_EVENT_FOR: Partial<
   failed: "payment_intent.failed",
   rejected: "payment_intent.rejected",
   expired: "payment_intent.expired",
+  // A refund is an OUTCOME, which is the line this map draws: the pre-payment
+  // statuses describe a payer moving through a flow and emit nothing, while
+  // money leaving again is something a merchant acts on.
+  refunded: "payment_intent.refunded",
+  partially_refunded: "payment_intent.partially_refunded",
 };
 
 /**

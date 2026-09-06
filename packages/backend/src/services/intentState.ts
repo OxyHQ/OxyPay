@@ -28,7 +28,12 @@ export type IntentEvent =
   | "card_processing"
   | "card_settled"
   | "card_failed"
-  | "card_canceled";
+  | "card_canceled"
+  // Money going back. Named for the OUTCOME rather than for the refund, because
+  // the target depends on the total that has come back and not on this leg: a
+  // second partial refund that exhausts the payment is `refund_full`.
+  | "refund_partial"
+  | "refund_full";
 
 function targetStatusFor(event: IntentEvent): PaymentIntentStatus {
   switch (event) {
@@ -66,6 +71,10 @@ function targetStatusFor(event: IntentEvent): PaymentIntentStatus {
     // expiry sweeper's numbers include payments it never expired.
     case "card_canceled":
       return "rejected";
+    case "refund_partial":
+      return "partially_refunded";
+    case "refund_full":
+      return "refunded";
   }
 }
 
@@ -102,6 +111,12 @@ const LEGAL_SOURCES: Partial<Record<IntentEvent, readonly PaymentIntentStatus[]>
   card_settled: ['created', 'requires_action', 'processing'],
   card_failed: ['created', 'requires_action', 'processing'],
   card_canceled: ['created', 'requires_action'],
+  // Money can only come back if it arrived. `partially_refunded` is a legal
+  // source for `refund_full` — a second refund exhausting the payment — and is
+  // NOT one for `refund_partial`, which `applyEvent` absorbs as a
+  // self-transition when the status is already there while the amounts change.
+  refund_partial: ['settled'],
+  refund_full: ['settled', 'partially_refunded'],
 };
 
 /**

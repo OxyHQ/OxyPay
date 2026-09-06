@@ -51,8 +51,15 @@ describe('closed value sets', () => {
     expect([...NETWORK_TYPES].sort()).toEqual(['mainnet', 'testnet']);
   });
 
-  it('lists the five webhook event types', () => {
-    expect(WEBHOOK_EVENT_TYPES).toHaveLength(5);
+  /**
+   * A COUNT rather than a list, so widening the contract is a deliberate edit
+   * here. The `satisfies` on the tuple already proves every member is a legal
+   * `WebhookEventType`; what no type can see is a member being ADDED without
+   * anyone noticing that merchants now receive an event they never subscribed
+   * to.
+   */
+  it('lists the seven webhook event types', () => {
+    expect(WEBHOOK_EVENT_TYPES).toHaveLength(7);
     for (const type of WEBHOOK_EVENT_TYPES) {
       expect(type.startsWith('payment_intent.')).toBe(true);
     }
@@ -119,8 +126,9 @@ describe('the base-unit amount pattern', () => {
         0
       );
     // One per money-carrying COLUMN, which is not one per table:
-    // payment_intents, checkout_sessions and payment_links carry one `amount`
-    // each; `transfers` carries `amount` AND the cumulative `amount_reversed`.
-    expect(occurrences).toBe(5);
+    // payment_intents, checkout_sessions, payment_links and refunds carry one
+    // `amount` each; `transfers` carries `amount` AND the cumulative
+    // `amount_reversed`.
+    expect(occurrences).toBe(6);
   });
 });

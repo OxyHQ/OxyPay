@@ -18,3 +18,4 @@ export { webhookDeliveries } from './webhooks';
 export { providerEvents } from './providerEvents';
 export { connectedAccounts } from './connectedAccounts';
 export { transfers } from './transfers';
+export { refunds } from './refunds';

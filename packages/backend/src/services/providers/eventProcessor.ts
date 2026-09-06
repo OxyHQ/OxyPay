@@ -23,7 +23,9 @@ import {
   markProviderEventFailed,
   markProviderEventProcessed,
 } from "../../db/providers/providerEventRepository";
-import { findIntentByProviderObject } from "../../db/payments/paymentIntentRepository";
+import { findIntentById, findIntentByProviderObject } from "../../db/payments/paymentIntentRepository";
+import { findRefundByProviderObject } from "../../db/refunds/refundRepository";
+import { applyRefundToIntent } from "../refunds/refundService";
 import { findAccountByProviderAccountId } from "../../db/accounts/connectedAccountRepository";
 import { applyTransferReversal, findTransferByProviderObject } from "../../db/transfers/transferRepository";
 import { refreshConnectedAccount } from "../accounts/connectedAccountService";
@@ -82,6 +84,20 @@ const ACCOUNT_REFRESH_EVENTS: ReadonlySet<string> = new Set([
   "capability.updated",
 ]);
 
+/**
+ * Refund events.
+ *
+ * These exist for the refund a merchant did NOT make — one issued from the
+ * provider's dashboard, or a dispute the network resolved. Without them the
+ * payer's money is back and this gateway still calls the payment `settled`,
+ * which is the disagreement a merchant reconciles against and cannot explain.
+ */
+const REFUND_EVENTS: ReadonlySet<string> = new Set([
+  "charge.refunded",
+  "refund.updated",
+  "refund.created",
+]);
+
 /** Transfer events that carry a cumulative reversed total. */
 const TRANSFER_REVERSAL_EVENTS: ReadonlySet<string> = new Set([
   "transfer.reversed",
@@ -117,6 +133,9 @@ export async function processProviderEvent(
     }
     if (TRANSFER_REVERSAL_EVENTS.has(event.type)) {
       return await handleTransferEvent(db, event);
+    }
+    if (REFUND_EVENTS.has(event.type)) {
+      return await handleRefundEvent(db, event);
     }
 
     const intentEvent = INTENT_EVENT_FOR[event.type];
@@ -291,4 +310,45 @@ function readReversedTotal(payload: Record<string, unknown>): string | null {
   const value = (object as Record<string, unknown>).amount_reversed;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return null;
   return String(value);
+}
+
+/**
+ * A refund the provider reports.
+ *
+ * Only a refund this gateway ALREADY has a row for is acted on. A refund made
+ * entirely outside Peable — from the provider's own dashboard — has no row
+ * here, and inventing one would put an amount in this database that nothing
+ * chose: the row carries a merchant `external_ref`, which is the merchant's
+ * identifier for a refund they did not make and cannot supply. Such an event
+ * stays visible and unprocessed for an operator, which is the honest outcome.
+ */
+async function handleRefundEvent(
+  db: ReturnType<typeof getDb>,
+  event: ProviderEventRow,
+): Promise<ProcessOutcome> {
+  const refundObjectId = event.objectIds.refund;
+  if (!refundObjectId) {
+    // `charge.refunded` names the CHARGE, not the refund. Nothing to act on
+    // here without a refund id, and the payment's own status is already driven
+    // by the refund rows — so this is handled rather than failed.
+    await markProviderEventProcessed(db, event.id);
+    return { kind: "no_mapping" };
+  }
+
+  const refund = await findRefundByProviderObject(
+    db,
+    event.provider as ProviderId,
+    refundObjectId,
+  );
+  if (!refund) return { kind: "unmatched" };
+
+  const intent = await findIntentById(db, refund.paymentIntentId);
+  if (!intent) {
+    await markProviderEventFailed(db, event.id, "the refund names an intent that cannot be read");
+    return { kind: "failed", error: "the refund names an intent that cannot be read" };
+  }
+
+  const status = await applyRefundToIntent(intent);
+  await markProviderEventProcessed(db, event.id);
+  return { kind: "applied", intentId: intent.id, status };
 }
