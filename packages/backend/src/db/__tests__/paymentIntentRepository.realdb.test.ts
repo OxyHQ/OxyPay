@@ -51,6 +51,7 @@ function intentParams(merchantId: string, overrides: Record<string, unknown> = {
     currency: 'FAIR' as const,
     network: 'testnet' as const,
     address: `T${unique}`,
+    provider: null,
     clientSecret: `pi_${unique}_secret_x`,
     idempotencyKey: unique,
     metadata: {},
@@ -97,6 +98,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('payment intent repository', () => {
         idempotencyKey: params.idempotencyKey,
         publicId: `pi_${uuidv7()}`,
         address: `T${uuidv7()}`,
+        provider: null,
       })
     );
     expect(second).toBeNull();

@@ -1,7 +1,9 @@
-import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
 import type { CurrencyCode, PaymentIntentRail, PaymentIntentStatus } from '@peable.to/shared-types';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
+// Type-only: this repository must not pull the Stripe SDK into a query path.
+import type { ProviderId } from '../../services/providers/provider';
 import { paymentIntents } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
 
@@ -26,6 +28,10 @@ export interface PaymentIntentRow {
   readonly merchantId: string;
   readonly txid: string | null;
   readonly confirmations: number;
+  /** Card rail only — `null` on a FairCoin intent, where the chain is the provider. */
+  readonly provider: ProviderId | null;
+  /** The provider's own id for the object that moves the money. `null` until it exists. */
+  readonly providerObjectId: string | null;
   readonly clientSecret: string;
   readonly metadata: Record<string, string>;
   readonly expiresAt: Date;
@@ -50,6 +56,8 @@ const INTENT_COLUMNS = {
   merchantId: paymentIntents.merchantId,
   txid: paymentIntents.txid,
   confirmations: paymentIntents.confirmations,
+  provider: paymentIntents.provider,
+  providerObjectId: paymentIntents.providerObjectId,
   clientSecret: paymentIntents.clientSecret,
   metadata: paymentIntents.metadata,
   expiresAt: paymentIntents.expiresAt,
@@ -62,6 +70,7 @@ interface RawIntentRow {
   readonly rail: string;
   readonly currency: string;
   readonly network: string | null;
+  readonly provider: string | null;
   readonly [key: string]: unknown;
 }
 
@@ -73,6 +82,7 @@ function toIntentRow(row: RawIntentRow): PaymentIntentRow {
     rail: row.rail as PaymentIntentRail,
     currency: row.currency as CurrencyCode,
     network: row.network as NetworkType | null,
+    provider: row.provider as ProviderId | null,
   } as unknown as PaymentIntentRow;
 }
 
@@ -86,6 +96,12 @@ export interface InsertPaymentIntentParams {
    *  `payment_intents_faircoin_requires_chain_fields_check` refuses the mix. */
   readonly network: NetworkType | null;
   readonly address: string | null;
+  /**
+   * Card rail only, and REQUIRED there —
+   * `payment_intents_card_requires_provider_check` refuses a card intent
+   * without one. Never set on faircoin.
+   */
+  readonly provider: ProviderId | null;
   readonly clientSecret: string;
   readonly idempotencyKey: string;
   readonly metadata: Record<string, string>;
@@ -121,6 +137,7 @@ export async function insertPaymentIntent(
         currency: params.currency,
         network: params.network,
         address: params.address,
+        provider: params.provider,
         merchantId: params.merchantId,
         clientSecret: params.clientSecret,
         idempotencyKey: params.idempotencyKey,
@@ -438,5 +455,64 @@ export async function updateIntentState(
     .set(values)
     .where(eq(paymentIntents.id, id))
     .returning(INTENT_COLUMNS);
+  return row ? toIntentRow(row) : null;
+}
+
+/**
+ * Record the provider object this intent became, once the provider has told us
+ * what it is.
+ *
+ * The second half of the two-step create. Guarded on `provider_object_id IS
+ * NULL` so it can only ever fill the gap, never overwrite a link — a second
+ * provider call for an intent that already has one is a bug (a duplicate
+ * charge, or a recovery that raced), and silently repointing the row at the new
+ * object would orphan the first charge with nothing recording that it exists.
+ *
+ * @returns `true` when this call did the linking; `false` when the row was
+ *   already linked, which the caller should treat as "someone else got there"
+ *   rather than as an error.
+ */
+export async function linkProviderObject(
+  db: DatabaseOrTransaction,
+  intentId: string,
+  provider: ProviderId,
+  providerObjectId: string
+): Promise<boolean> {
+  const rows = await db
+    .update(paymentIntents)
+    .set({ providerObjectId })
+    .where(
+      and(
+        eq(paymentIntents.id, intentId),
+        eq(paymentIntents.provider, provider),
+        isNull(paymentIntents.providerObjectId)
+      )
+    )
+    .returning({ id: paymentIntents.id });
+  return rows.length === 1;
+}
+
+/**
+ * The event drain's lookup: which intent is this provider object?
+ *
+ * `provider` is part of the key rather than decoration. Object ids are unique
+ * within a provider's own numbering and nowhere else, so matching on the id
+ * alone would, the day a second provider exists, let one provider's event act
+ * on another provider's payment.
+ */
+export async function findIntentByProviderObject(
+  db: DatabaseOrTransaction,
+  provider: ProviderId,
+  providerObjectId: string
+): Promise<PaymentIntentRow | null> {
+  const [row] = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(
+      and(
+        eq(paymentIntents.provider, provider),
+        eq(paymentIntents.providerObjectId, providerObjectId)
+      )
+    );
   return row ? toIntentRow(row) : null;
 }

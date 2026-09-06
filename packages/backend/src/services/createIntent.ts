@@ -6,8 +6,12 @@ import type { MerchantRow } from "../db/merchants/merchantRepository";
 import {
   findIntentByIdempotencyKey,
   insertPaymentIntent,
+  linkProviderObject,
 } from "../db/payments/paymentIntentRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
+import type { Database } from "../db/postgres";
+import type { PaymentProvider, ProviderClientAction } from "./providers/provider";
+import { resolveCardProvider, resolveProvider } from "./providers/registry";
 import { reserveNextAddress } from "./reserveAddress";
 import { newId, clientSecretFor } from "../lib/ids";
 
@@ -92,6 +96,36 @@ export interface CreateIntentInput {
 export interface CreateIntentResult {
   intent: PaymentIntentRow;
   reused: boolean;
+  /**
+   * What the PAYER's client has to do next, on a rail that needs it.
+   *
+   * `undefined` on the FairCoin rail, where the next step is "send coins to
+   * `address`" and the intent already says so. On the card rail this carries
+   * the provider's own client secret, which Stripe.js needs to confirm the
+   * payment in the browser.
+   *
+   * Deliberately NOT a column and NOT on the DTO. It is a fact about this
+   * response, not about the payment: re-reading an intent tomorrow must not
+   * hand out a confirmation credential, and a merchant listing their intents
+   * must not receive one per row.
+   */
+  clientAction?: ProviderClientAction;
+}
+
+/**
+ * The card rail is configured off, or half-configured, on this deployment.
+ *
+ * Separate from `RailMismatchError` because it is not the caller's fault and
+ * they cannot fix it by sending different fields — it is a 503, not a 422. A
+ * merchant seeing "the card rail requires an explicit currency" for a
+ * deployment that simply has no Stripe key would spend the afternoon editing
+ * their request.
+ */
+export class RailUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RailUnavailableError";
+  }
 }
 
 /**
@@ -155,6 +189,74 @@ export function resolveRail(
   return { rail, currency, network: null };
 }
 
+/**
+ * Create the payment at the provider and link it to the row we already wrote.
+ *
+ * The idempotency key is derived from the intent's PUBLIC id and nothing else,
+ * which is what makes recovery safe: a retry after a timeout, a crash, or a
+ * redeployment presents the same key and Stripe returns the object it already
+ * made instead of charging the payer twice. A random key here would turn every
+ * lost response into a second charge.
+ */
+async function attachProviderPayment(
+  db: Database,
+  intent: PaymentIntentRow,
+  provider: PaymentProvider,
+): Promise<ProviderClientAction | undefined> {
+  const result = await provider.createPayment({
+    intentId: intent.publicId,
+    amount: { amount: intent.amount, currency: intent.currency },
+    idempotencyKey: `pay:${intent.publicId}`,
+    // The merchant's own metadata is deliberately NOT forwarded: it is the
+    // merchant's, it can contain anything, and a provider's metadata is
+    // readable by everyone with dashboard access. The adapter adds the one
+    // correlation key that has to survive — `peable_intent_id`.
+    metadata: {},
+  });
+
+  await linkProviderObject(db, intent.id, provider.id, result.providerObjectId);
+  return result.clientAction;
+}
+
+/**
+ * The client action for an intent we are RETURNING rather than creating — the
+ * idempotent replay paths.
+ *
+ * Read from the provider rather than remembered, because a client secret is a
+ * confirmation credential and storing one would put it in every backup and
+ * every support query. `undefined` when the intent never got linked (the
+ * two-step create was interrupted), which the caller reports honestly instead
+ * of pretending the payer can proceed.
+ */
+async function clientActionFor(
+  intent: PaymentIntentRow,
+): Promise<ProviderClientAction | undefined> {
+  if (!intent.provider || !intent.providerObjectId) return undefined;
+  const provider = resolveProvider(intent.provider);
+  if (!provider) return undefined;
+  const result = await provider.getStatus(intent.providerObjectId);
+  return result.clientAction;
+}
+
+/**
+ * Refuse a rail this deployment cannot serve, before anything is STORED.
+ *
+ * `createIntent` makes this check itself, so a mint is covered. This export is
+ * for the surfaces that persist a rail WITHOUT minting — a payment link is the
+ * one that matters: it is a URL a merchant sends to customers, and one created
+ * for a rail with no provider is a price a payer can see and can never pay,
+ * discovered by them rather than by the merchant.
+ *
+ * @throws {RailUnavailableError}
+ */
+export function assertRailAvailable(rail: PaymentIntentRail): void {
+  if (rail === "card" && !resolveCardProvider()) {
+    throw new RailUnavailableError(
+      "the card rail is not configured on this deployment",
+    );
+  }
+}
+
 export async function createIntent(input: CreateIntentInput): Promise<CreateIntentResult> {
   const { merchant, amount, metadata, expiresInSeconds, idempotencyKey } = input;
   const { rail, currency, network } = resolveRail(merchant, input);
@@ -166,7 +268,7 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
   if (idempotencyKey) {
     const existing = await findIntentByIdempotencyKey(db, merchant.id, idempotencyKey);
     if (existing) {
-      return { intent: existing, reused: true };
+      return { intent: existing, reused: true, clientAction: await clientActionFor(existing) };
     }
   }
 
@@ -182,6 +284,18 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
   );
   const key = idempotencyKey ?? randomUUID();
 
+  // Which provider will move this money, decided ONCE and stored. Resolved
+  // before the insert because `payment_intents_card_requires_provider_check`
+  // refuses a card intent without one — a rail that is off must fail here,
+  // where nothing has been written, rather than after a row exists that no
+  // adapter can ever act on.
+  const cardProvider = rail === "card" ? resolveCardProvider() : undefined;
+  if (rail === "card" && !cardProvider) {
+    throw new RailUnavailableError(
+      "the card rail is not configured on this deployment",
+    );
+  }
+
   // Explicit field whitelist — never spread a caller body (mass-assignment
   // would be an IDOR). `status`, `currency` and `confirmations` take their
   // column defaults inside the repository: a caller does not get to mint an
@@ -194,6 +308,7 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
     currency,
     network,
     address,
+    provider: cardProvider?.id ?? null,
     clientSecret,
     idempotencyKey: key,
     metadata: metadata ?? {},
@@ -201,6 +316,15 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
   });
 
   if (intent) {
+    // The row exists; now make the payment exist at the provider. This ORDER is
+    // the decision (see `payment_intents.provider_object_id`): a crash between
+    // the two leaves a row with no object, which recovery can finish by
+    // re-calling with the same idempotency key. The reverse leaves a real
+    // charge with no row, which nothing can find.
+    if (cardProvider) {
+      const clientAction = await attachProviderPayment(db, intent, cardProvider);
+      return { intent, reused: false, clientAction };
+    }
     return { intent, reused: false };
   }
 
@@ -213,7 +337,7 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
   if (idempotencyKey) {
     const winner = await findIntentByIdempotencyKey(db, merchant.id, idempotencyKey);
     if (winner) {
-      return { intent: winner, reused: true };
+      return { intent: winner, reused: true, clientAction: await clientActionFor(winner) };
     }
   }
 

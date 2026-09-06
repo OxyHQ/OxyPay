@@ -16,6 +16,7 @@ import {
   createIntent,
   NetworkMismatchError,
   RailMismatchError,
+  RailUnavailableError,
 } from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
@@ -117,6 +118,12 @@ export function createCheckoutSessionsRouter(deps: {
       } catch (err) {
         if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        // 503, not 422: the rail is not configured on this deployment, which is
+        // not something the caller can fix by sending different fields.
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;

@@ -45,6 +45,7 @@ function cardIntentParams(merchantId: string, overrides: Record<string, unknown>
     currency: 'EUR' as const,
     network: null,
     address: null,
+    provider: 'stripe' as const,
     clientSecret: `pi_${unique}_secret_x`,
     idempotencyKey: unique,
     metadata: {},
@@ -112,6 +113,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('the card rail', () => {
           currency: 'FAIR',
           network: 'mainnet',
           address: 'Tsomething',
+          provider: null,
         })
       )
     ).rejects.toThrow();
@@ -141,6 +143,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('the card rail', () => {
           currency: 'EUR',
           network: 'testnet',
           address: 'Tsomething',
+          provider: null,
         })
       )
     ).rejects.toThrow();
@@ -224,6 +227,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)('the card rail', () => {
         amount: '100000000',
         network: merchant.network,
         address: `T${unique}`,
+        provider: null,
         merchantId: merchant.id,
         clientSecret: `pi_${unique}_secret_x`,
         idempotencyKey: unique,

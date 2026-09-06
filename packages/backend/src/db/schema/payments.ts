@@ -19,6 +19,7 @@ import {
   CURRENCY_CODES,
   NETWORK_TYPES,
   PAYMENT_INTENT_STATUS_VALUES,
+  PROVIDER_IDS,
   RAIL_VALUES,
   SERVICE_ENVIRONMENTS,
 } from './valueSets';
@@ -78,6 +79,35 @@ export const paymentIntents = pgTable(
     merchantId: text().notNull(),
     txid: text(),
     confirmations: integer().notNull().default(0),
+    /**
+     * Which provider moves this payment. Card rail only — NULL on faircoin,
+     * where the chain is the provider and there is nobody to name.
+     *
+     * Chosen once, at creation, by `resolveCardProvider()`. Stored rather than
+     * re-derived at read time because the registry's answer is a property of
+     * the DEPLOYMENT and this is a property of the PAYMENT: a gateway that
+     * later serves cards through a second provider must still be able to
+     * capture, refund and reconcile a charge made through the first one.
+     *
+     * **Never on the DTO** (ADR 0001 D3). The whole point of the port is that a
+     * merchant integrates against Peable and never learns which acquirer sat
+     * behind their charge; a `provider` field on the wire would make that a
+     * detail integrators start branching on, and then it could not be changed.
+     */
+    provider: text(),
+    /**
+     * The provider's own id for the object that moves the money — a Stripe
+     * `pi_…`, under Stripe's numbering rather than ours.
+     *
+     * NULL between our insert and the provider call returning, and that window
+     * is deliberate: the row is written FIRST so that a process that dies
+     * mid-call leaves evidence of an attempt. Recovery re-calls the provider
+     * with the same idempotency key (derived from `public_id`) and is handed
+     * the same object back rather than making a second charge. Creating at the
+     * provider first and inserting after would leave the opposite — a real
+     * charge with no row anywhere, which nothing can find.
+     */
+    providerObjectId: text(),
     clientSecret: text().notNull(),
     idempotencyKey: text().notNull(),
     metadata: jsonb().$type<Record<string, string>>().notNull().default(emptyMetadata),
@@ -99,6 +129,21 @@ export const paymentIntents = pgTable(
     index('payment_intents_merchant_id_idx').on(table.merchantId),
     // `services/enrichment.ts` resolves intents by address.
     index('payment_intents_address_idx').on(table.address),
+    /**
+     * One intent per provider object, and the lookup the event drain makes.
+     *
+     * UNIQUE rather than a plain index, and that is the load-bearing half: a
+     * provider event names an object, and the drain turns that into a state
+     * change on the intent it belongs to. If two intents could name one Stripe
+     * `pi_…`, a single `payment_intent.succeeded` would settle a payment that
+     * was never charged. Partial, because the column is NULL for the whole
+     * FairCoin rail and for the window between our insert and the provider
+     * call returning — and NULLs are distinct, so an unpartitioned unique index
+     * would work too, but says less about what is being promised.
+     */
+    uniqueIndex('payment_intents_provider_object_key')
+      .on(table.provider, table.providerObjectId)
+      .where(sql`${table.providerObjectId} is not null`),
     /**
      * The network firewall, made structural.
      *
@@ -196,6 +241,43 @@ export const paymentIntents = pgTable(
     check(
       'payment_intents_card_statuses_are_card_check',
       sql.raw(`status not in (${inList(CARD_ONLY_STATUSES)}) or rail = 'card'`)
+    ),
+    check(
+      'payment_intents_provider_check',
+      sql.raw(`provider is null or provider in (${inList(PROVIDER_IDS)})`)
+    ),
+    /**
+     * The rail decides whether there is a provider, in both directions.
+     *
+     * A card intent with no provider is a charge nobody can capture, refund or
+     * reconcile — the object exists at an acquirer this row cannot name. A
+     * faircoin intent WITH one is the more dangerous shape: it would make the
+     * drain's lookup match a chain payment, so a Stripe event could transition
+     * an intent whose money is on a blockchain.
+     */
+    check(
+      'payment_intents_card_requires_provider_check',
+      sql`${table.rail} <> 'card' or ${table.provider} is not null`
+    ),
+    check(
+      'payment_intents_faircoin_has_no_provider_check',
+      sql`${table.rail} <> 'faircoin' or (${table.provider} is null and ${table.providerObjectId} is null)`
+    ),
+    /**
+     * An object id without a provider names an object in no numbering system —
+     * `pi_1` is ambiguous the moment a second provider exists, and it would
+     * make the unique index above compare across providers.
+     *
+     * **Redundant today, and kept deliberately.** MEASURED: with the two rail
+     * checks above in place this one is unreachable, because every rail either
+     * requires a provider or forbids an object id; drop them both and it fires
+     * on its own. It is here so the invariant survives a THIRD rail that
+     * requires no provider — the rail checks are written per rail and would not
+     * cover it, and this one would.
+     */
+    check(
+      'payment_intents_provider_object_needs_provider_check',
+      sql`${table.providerObjectId} is null or ${table.provider} is not null`
     ),
     check('payment_intents_amount_check', sql.raw(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`)),
     check('payment_intents_confirmations_check', sql`${table.confirmations} >= 0`),

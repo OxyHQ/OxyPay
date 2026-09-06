@@ -26,6 +26,7 @@ import {
   createIntent,
   NetworkMismatchError,
   RailMismatchError,
+  RailUnavailableError,
 } from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
 import { announceIntentChange, transitionIntent } from "../services/intentTransition";
@@ -226,7 +227,7 @@ export function createPaymentIntentsRouter(deps: {
       const params: CreatePaymentIntentParams = parsed.data as CreatePaymentIntentParams;
 
       try {
-        const { intent, reused } = await createIntent({
+        const { intent, reused, clientAction } = await createIntent({
           merchant,
           amount: params.amount,
           ...(params.rail !== undefined ? { rail: params.rail } : {}),
@@ -236,9 +237,15 @@ export function createPaymentIntentsRouter(deps: {
           expiresInSeconds: params.expiresInSeconds,
           idempotencyKey,
         });
-        res
-          .status(reused ? 200 : 201)
-          .json({ ...toPaymentIntentDTO(intent), client_secret: intent.clientSecret });
+        res.status(reused ? 200 : 201).json({
+          ...toPaymentIntentDTO(intent),
+          client_secret: intent.clientSecret,
+          // The card rail's next step for the PAYER's client, present only on
+          // that rail and only in this response. Never on the DTO: re-reading an
+          // intent tomorrow must not hand out a confirmation credential, and a
+          // merchant listing their intents must not receive one per row.
+          ...(clientAction ? { client_action: clientAction } : {}),
+        });
       } catch (err) {
         // Data-integrity firewall (F2.0 task 1a): the watch-only address is
         // derived using the MERCHANT's network (`reserveAddress.ts`), never
@@ -250,6 +257,13 @@ export function createPaymentIntentsRouter(deps: {
         // server fault. Which mistake they made is in the message.
         if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        // 503, not 422: the caller cannot fix this by sending different fields.
+        // The rail they asked for is not configured on this deployment, and
+        // telling them their request was invalid would send them off editing it.
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;

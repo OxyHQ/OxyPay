@@ -16,6 +16,8 @@ import {
   createIntent,
   NetworkMismatchError,
   RailMismatchError,
+  RailUnavailableError,
+  assertRailAvailable,
   resolveRail,
 } from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
@@ -94,9 +96,18 @@ export function createPaymentLinksRouter(deps: {
       let resolved;
       try {
         resolved = resolveRail(merchant, params);
+        // ...and the same argument one step further: a link is a URL a merchant
+        // SENDS to customers, so a rail this deployment cannot serve has to be
+        // refused here, to the merchant, rather than at mint time to a payer
+        // who is already looking at the price.
+        assertRailAvailable(resolved.rail);
       } catch (err) {
         if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;
@@ -312,7 +323,7 @@ export function createPaymentLinksRouter(deps: {
       }
 
       try {
-        const { intent } = await createIntent({
+        const { intent, clientAction } = await createIntent({
           merchant,
           amount: link.amount,
           rail: link.rail,
@@ -323,9 +334,14 @@ export function createPaymentLinksRouter(deps: {
           ...(link.network !== null ? { network: link.network } : {}),
           metadata: link.metadata,
         });
-        res
-          .status(201)
-          .json({ ...toPaymentIntentDTO(intent), client_secret: intent.clientSecret });
+        res.status(201).json({
+          ...toPaymentIntentDTO(intent),
+          client_secret: intent.clientSecret,
+          // The payer is anonymous here and this is their only chance to be
+          // handed the card rail's next step — there is no authenticated read
+          // they could make later to fetch it.
+          ...(clientAction ? { client_action: clientAction } : {}),
+        });
       } catch (err) {
         // Structurally unreachable today (a link's `network` is validated
         // against its merchant at creation, and `Merchant.network` has no
@@ -334,6 +350,12 @@ export function createPaymentLinksRouter(deps: {
         // to a bare 500 if that invariant is ever loosened.
         if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        // 503, not 422: the rail is not configured on this deployment, which is
+        // not something the caller can fix by sending different fields.
+        if (err instanceof RailUnavailableError) {
+          sendError(res, 503, "api_error", err.message);
           return;
         }
         throw err;

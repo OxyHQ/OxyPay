@@ -48,6 +48,7 @@ async function makeIntent(merchant: MerchantRow) {
     currency: 'FAIR' as const,
     network: merchant.network,
     address: `T${unique}`,
+    provider: null,
     clientSecret: `pi_${unique}_secret_x`,
     idempotencyKey: unique,
     metadata: {},

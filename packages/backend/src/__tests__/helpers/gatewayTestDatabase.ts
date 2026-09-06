@@ -4,6 +4,7 @@ import { deriveKeyFromSeed, getNetwork, mnemonicToSeed } from '@fairco.in/core';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
 import { uuidv7 } from '@oxyhq/db';
+import type { ProviderId } from '../../services/providers/provider';
 import type {
   CurrencyCode,
   PaymentIntentRail,
@@ -198,6 +199,7 @@ export interface SeedIntentValues {
   readonly currency?: CurrencyCode;
   readonly network?: NetworkType | null;
   readonly address?: string | null;
+  readonly provider?: ProviderId | null;
   readonly clientSecret?: string;
   readonly idempotencyKey?: string;
   readonly metadata?: Record<string, string>;
@@ -229,6 +231,11 @@ export async function seedIntent(
     // every mainnet-merchant suite fail on a foreign key instead of its subject.
     network: values.network !== undefined ? values.network : rail === 'faircoin' ? merchant.network : null,
     address: values.address !== undefined ? values.address : rail === 'faircoin' ? `T${unique}` : null,
+    // Follows the rail for the same reason the chain fields do:
+    // `payment_intents_card_requires_provider_check` refuses a card intent with
+    // no provider, and `..._faircoin_has_no_provider_check` refuses a chain one
+    // that has one.
+    provider: values.provider !== undefined ? values.provider : rail === 'card' ? 'stripe' : null,
     clientSecret: values.clientSecret ?? `pi_${unique}_secret_${unique.slice(0, 8)}`,
     idempotencyKey: values.idempotencyKey ?? unique,
     metadata: values.metadata ?? {},

@@ -14,6 +14,7 @@ import {
   merchants,
   paymentIntents,
   paymentLinks,
+  providerEvents,
   socialReceiveCursors,
   socialSendAttributions,
   webhookDeliveries,
@@ -40,6 +41,7 @@ const ALL_TABLES = [
   merchants,
   paymentIntents,
   paymentLinks,
+  providerEvents,
   socialReceiveCursors,
   socialSendAttributions,
   webhookDeliveries,
@@ -131,6 +133,26 @@ describe('id-column classification', () => {
         {
           column: 'webhook_deliveries.event_id',
           reason: 'the evt_… envelope id that was signed and sent; events are never persisted',
+        },
+        // `provider_events` holds a PROVIDER's numbering, not this database's.
+        // None of these can carry a foreign key: the rows they name live at
+        // Stripe, and a reference to them is not expressible here.
+        {
+          column: 'provider_events.provider_event_id',
+          reason: "the provider's own evt_… id — their numbering, not ours",
+        },
+        {
+          column: 'provider_events.provider_account_id',
+          reason: "the provider's own acct_… id; NULL for platform scope",
+        },
+        {
+          column: 'provider_events.object_ids',
+          reason: 'a jsonb map of the provider object ids an event refers to, under their names',
+        },
+        {
+          column: 'payment_intents.provider_object_id',
+          reason:
+            "the provider's own id for the object that moves the money; uniqueness is held by payment_intents_provider_object_key, and a reference is not expressible because the row is at the provider",
         },
       ],
       minimumTables: ALL_TABLES.length,
