@@ -17,7 +17,18 @@ export type IntentEvent =
   | "confirmed"
   | "underpaid"
   | "expire"
-  | "reorg_below_threshold";
+  | "reorg_below_threshold"
+  // ── Card rail (ADR 0001 D5) ──────────────────────────────────────────────
+  // Named `card_*` rather than reusing the chain events, because the two rails
+  // reach some of the same statuses by different routes and a shared event name
+  // would make `LEGAL_SOURCES` unable to say which route it meant. `confirmed`
+  // in particular is a CHAIN event with `['confirming']` as its only legal
+  // source; a card charge that settles in one call comes from `created`.
+  | "card_requires_action"
+  | "card_processing"
+  | "card_settled"
+  | "card_failed"
+  | "card_canceled";
 
 function targetStatusFor(event: IntentEvent): PaymentIntentStatus {
   switch (event) {
@@ -42,6 +53,19 @@ function targetStatusFor(event: IntentEvent): PaymentIntentStatus {
     // Rewind of a settled intent — see the exception branch in applyEvent.
     case "reorg_below_threshold":
       return "confirming";
+    case "card_requires_action":
+      return "requires_action";
+    case "card_processing":
+      return "processing";
+    case "card_settled":
+      return "settled";
+    case "card_failed":
+      return "failed";
+    // A provider-side cancellation is a REJECTION, not an expiry: expiry is
+    // this gateway's own clock running out, and conflating them would make the
+    // expiry sweeper's numbers include payments it never expired.
+    case "card_canceled":
+      return "rejected";
   }
 }
 
@@ -66,6 +90,18 @@ const LEGAL_SOURCES: Partial<Record<IntentEvent, readonly PaymentIntentStatus[]>
   confirmed: ['confirming'],
   mempool_seen: ['broadcast', 'confirming'],
   underpaid: ['broadcast', 'confirming', 'approved'],
+  // The card events, bounded to the statuses a card payment can actually be in.
+  // The shared table alone would let `card_settled` act from `confirming`,
+  // which is a CHAIN status — and the lookup that finds an intent for a
+  // provider event cannot reach a faircoin row (it has no provider), so this is
+  // defence in depth rather than the only guard. It is here so that if that
+  // lookup ever does go wrong, it is a located error naming the event and the
+  // status, instead of a settled chain payment with no transaction behind it.
+  card_requires_action: ['created'],
+  card_processing: ['created', 'requires_action'],
+  card_settled: ['created', 'requires_action', 'processing'],
+  card_failed: ['created', 'requires_action', 'processing'],
+  card_canceled: ['created', 'requires_action'],
 };
 
 /**

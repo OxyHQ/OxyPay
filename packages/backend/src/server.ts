@@ -31,6 +31,7 @@ import { getTransaction } from "./services/explorer";
 import type { SafeFetchFn } from "./services/webhookDispatcher";
 import { kickWebhookOutbox, startWebhookOutbox } from "./services/webhookOutbox";
 import { startExpirySweeper } from "./services/expirySweeper";
+import { startProviderEventDrain } from "./services/providerEventDrain";
 import {
   initSocket,
   emitIntentUpdate,
@@ -260,6 +261,12 @@ export async function start(): Promise<void> {
   gateway.watcher.start();
   startWebhookOutbox({ safeFetch: undefined });
   startExpirySweeper();
+  // Started unconditionally, including where the card rail is off: a deployment
+  // that had Stripe configured and then had it removed still has stored events
+  // that have to be finished, and a drain gated on `config.stripe.enabled`
+  // would leave them unprocessed with no sign that anything was wrong. With no
+  // events the pass reads an empty partial index and does nothing.
+  startProviderEventDrain();
   gateway.httpServer.listen(config.port);
 }
 
