@@ -22,9 +22,14 @@ import { insertPaymentLink, type PaymentLinkRow } from '../../db/payments/paymen
 import { insertSendAttribution } from '../../db/social/sendAttribution';
 import type { SocialSendAttributionRow } from '../../db/social/sendAttribution';
 import {
-  insertWebhookDelivery,
+  findDeliveryForMerchant,
   type WebhookDeliveryRow,
 } from '../../db/webhooks/webhookDeliveryRepository';
+import {
+  enqueueWebhook,
+  recordDeliveryAttempt,
+} from '../../db/webhooks/webhookOutboxRepository';
+import { toPaymentIntentDTO } from '../../lib/serialize';
 import type { Database } from '../../db/postgres';
 import {
   createSuiteDatabase,
@@ -309,24 +314,60 @@ export interface SeedDeliveryValues {
   readonly eventId?: string;
   readonly eventType?: WebhookEventType;
   readonly url?: string;
-  readonly attempts?: number;
-  readonly delivered?: boolean;
+  /**
+   * Leave a seeded delivery `pending` instead of settling it.
+   *
+   * The default is a DELIVERED row, because most suites want a delivery that
+   * already happened and must not have the outbox dispatcher pick their fixture
+   * up mid-test. A suite exercising the queue asks for `pending: true`.
+   */
+  readonly pending?: boolean;
 }
 
+/**
+ * Seed a delivery.
+ *
+ * Two writes, not one, and that is the outbox's shape rather than an
+ * inefficiency: `enqueueWebhook` is the only way a row is created, and
+ * `recordDeliveryAttempt` is the only way one reaches a terminal status. A
+ * helper that inserted a delivered row directly would be a second writer with
+ * no attempt behind it — exactly the shape `insertWebhookDelivery` had, and the
+ * reason it is gone.
+ */
 export async function seedDelivery(
   merchant: MerchantRow,
   intent: PaymentIntentRow,
   values: SeedDeliveryValues = {}
 ): Promise<WebhookDeliveryRow> {
-  return insertWebhookDelivery(gatewayDb(), {
+  const url = values.url ?? merchant.webhookUrl ?? 'https://merchant.example/hook';
+  const eventType = values.eventType ?? 'payment_intent.settled';
+  const eventId = values.eventId ?? `evt_${uuidv7()}`;
+
+  const id = await enqueueWebhook(gatewayDb(), {
     merchantId: merchant.id,
     paymentIntentId: intent.id,
-    eventId: values.eventId ?? `evt_${uuidv7()}`,
-    eventType: values.eventType ?? 'payment_intent.settled',
-    url: values.url ?? merchant.webhookUrl ?? 'https://merchant.example/hook',
-    attempts: values.attempts ?? 1,
-    delivered: values.delivered ?? true,
+    event: {
+      id: eventId,
+      object: 'event',
+      type: eventType,
+      created: new Date().toISOString(),
+      data: { object: toPaymentIntentDTO(intent) },
+    },
+    url,
   });
+
+  if (values.pending !== true) {
+    await recordDeliveryAttempt(gatewayDb(), {
+      id,
+      outcome: { kind: 'delivered' },
+      url,
+      nextAttemptAt: null,
+    });
+  }
+
+  const row = await findDeliveryForMerchant(gatewayDb(), id, merchant.id);
+  if (!row) throw new Error(`seedDelivery: delivery ${id} vanished after enqueue`);
+  return row;
 }
 
 export interface SeedAttributionValues {

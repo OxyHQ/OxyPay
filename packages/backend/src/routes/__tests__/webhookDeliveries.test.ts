@@ -96,8 +96,7 @@ beforeAll(async () => {
     eventId: "evt_0000000000000000000000f1",
     eventType: "payment_intent.settled",
     url: "https://merchant.example/hook",
-    attempts: 3,
-    delivered: false,
+    pending: true,
   });
   deliveryId = delivery.id;
 
@@ -174,8 +173,6 @@ describe("POST /v1/webhook_deliveries/:id/redeliver", () => {
       eventId: "evt_0000000000000000000000f2",
       eventType: "payment_intent.settled",
       url: "https://other.example/hook",
-      attempts: 1,
-      delivered: true,
     });
 
     const res = await fetch(`${baseUrl}/v1/webhook_deliveries/${otherDelivery.id}/redeliver`, {

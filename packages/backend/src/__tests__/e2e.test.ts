@@ -35,6 +35,8 @@ import {
   useGatewayDatabase,
 } from "./helpers/gatewayTestDatabase";
 import { createGateway, type Gateway } from "../server";
+import { runWebhookOutboxPass } from "../services/webhookOutbox";
+import type { SafeFetchFn } from "../services/webhookDispatcher";
 import { intentRoom } from "../realtime/socket";
 import type { ExplorerTx } from "../services/explorer";
 
@@ -284,7 +286,25 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   const doc = await findIntentByPublicId(gatewayDb(), created.id);
   expect(doc?.status).toBe("settled");
 
-  // 7. A correctly-signed settled webhook was delivered to the merchant.
+  // 7. The merchant's event was ENQUEUED by the transition, and the dispatcher
+  // delivers it. Two steps rather than one since ADR 0001 D7: the watcher's
+  // commit writes a durable promise, and a separate pass keeps it. The pass is
+  // run explicitly here because `createGateway` deliberately starts no
+  // background loop — that happens in `start()`, so a suite building a gateway
+  // does not acquire one making real requests.
+  const beforeDispatch = (
+    await listDeliveriesForMerchant(gatewayDb(), {
+      merchantId: merchantRow.id,
+      limit: 50,
+    })
+  ).data;
+  expect(beforeDispatch.at(0)?.lastStatus).toBe("pending");
+  expect(webhookCalls).toHaveLength(0);
+
+  const pass = await runWebhookOutboxPass({ safeFetch: fakeSafeFetch as SafeFetchFn });
+  expect(pass).toMatchObject({ claimed: 1, delivered: 1 });
+
+  // A correctly-signed settled webhook reached the merchant.
   const hook = webhookCalls.at(-1);
   if (!hook) throw new Error("no webhook captured");
   const signature = hook.headers["Peable-Signature"];
@@ -305,7 +325,7 @@ test("atomic flow: create -> submit_tx -> watcher settles -> socket + webhook", 
   expect(payload.type).toBe("payment_intent.settled");
   expect(payload.data.object.status).toBe("settled");
 
-  // 7b. The delivery was also persisted (F2.0 task 4).
+  // 7b. And the promise is now recorded as kept.
   const deliveryLog = (
     await listDeliveriesForMerchant(gatewayDb(), {
       merchantId: merchantRow.id,

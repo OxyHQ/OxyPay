@@ -20,7 +20,6 @@ import {
   findIntentByPublicId,
   findIntentForMerchant,
   listIntentsForMerchant,
-  updateIntentState,
 } from "../db/payments/paymentIntentRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
 import {
@@ -29,6 +28,7 @@ import {
   RailMismatchError,
 } from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
+import { announceIntentChange, transitionIntent } from "../services/intentTransition";
 import { toPaymentIntentDTO } from "../lib/serialize";
 import { sendError, wrap, requireServiceApp, requireAuthenticated } from "../lib/http";
 import { railBodyFields } from "../lib/railSchema";
@@ -397,11 +397,18 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      const rejected = await updateIntentState(getDb(), intent.id, { status: nextStatus });
+      // `transitionIntent`, not `updateIntentState`. This route mutated the
+      // status and returned, so `payment_intent.rejected` was emitted by NO
+      // path a merchant could trigger — the only way to see one was the
+      // settlement watcher, which never produces that status, or a manual
+      // redelivery of a row that therefore never existed. The event type has
+      // been in the published contract since the first release.
+      const rejected = await transitionIntent(intent.id, { status: nextStatus });
       if (!rejected) {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      announceIntentChange(rejected);
       res.status(200).json(toPaymentIntentDTO(rejected));
     }),
   );
@@ -458,7 +465,13 @@ export function createPaymentIntentsRouter(deps: {
       // Status and txid move in ONE statement: `payment_intents_broadcast_requires_txid_check`
       // refuses `broadcast` without the txid beside it, so two writes could not
       // satisfy the constraint in either order.
-      const broadcast = await updateIntentState(getDb(), intent.id, {
+      //
+      // `broadcast` maps to no webhook event — a merchant acts on outcomes, not
+      // on a payer pressing send — so `transitionIntent` enqueues nothing here.
+      // It is still the right entry point: the announce below is what puts the
+      // "payment sent, waiting to be seen on-chain" frame on the payer's own
+      // checkout page, which this route previously left to the next poll.
+      const broadcast = await transitionIntent(intent.id, {
         status: nextStatus,
         txid: parsed.data.txid,
       });
@@ -466,6 +479,7 @@ export function createPaymentIntentsRouter(deps: {
         sendError(res, 404, "invalid_request_error", "payment intent not found");
         return;
       }
+      announceIntentChange(broadcast);
       res.status(200).json(toPaymentIntentDTO(broadcast));
     }),
   );

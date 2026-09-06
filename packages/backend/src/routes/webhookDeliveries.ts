@@ -5,13 +5,12 @@ import { getDb } from "../db/postgres";
 import { findWebhookTarget } from "../db/merchants/merchantRepository";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
 import { findIntentByIdForMerchant } from "../db/payments/paymentIntentRepository";
-import {
-  findDeliveryForMerchant,
-  insertWebhookDelivery,
-} from "../db/webhooks/webhookDeliveryRepository";
+import { findDeliveryForMerchant } from "../db/webhooks/webhookDeliveryRepository";
 import type { WebhookDeliveryRow } from "../db/webhooks/webhookDeliveryRepository";
-import { buildEvent, deliver, type SafeFetchFn } from "../services/webhookDispatcher";
-import { toPaymentIntentDTO, toWebhookDeliveryDTO } from "../lib/serialize";
+import { enqueueWebhook } from "../db/webhooks/webhookOutboxRepository";
+import type { SafeFetchFn } from "../services/webhookDispatcher";
+import { runWebhookOutboxPass } from "../services/webhookOutbox";
+import { toWebhookDeliveryDTO } from "../lib/serialize";
 import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
 
@@ -72,24 +71,47 @@ export async function redeliverWebhookDelivery(
     return { ok: false, status: 422, message: "merchant has no webhook configured" };
   }
 
-  const event = buildEvent(delivery.eventType, toPaymentIntentDTO(intent));
-  const outcome = await deliver(
-    event,
-    { url: target.url, secret: target.secret },
-    deps.safeFetch ? { safeFetch: deps.safeFetch } : {},
-  );
+  // A delivery from before this table stored envelopes cannot be replayed: the
+  // body was built, POSTed and discarded, so there is nothing to send. Saying
+  // so is the only honest answer — the alternative is rebuilding the event from
+  // today's intent, which is what this path used to do and what made a replayed
+  // `payment_intent.settled` describe a different moment than the one it
+  // claimed.
+  if (Object.keys(delivery.payload).length === 0) {
+    return {
+      ok: false,
+      status: 422,
+      message: "this delivery predates stored envelopes and cannot be replayed",
+    };
+  }
 
-  // `lastStatus` is derived from `delivered` inside the repository, so the
-  // pair can never disagree and trip `webhook_deliveries_status_agrees_check`.
-  const redelivery = await insertWebhookDelivery(db, {
+  // The ORIGINAL envelope, replayed byte-for-byte — not a fresh one built from
+  // the intent's state now.
+  //
+  // This path used to call `buildEvent(delivery.eventType, intent)`, which
+  // rebuilt the event from whatever the intent looks like AT REDELIVERY TIME.
+  // Replaying a `payment_intent.settled` from last week therefore sent a body
+  // describing this week's intent, under an event type asserting a moment that
+  // had passed. An event describes a moment; it does not get to change. The
+  // stored `payload` is what makes replaying one honest.
+  const enqueuedId = await enqueueWebhook(db, {
     merchantId: merchant.id,
     paymentIntentId: intent.id,
-    eventId: event.id,
-    eventType: delivery.eventType,
+    event: delivery.payload as unknown as Parameters<typeof enqueueWebhook>[1]["event"],
     url: target.url,
-    attempts: outcome.attempts,
-    delivered: outcome.delivered,
   });
+
+  // Run one pass INLINE so a person who pressed "redeliver" sees the outcome
+  // rather than a row that says `pending`. It is only an early nudge: if the
+  // attempt fails transiently the row keeps its schedule and the background
+  // dispatcher carries on with it, which is the difference from the old
+  // behaviour, where a failed redelivery was simply over.
+  await runWebhookOutboxPass(deps.safeFetch ? { safeFetch: deps.safeFetch } : {});
+
+  const redelivery = await findDeliveryForMerchant(db, enqueuedId, merchant.id);
+  if (!redelivery) {
+    return { ok: false, status: 404, message: "webhook delivery not found" };
+  }
 
   return { ok: true, delivery: redelivery, intentPublicId: intent.publicId };
 }

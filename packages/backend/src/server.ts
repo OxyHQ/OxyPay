@@ -14,15 +14,8 @@ import express, {
 import { Server as SocketServer } from "socket.io";
 import { oxyClient } from "@oxyhq/core";
 import { createOxyCors, createOxyRateLimit } from "@oxyhq/core/server";
-import type {
-  PaymentIntentStatus,
-  WebhookEventType,
-} from "@peable.to/shared-types";
 import { config } from "./config";
 import { connectPostgres } from "./db/postgres";
-import { getDb } from "./db/postgres";
-import { findWebhookTarget } from "./db/merchants/merchantRepository";
-import { insertWebhookDelivery } from "./db/webhooks/webhookDeliveryRepository";
 import { createPaymentIntentsRouter } from "./routes/paymentIntents";
 import { createMerchantsRouter } from "./routes/merchants";
 import { createWebhookDeliveriesRouter } from "./routes/webhookDeliveries";
@@ -34,17 +27,14 @@ import { createDashboardRouter } from "./routes/dashboard";
 import { SettlementWatcher } from "./services/settlementWatcher";
 import type { PaymentIntentRow } from "./db/payments/paymentIntentRepository";
 import { getTransaction } from "./services/explorer";
-import {
-  buildEvent,
-  deliver,
-  type SafeFetchFn,
-} from "./services/webhookDispatcher";
+import type { SafeFetchFn } from "./services/webhookDispatcher";
+import { kickWebhookOutbox, startWebhookOutbox } from "./services/webhookOutbox";
+import { startExpirySweeper } from "./services/expirySweeper";
 import {
   initSocket,
   emitIntentUpdate,
   type SocketAuth,
 } from "./realtime/socket";
-import { toPaymentIntentDTO } from "./lib/serialize";
 
 /** Date-based API version, echoed on every response (Stripe-parity). */
 const PEABLE_VERSION = "2026-07-18";
@@ -62,17 +52,6 @@ const PEABLE_VERSION = "2026-07-18";
  */
 const PUBLIC_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const PUBLIC_RATE_LIMIT_MAX = 30;
-
-/** Which statuses emit a webhook, and the Stripe-parity event type for each. */
-const WEBHOOK_EVENT_FOR: Partial<
-  Record<PaymentIntentStatus, WebhookEventType>
-> = {
-  confirming: "payment_intent.confirming",
-  settled: "payment_intent.settled",
-  failed: "payment_intent.failed",
-  rejected: "payment_intent.rejected",
-  expired: "payment_intent.expired",
-};
 
 export interface GatewayDeps {
   /**
@@ -111,54 +90,31 @@ export interface Gateway {
 }
 
 /**
- * When the watcher advances an intent, fan the change out to both transports:
- * the payer's realtime socket room AND the merchant's signed webhook. Webhook
- * delivery is best-effort (never throws) so it cannot stall the watcher.
- * Exported for direct testing (`__tests__/onIntentChange.test.ts`).
+ * Announce a transition the watcher has already COMMITTED.
+ *
+ * This used to be the whole fan-out: emit the socket frame, then look up the
+ * merchant's endpoint and POST the webhook inline, then best-effort write a log
+ * row. Two of those three moved (ADR 0001 D7). The outbox row is now written
+ * inside `transitionIntent`'s transaction, so it cannot be lost between the
+ * commit and the HTTP call, and the HTTP call itself belongs to the dispatcher,
+ * which can retry across hours instead of across 150 milliseconds.
+ *
+ * What is left is the part that is not durable and must not be: a realtime
+ * frame for whoever is watching, and a nudge asking the dispatcher to run its
+ * next pass now rather than at the next tick.
+ *
+ * Still `async` and still never throwing, because `SettlementWatcher.check()`
+ * awaits `onChange` inline per intent with no per-iteration try/catch of its
+ * own. Exported for direct testing (`__tests__/onIntentChange.test.ts`).
  */
 export async function onIntentChange(
   io: SocketServer,
   intent: PaymentIntentRow,
-  safeFetch: SafeFetchFn | undefined,
+  _safeFetch?: SafeFetchFn | undefined,
 ): Promise<void> {
   emitIntentUpdate(io, intent);
-
-  const eventType = WEBHOOK_EVENT_FOR[intent.status];
-  if (eventType === undefined) return;
-
-  const db = getDb();
-  // The webhook URL and its signing secret are loaded together, by the one
-  // read that is allowed to select `webhook_secret` — a protected column. A
-  // merchant with either half missing has no webhook configured.
-  const target = await findWebhookTarget(db, intent.merchantId);
-  if (!target) return;
-
-  const event = buildEvent(eventType, toPaymentIntentDTO(intent));
-  const outcome = await deliver(
-    event,
-    { url: target.url, secret: target.secret },
-    safeFetch ? { safeFetch } : {},
-  );
-
-  // Persisting the delivery log is best-effort, same as `deliver()` itself —
-  // a transient database write failure here must never abort the settlement
-  // watcher's poll loop (`SettlementWatcher.check()` awaits `onChange` inline
-  // per intent, with no per-iteration try/catch of its own).
-  try {
-    await insertWebhookDelivery(db, {
-      merchantId: intent.merchantId,
-      paymentIntentId: intent.id,
-      eventId: event.id,
-      eventType,
-      url: target.url,
-      attempts: outcome.attempts,
-      delivered: outcome.delivered,
-    });
-  } catch (error) {
-    process.emitWarning(
-      error instanceof Error ? error : new Error(String(error)),
-    );
-  }
+  kickWebhookOutbox();
+  await Promise.resolve();
 }
 
 /**
@@ -268,16 +224,26 @@ export function createGateway(deps: GatewayDeps = {}): Gateway {
 }
 
 /**
- * Production entry: open the database, boot the watcher, and listen.
+ * Production entry: open the database, boot the watcher and the outbox
+ * dispatcher, and listen.
  *
  * `connectPostgres` proves the connection with one round trip before anything
  * listens, so a bad `DATABASE_URL` is a boot failure rather than the 500 of
  * whichever request first happens to need the database.
+ *
+ * The outbox dispatcher is started HERE and not in `createGateway`, alongside
+ * the watcher and for the same reason: a suite builds gateways to exercise
+ * routes and must not thereby acquire a background loop making real HTTP
+ * requests. Both are `.unref()`-ed, so neither keeps the process alive on its
+ * own — and both are deliberately started per PROCESS, so N tasks share the
+ * queue through `SKIP LOCKED` rather than needing a leader.
  */
 export async function start(): Promise<void> {
   await connectPostgres();
   const gateway = createGateway();
   gateway.watcher.start();
+  startWebhookOutbox({ safeFetch: undefined });
+  startExpirySweeper();
   gateway.httpServer.listen(config.port);
 }
 

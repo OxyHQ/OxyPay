@@ -341,6 +341,44 @@ export async function findIntentsByAddresses(
 }
 
 /**
+ * Intents that have run out of time.
+ *
+ * The statuses are a CLOSED, hand-written list and not "everything
+ * non-terminal", and that is the whole safety of this query. `approved`,
+ * `broadcast` and `confirming` are deliberately absent: a payer has committed
+ * funds by then, and expiring one of those would abandon a payment that is
+ * on its way — the intent would read `expired` while coins arrived at an address
+ * nobody is watching any more. Only the states where nothing has been sent yet
+ * are expirable.
+ *
+ * `requires_action` and `processing` are the card rail's equivalents and are
+ * included for the same reason: an SCA challenge nobody completed, and a charge
+ * the provider never resolved, are both a checkout the buyer walked away from.
+ */
+export async function findExpiredIntents(
+  db: DatabaseOrTransaction,
+  params: { readonly now: Date; readonly limit: number }
+): Promise<PaymentIntentRow[]> {
+  const rows = await db
+    .select(INTENT_COLUMNS)
+    .from(paymentIntents)
+    .where(
+      and(
+        inArray(paymentIntents.status, [
+          'created',
+          'awaiting_approval',
+          'requires_action',
+          'processing',
+        ]),
+        lt(paymentIntents.expiresAt, params.now)
+      )
+    )
+    .orderBy(paymentIntents.expiresAt)
+    .limit(params.limit);
+  return rows.map(toIntentRow);
+}
+
+/**
  * What the settlement watcher polls: in-flight intents carrying a payer-reported
  * txid. Terminal and pre-broadcast intents are never watched, and an intent with
  * no txid has nothing to look up on chain.

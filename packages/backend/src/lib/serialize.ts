@@ -99,6 +99,13 @@ export function toWebhookDeliveryDTO(
     attempts: row.attempts,
     delivered: row.delivered,
     lastStatus: row.lastStatus,
+    // Omitted rather than emitted as `null`: the DTO's optional fields mean
+    // "there is nothing to say", and a `lastError: null` on a delivered
+    // delivery reads like an error field a consumer has to check.
+    ...(row.lastError !== null ? { lastError: row.lastError } : {}),
+    ...(row.nextAttemptAt !== null
+      ? { nextAttemptAt: row.nextAttemptAt.toISOString() }
+      : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

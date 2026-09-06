@@ -1,13 +1,11 @@
 import type { PaymentIntentStatus } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
-import {
-  findWatchableIntents,
-  updateIntentState,
-} from "../db/payments/paymentIntentRepository";
+import { findWatchableIntents } from "../db/payments/paymentIntentRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import { toBaseUnits } from "../lib/money";
 import { applyEvent } from "./intentState";
+import { transitionIntent } from "./intentTransition";
 import { verifyPayment } from "./explorer";
 
 /**
@@ -28,7 +26,7 @@ export interface WatcherDeps {
   getTransaction: typeof import("./explorer").getTransaction;
   /**
    * Invoked once per actual status change, with the intent AS PERSISTED by
-   * that change — the row `updateIntentState` returned, never the pre-update
+   * that change — the row `transitionIntent` returned, never the pre-update
    * one. The Mongo path mutated the document in place and saved it, so the
    * handed-over object carried the new state implicitly; here the new state
    * exists only in the returned row.
@@ -122,11 +120,16 @@ export class SettlementWatcher {
     const next = nextStatusFor(current, paid, confirmations, requiredConfirmations);
     if (next === current) return;
 
-    // The status and the confirmation count move in ONE statement, and
-    // `onChange` receives what the database actually stored. A row that
-    // vanished between the poll and the update is not an error: there is
-    // simply nothing to announce.
-    const updated = await updateIntentState(db, intent.id, {
+    // The status, the confirmation count AND the merchant's outbox row move in
+    // ONE transaction, and `onChange` receives what the database actually
+    // stored. A row that vanished between the poll and the update is not an
+    // error: there is simply nothing to announce.
+    //
+    // `transitionIntent` rather than `updateIntentState`: an event enqueued
+    // after this commit rather than inside it is an event a crash loses, with
+    // the intent already settled and nothing recording that a merchant was
+    // never told.
+    const updated = await transitionIntent(intent.id, {
       status: next,
       confirmations,
     });

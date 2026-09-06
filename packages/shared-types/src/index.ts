@@ -21,7 +21,10 @@ export {
   CARD_ONLY_STATUSES,
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
-export { type WebhookDelivery } from './webhookDelivery';
+export {
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+} from './webhookDelivery';
 export { signWebhook, verifyWebhook } from './webhookSigner';
 export {
   type MerchantEnvironment,

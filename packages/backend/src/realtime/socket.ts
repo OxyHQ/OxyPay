@@ -236,7 +236,36 @@ export function ipConnectionThrottle(limiter: FixedWindowLimiter): SocketAuth {
  * must check `socket.user` itself — the optional connection auth does NOT
  * imply every event is safe for an anonymous socket.
  */
+/**
+ * The Socket.IO server this process is serving on, if any.
+ *
+ * A module-level handle rather than a parameter, because the paths that now
+ * need to announce a change — a route handler, the expiry sweeper — are not
+ * handed one and threading `io` through every caller would put a transport
+ * detail in signatures that have no other reason to know about transports.
+ *
+ * Last `initSocket` wins. In production there is exactly one server; a test
+ * that builds two gateways announces into the second, which is why
+ * `emitIntentUpdate(io, …)` stays exported for suites that assert on a
+ * specific instance.
+ */
+let activeIo: Server | null = null;
+
+/**
+ * Emit an intent update to whichever server is active, if one is.
+ *
+ * A no-op with no server registered, deliberately: a realtime frame is a
+ * convenience on top of a durable state change and a durable outbox row, and
+ * failing a rejection because nobody happened to be listening would be the
+ * wrong trade in every direction.
+ */
+export function emitIntentUpdateToActive(intent: PaymentIntentRow): void {
+  if (activeIo === null) return;
+  emitIntentUpdate(activeIo, intent);
+}
+
 export function initSocket(io: Server, deps: SocketDeps = {}): void {
+  activeIo = io;
   const identityAuth = deps.socketAuth ?? oxyClient.authSocket();
   const ipConnectLimiter = new FixedWindowLimiter(IP_CONNECT_WINDOW_MS, IP_CONNECT_MAX);
   const subscribeLimiter = new FixedWindowLimiter(

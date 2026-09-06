@@ -101,8 +101,30 @@ export type WebhookEventTypesAreComplete = AssertAllListed<
   (typeof WEBHOOK_EVENT_TYPES)[number]
 >;
 
-/** Outcome of the last delivery attempt for a webhook. */
-export const WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed'] as const;
+/**
+ * Where one webhook delivery stands.
+ *
+ * Was `['delivered', 'failed']` — the two outcomes an inline, best-effort
+ * `deliver()` could report once it had already finished. ADR 0001 D7 makes
+ * delivery a durable outbox, so a row now exists BEFORE any attempt and the set
+ * has to say so.
+ *
+ *  - `pending`   — will be attempted. `next_attempt_at` says when; `attempts`
+ *                  may be 0 (never tried) or more (a transient failure backed
+ *                  off). These are the only rows the dispatcher claims.
+ *  - `delivered` — terminal success.
+ *  - `failed`    — terminal REFUSAL. The target answered something no retry can
+ *                  fix (a 4xx, an SSRF rejection). Distinct from `dead` because
+ *                  the causes need different operator responses: this one is a
+ *                  merchant endpoint problem.
+ *  - `dead`      — terminal EXHAUSTION. Every attempt was transient and the
+ *                  budget ran out. The event is still in the row and can be
+ *                  redelivered by hand.
+ */
+export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivered', 'failed', 'dead'] as const;
+
+/** The statuses from which no further attempt is made. */
+export const TERMINAL_WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed', 'dead'] as const;
 
 /**
  * The currencies this gateway denominates in.
