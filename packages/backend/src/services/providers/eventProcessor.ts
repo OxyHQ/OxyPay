@@ -7,12 +7,16 @@
  * must not be waiting on the second — an event whose handling fails is a row to
  * retry, not a delivery to re-request.
  *
- * **Nothing here trusts the payload.** The stored body has been through
- * `redactProviderPayload`, which is an allow-list, so most of it is gone by
- * design — and even the parts that survive are the provider's account of
- * events, kept for a human to read. Every decision below is made from
- * `object_ids` and `type`, which the ingress derived at verification time from
- * the signed envelope.
+ * **The stored payload is AUTHENTIC but LOSSY, and the difference matters.** It
+ * reached this table only through a signature check, so what is in it is what
+ * the provider sent — but `redactProviderPayload` is an allow-list, so most of
+ * it is gone by design. A handler may read a field the allow-list KEEPS
+ * (`amount_reversed` is one, and is why the reversal handler below can work);
+ * it must never depend on one the allow-list drops, because that field will be
+ * `"[redacted]"` rather than missing, and a numeric read of it silently
+ * produces `NaN`. The routing decisions — which object, which handler — are
+ * made from `object_ids` and `type`, which the ingress derived at verification
+ * time and which redaction never touches.
  */
 import type { ProviderEventRow } from "../../db/providers/providerEventRepository";
 import {
@@ -20,6 +24,9 @@ import {
   markProviderEventProcessed,
 } from "../../db/providers/providerEventRepository";
 import { findIntentByProviderObject } from "../../db/payments/paymentIntentRepository";
+import { findAccountByProviderAccountId } from "../../db/accounts/connectedAccountRepository";
+import { applyTransferReversal, findTransferByProviderObject } from "../../db/transfers/transferRepository";
+import { refreshConnectedAccount } from "../accounts/connectedAccountService";
 import { getDb } from "../../db/postgres";
 import { applyEvent, type IntentEvent } from "../intentState";
 import { announceIntentChange, transitionIntent } from "../intentTransition";
@@ -55,6 +62,31 @@ const INTENT_EVENT_FOR: Readonly<Record<string, IntentEvent>> = {
 
 /** Which key in `object_ids` names the payment this event is about. */
 const PAYMENT_OBJECT_KEY = "payment_intent";
+/** ...the connected account. */
+const ACCOUNT_OBJECT_KEY = "account";
+/** ...the transfer. */
+const TRANSFER_OBJECT_KEY = "transfer";
+
+/**
+ * Account events that mean "re-read this account".
+ *
+ * All of them do the same thing, and deliberately: the event says something
+ * changed, and the only trustworthy account of WHAT is a fresh read. Parsing
+ * the account out of the delivery would also work until the payload is
+ * redacted — which it is — and then it would work partially, which is worse.
+ */
+const ACCOUNT_REFRESH_EVENTS: ReadonlySet<string> = new Set([
+  "account.updated",
+  "account.application.authorized",
+  "account.application.deauthorized",
+  "capability.updated",
+]);
+
+/** Transfer events that carry a cumulative reversed total. */
+const TRANSFER_REVERSAL_EVENTS: ReadonlySet<string> = new Set([
+  "transfer.reversed",
+  "transfer.updated",
+]);
 
 export type ProcessOutcome =
   /** The intent moved. */
@@ -80,6 +112,13 @@ export async function processProviderEvent(
   const db = getDb();
 
   try {
+    if (ACCOUNT_REFRESH_EVENTS.has(event.type)) {
+      return await handleAccountEvent(db, event);
+    }
+    if (TRANSFER_REVERSAL_EVENTS.has(event.type)) {
+      return await handleTransferEvent(db, event);
+    }
+
     const intentEvent = INTENT_EVENT_FOR[event.type];
     if (!intentEvent) {
       await markProviderEventProcessed(db, event.id);
@@ -149,4 +188,107 @@ export async function processProviderEvent(
     await markProviderEventFailed(db, event.id, message).catch(() => undefined);
     return { kind: "failed", error: message };
   }
+}
+
+/**
+ * An account changed at the provider: re-read it.
+ *
+ * This is what makes a seller's readiness arrive without anyone polling — and
+ * the reason `card_payments` is requested beside transfers, because a
+ * recipient-only account emits none of these at all (Mercaria's ADR 0008 D2-D).
+ * A deployment that dropped that capability would find this handler correct and
+ * never invoked.
+ */
+async function handleAccountEvent(
+  db: ReturnType<typeof getDb>,
+  event: ProviderEventRow,
+): Promise<ProcessOutcome> {
+  const providerAccountId = event.objectIds[ACCOUNT_OBJECT_KEY] ?? event.providerAccountId;
+  if (!providerAccountId) {
+    await markProviderEventFailed(db, event.id, `no ${ACCOUNT_OBJECT_KEY} id on a ${event.type}`);
+    return { kind: "failed", error: `no ${ACCOUNT_OBJECT_KEY} id on a ${event.type}` };
+  }
+
+  const account = await findAccountByProviderAccountId(
+    db,
+    event.provider as ProviderId,
+    providerAccountId,
+  );
+  if (!account) {
+    /**
+     * An account this gateway never opened.
+     *
+     * Left UNPROCESSED, the same as an unmatched payment, and for the same
+     * reason: the overwhelmingly likely cause is that our own create has not
+     * committed yet. The other cause — a connected account belonging to a
+     * different platform integration on the same Stripe account — resolves the
+     * same way from here: it stays, visibly, for an operator.
+     */
+    return { kind: "unmatched" };
+  }
+
+  await refreshConnectedAccount(account);
+  await markProviderEventProcessed(db, event.id);
+  return { kind: "applied", intentId: account.id, status: "account_refreshed" };
+}
+
+/**
+ * A transfer changed at the provider.
+ *
+ * The cumulative reversed total is read from the stored payload, which is legal
+ * precisely because `amount_reversed` is on the redaction allow-list — see this
+ * file's header. Anything else about the transfer is not read, and must not be:
+ * the fields that were dropped read as `"[redacted]"`, not as missing.
+ */
+async function handleTransferEvent(
+  db: ReturnType<typeof getDb>,
+  event: ProviderEventRow,
+): Promise<ProcessOutcome> {
+  const transferObjectId = event.objectIds[TRANSFER_OBJECT_KEY];
+  if (!transferObjectId) {
+    await markProviderEventFailed(db, event.id, `no ${TRANSFER_OBJECT_KEY} id on a ${event.type}`);
+    return { kind: "failed", error: `no ${TRANSFER_OBJECT_KEY} id on a ${event.type}` };
+  }
+
+  const transfer = await findTransferByProviderObject(
+    db,
+    event.provider as ProviderId,
+    transferObjectId,
+  );
+  if (!transfer) return { kind: "unmatched" };
+
+  const total = readReversedTotal(event.payload);
+  if (total === null) {
+    // The event names a transfer we have but carries no usable total. Recorded
+    // rather than skipped: it means the allow-list and this handler disagree,
+    // which is a bug here and not at the provider.
+    await markProviderEventFailed(db, event.id, `no usable amount_reversed on a ${event.type}`);
+    return { kind: "failed", error: `no usable amount_reversed on a ${event.type}` };
+  }
+
+  const updated = await applyTransferReversal(db, transfer.id, total);
+  await markProviderEventProcessed(db, event.id);
+  // `null` means the stored total was already at least this one — an
+  // out-of-order delivery, which is ordinary and not a failure.
+  return updated
+    ? { kind: "applied", intentId: updated.id, status: updated.status }
+    : { kind: "noop", intentId: transfer.id };
+}
+
+/**
+ * The cumulative reversed total out of a stored Stripe transfer event.
+ *
+ * Returns `null` rather than guessing. Stripe reports it as a NUMBER of minor
+ * units; the column holds a canonical integer string, so the conversion is
+ * explicit and refuses anything that is not a safe non-negative integer —
+ * `"[redacted]"` and a float both land here and both must not become an amount.
+ */
+function readReversedTotal(payload: Record<string, unknown>): string | null {
+  const data = payload.data;
+  if (typeof data !== "object" || data === null) return null;
+  const object = (data as Record<string, unknown>).object;
+  if (typeof object !== "object" || object === null) return null;
+  const value = (object as Record<string, unknown>).amount_reversed;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return null;
+  return String(value);
 }

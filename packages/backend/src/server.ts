@@ -34,6 +34,7 @@ import type { SafeFetchFn } from "./services/webhookDispatcher";
 import { kickWebhookOutbox, startWebhookOutbox } from "./services/webhookOutbox";
 import { startExpirySweeper } from "./services/expirySweeper";
 import { startProviderEventDrain } from "./services/providerEventDrain";
+import { startAccountSync } from "./services/accountSync";
 import {
   initSocket,
   emitIntentUpdate,
@@ -271,6 +272,11 @@ export async function start(): Promise<void> {
   // would leave them unprocessed with no sign that anything was wrong. With no
   // events the pass reads an empty partial index and does nothing.
   startProviderEventDrain();
+  // The backstop for a missed `account.updated`. Gated on nothing, like the
+  // drain: with no accounts the pass reads an empty batch and does nothing, and
+  // with the rail off it stops after the first refusal rather than logging the
+  // same line per account.
+  startAccountSync();
   gateway.httpServer.listen(config.port);
 }
 
