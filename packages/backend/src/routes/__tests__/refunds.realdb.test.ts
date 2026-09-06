@@ -128,6 +128,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)("the refund API", () => {
         appName: "t",
         scopes: ["payments:read", "payments:write"],
         credentialId: "c",
+        ownerAccountId: "acct_refunds",
         environment: "development",
       };
       next();
