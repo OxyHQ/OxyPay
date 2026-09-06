@@ -29,6 +29,7 @@
     "@noble/hashes": "1.8.0",
     "@noble/secp256k1": "2.3.0",
     "@oxyhq/bloom": "^1.14.0",
+    "@oxyhq/contracts": "^0.40.0",
     "@oxyhq/core": "^23.2.1",
     "@oxyhq/services": "^30.2.5",
     "@peable.to/shared-types": "*",

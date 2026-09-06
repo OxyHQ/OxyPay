@@ -53,6 +53,7 @@ const stubRequireMerchant: RequestHandler = (req, _res, next) => {
     appName: "e2e",
     scopes: ["payments:write"],
     credentialId: "c",
+    ownerAccountId: "owner",
     environment: "development",
   };
   next();
