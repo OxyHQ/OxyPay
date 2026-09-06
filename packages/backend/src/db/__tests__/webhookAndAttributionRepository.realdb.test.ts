@@ -39,7 +39,9 @@ async function makeIntent(merchant: MerchantRow) {
   return (await insertPaymentIntent(suite!.db, {
     publicId: `pi_${unique}`,
     merchantId: merchant.id,
+    rail: 'faircoin' as const,
     amount: '100000000',
+    currency: 'FAIR' as const,
     network: merchant.network,
     address: `T${unique}`,
     clientSecret: `pi_${unique}_secret_x`,

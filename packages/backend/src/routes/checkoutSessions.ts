@@ -3,7 +3,7 @@ import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
-import { isBaseUnitString, type CreateCheckoutSessionParams } from "@peable.to/shared-types";
+import type { CreateCheckoutSessionParams } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import { findIntentById } from "../db/payments/paymentIntentRepository";
@@ -12,18 +12,20 @@ import {
   findSessionForMerchant,
   insertCheckoutSession,
 } from "../db/payments/checkoutSessionRepository";
-import { createIntent, NetworkMismatchError } from "../services/createIntent";
+import {
+  createIntent,
+  NetworkMismatchError,
+  RailMismatchError,
+} from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
 import { toCheckoutSessionDTO, toCheckoutSessionPublicDTO } from "../lib/serialize";
 import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
+import { railBodyFields } from "../lib/railSchema";
 
 const createBodySchema = z.object({
-  amount: z
-    .string()
-    .refine(isBaseUnitString, "amount must be a base-unit integer string"),
-  network: z.enum(["mainnet", "testnet"]),
+  ...railBodyFields,
   metadata: z.record(z.string(), z.string()).optional(),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
@@ -62,7 +64,7 @@ export function createCheckoutSessionsRouter(deps: {
         );
         return;
       }
-      const params: CreateCheckoutSessionParams = parsed.data;
+      const params: CreateCheckoutSessionParams = parsed.data as CreateCheckoutSessionParams;
 
       try {
         // No `idempotencyKey`: a checkout session wraps exactly ONE intent
@@ -71,7 +73,9 @@ export function createCheckoutSessionsRouter(deps: {
         const { intent } = await createIntent({
           merchant,
           amount: params.amount,
-          network: params.network,
+          ...(params.rail !== undefined ? { rail: params.rail } : {}),
+          ...(params.currency !== undefined ? { currency: params.currency } : {}),
+          ...(params.network !== undefined ? { network: params.network } : {}),
           metadata: params.metadata,
         });
 
@@ -90,7 +94,13 @@ export function createCheckoutSessionsRouter(deps: {
           environment: merchant.environment,
           paymentIntentId: intent.id,
           amount: params.amount,
-          network: params.network,
+          // Copied from the INTENT, never re-derived from the request. The two
+          // rows live in different tables, so no constraint can catch a session
+          // whose rail disagrees with the payment it wraps — and that
+          // disagreement is a card form rendered over a FairCoin payment.
+          currency: intent.currency,
+          rail: intent.rail,
+          network: intent.network,
           metadata: params.metadata ?? {},
           successUrl: params.successUrl,
           cancelUrl: params.cancelUrl,
@@ -105,7 +115,7 @@ export function createCheckoutSessionsRouter(deps: {
 
         res.status(201).json(toCheckoutSessionDTO(session, intent));
       } catch (err) {
-        if (err instanceof NetworkMismatchError) {
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
           return;
         }

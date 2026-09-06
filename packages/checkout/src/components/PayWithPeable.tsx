@@ -11,10 +11,28 @@ function isMobileDevice(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+/**
+ * A payment intent that actually has a chain payment behind it.
+ *
+ * The narrowing is the component's PROP TYPE rather than a check inside it, so
+ * `CheckoutView` cannot hand it a card intent and get an empty `address=` in a
+ * deep link. `isChainIntent` below is the one place that narrowing is decided
+ * (gateway ADR 0001 D6 made both fields nullable).
+ */
+export type ChainPaymentIntent = PaymentIntent & {
+  rail: 'faircoin';
+  address: string;
+  network: NonNullable<PaymentIntent['network']>;
+};
+
+export function isChainIntent(intent: PaymentIntent): intent is ChainPaymentIntent {
+  return intent.rail === 'faircoin' && intent.address !== null && intent.network !== null;
+}
+
 // Mode A: pay through the Peable wallet app. Mobile opens the `peable://`
 // deep link directly; desktop shows a QR of the same link for the payer to
 // scan with their phone.
-export function PayWithPeable({ intent }: { intent: PaymentIntent }) {
+export function PayWithPeable({ intent }: { intent: ChainPaymentIntent }) {
   const deepLink = buildPayDeepLink({
     intentId: intent.id,
     clientSecret: intent.clientSecret,

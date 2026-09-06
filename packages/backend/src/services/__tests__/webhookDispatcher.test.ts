@@ -21,6 +21,7 @@ const INTENT: PaymentIntent = {
   id: "pi_0000000000000000000000a1",
   object: "payment_intent",
   status: "settled",
+  rail: "faircoin",
   amount: "100000000",
   currency: "FAIR",
   network: "testnet",

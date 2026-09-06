@@ -14,9 +14,12 @@ import { createdAt, generatedId, inList, timestamptz, updatedAt } from '@oxyhq/d
 import { merchants } from './merchants';
 import {
   BASE_UNIT_STRING_PATTERN,
+  CARD_ONLY_STATUSES,
+  CHAIN_ONLY_STATUSES,
   CURRENCY_CODES,
   NETWORK_TYPES,
   PAYMENT_INTENT_STATUS_VALUES,
+  RAIL_VALUES,
   SERVICE_ENVIRONMENTS,
 } from './valueSets';
 
@@ -51,11 +54,27 @@ export const paymentIntents = pgTable(
      */
     publicId: text().notNull(),
     status: text().notNull(),
+    /**
+     * Which rail moves this payment (ADR 0001 D1).
+     *
+     * Defaults to `faircoin`: this table predates the card rail, so the default
+     * is what every existing row IS rather than a guess, and it is what lets
+     * the widening migration be additive.
+     */
+    rail: text().notNull().default('faircoin'),
     amount: text().notNull(),
     currency: text().notNull().default('FAIR'),
-    network: text().notNull(),
-    /** Watch-only receive address derived per intent from the merchant's xpub. */
-    address: text().notNull(),
+    /**
+     * FairCoin rail only — NULL on a card payment, which has no network.
+     *
+     * Nullable since ADR 0001 D6, which is also why `payment_intents_merchant_id_fkey`
+     * below exists: a NULL here switches the composite reference OFF entirely
+     * (`MATCH SIMPLE`), and that reference was the only thing constraining
+     * `merchant_id`. See `CONVENTIONS.md` §"A NULL in a composite reference".
+     */
+    network: text(),
+    /** Watch-only receive address derived per intent from the merchant's xpub. FairCoin rail only. */
+    address: text(),
     merchantId: text().notNull(),
     txid: text(),
     confirmations: integer().notNull().default(0),
@@ -96,17 +115,93 @@ export const paymentIntents = pgTable(
       columns: [table.merchantId, table.network],
       foreignColumns: [merchants.id, merchants.network],
     }).onDelete('restrict'),
+    /**
+     * What keeps `merchant_id` referential once `network` may be NULL.
+     *
+     * NOT redundant with the composite reference above, and the difference is
+     * the whole of ADR 0001 D6. A composite foreign key defaults to `MATCH
+     * SIMPLE`, which performs NO CHECK AT ALL as soon as any referencing column
+     * is NULL — so on a card intent the reference above is vacuous, and it was
+     * the ONLY thing pointing this column at `merchants`. MEASURED on
+     * PostgreSQL 16.13: without this constraint, a card intent naming
+     * `'ghost-merchant'` was accepted.
+     *
+     * `MATCH FULL` is the obvious alternative and is wrong: it demands
+     * all-or-nothing nullity, and `merchant_id` is NOT NULL, so it refuses
+     * every card intent outright.
+     */
+    foreignKey({
+      name: 'payment_intents_merchant_id_fkey',
+      columns: [table.merchantId],
+      foreignColumns: [merchants.id],
+    }).onDelete('restrict'),
     check(
       'payment_intents_status_check',
       sql.raw(`status in (${inList(PAYMENT_INTENT_STATUS_VALUES)})`)
     ),
+    check('payment_intents_rail_check', sql.raw(`rail in (${inList(RAIL_VALUES)})`)),
     check('payment_intents_currency_check', sql.raw(`currency in (${inList(CURRENCY_CODES)})`)),
-    check('payment_intents_network_check', sql.raw(`network in (${inList(NETWORK_TYPES)})`)),
+    /**
+     * The FairCoin rail settles in FAIR, and only it does.
+     *
+     * A FAIR-denominated card charge and a EUR-denominated chain payment are
+     * both expressible in the column types and neither is a payment this
+     * gateway can make: the second needs an FX conversion at settlement time
+     * that nothing here performs, and would quietly store an amount whose unit
+     * disagrees with the coins that arrive. `assertRailCurrency` in
+     * `services/createIntent.ts` refuses both with a 422; this is the same rule
+     * where a write that skipped it still has to pass.
+     */
+    check(
+      'payment_intents_rail_currency_agrees_check',
+      sql`(${table.rail} = 'faircoin') = (${table.currency} = 'FAIR')`
+    ),
+    check(
+      'payment_intents_network_check',
+      sql.raw(`network is null or network in (${inList(NETWORK_TYPES)})`)
+    ),
+    /**
+     * The FairCoin rail's own requirement, in the one place a write that
+     * skipped the application still has to pass. A `faircoin` intent with no
+     * address is a payer with nowhere to send money; with no network it is an
+     * address nobody can say which chain it is on.
+     */
+    check(
+      'payment_intents_faircoin_requires_chain_fields_check',
+      sql`${table.rail} <> 'faircoin' or (${table.address} is not null and ${table.network} is not null)`
+    ),
+    /**
+     * And the converse, which is not decoration: a card payment that carried an
+     * address would be a reserved derivation index nobody can ever settle, and
+     * a card payment naming a network would make the composite reference above
+     * bind — refusing a legal payment or, worse, tying a card charge to a chain.
+     */
+    check(
+      'payment_intents_card_has_no_chain_fields_check',
+      sql`${table.rail} <> 'card' or (${table.address} is null and ${table.network} is null and ${table.txid} is null and ${table.confirmations} = 0)`
+    ),
+    /**
+     * ADR 0001 D5: the four chain states describe a transaction on a blockchain
+     * and the four card states describe an authorization at an acquirer.
+     * Neither set is expressible on the other rail, and the sets come from the
+     * contract (`CHAIN_ONLY_STATUSES` / `CARD_ONLY_STATUSES`) rather than being
+     * retyped here, so they cannot drift from the transition table.
+     */
+    check(
+      'payment_intents_chain_statuses_are_faircoin_check',
+      sql.raw(
+        `status not in (${inList(CHAIN_ONLY_STATUSES)}) or rail = 'faircoin'`
+      )
+    ),
+    check(
+      'payment_intents_card_statuses_are_card_check',
+      sql.raw(`status not in (${inList(CARD_ONLY_STATUSES)}) or rail = 'card'`)
+    ),
     check('payment_intents_amount_check', sql.raw(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`)),
     check('payment_intents_confirmations_check', sql`${table.confirmations} >= 0`),
     check('payment_intents_metadata_object_check', sql`jsonb_typeof(${table.metadata}) = 'object'`),
     /**
-     * A broadcast, confirming or settled intent HAS a transaction id.
+     * A broadcast, confirming or settled FAIRCOIN intent HAS a transaction id.
      *
      * Verified against every writer rather than assumed: `POST
      * /v1/payment_intents/:id/submit_tx` is the only path to `broadcast` and
@@ -114,10 +209,24 @@ export const paymentIntents = pgTable(
      * only by the settlement watcher, which selects on `txid` being present.
      * `failed` is deliberately outside the set — `approved → failed` is a legal
      * transition that no writer pairs with a txid.
+     *
+     * **`rail = 'faircoin'` is a REPAIR, not a widening** (ADR 0001 D5).
+     * `settled` is a shared status: it is where a card charge lands too, and a
+     * card payment can never have a txid. Left unqualified, this constraint
+     * would have refused every settled card payment — the first one, in
+     * production, with every test green, because no fixture could reach that
+     * state before the rail existed. `broadcast` and `confirming` are
+     * chain-only and already unreachable on a card by the CHECK above, so the
+     * qualifier changes nothing for them.
+     *
+     * The fixture argument in `CONVENTIONS.md` still holds unchanged: a
+     * txid-less `broadcast` row is still unrepresentable, so `failed` is still
+     * the only status that both permits a missing txid and reaches
+     * `findWatchableIntents`.
      */
     check(
       'payment_intents_broadcast_requires_txid_check',
-      sql`${table.status} not in ('broadcast', 'confirming', 'settled') or ${table.txid} is not null`
+      sql`${table.rail} <> 'faircoin' or ${table.status} not in ('broadcast', 'confirming', 'settled') or ${table.txid} is not null`
     ),
   ]
 );
@@ -144,7 +253,11 @@ export const checkoutSessions = pgTable(
       .notNull()
       .references(() => paymentIntents.id, { onDelete: 'restrict' }),
     amount: text().notNull(),
-    network: text().notNull(),
+    currency: text().notNull().default('FAIR'),
+    /** Which rail the wrapped intent uses. Denormalized from it at creation. */
+    rail: text().notNull().default('faircoin'),
+    /** FairCoin rail only — NULL on a card session. See ADR 0001 D6. */
+    network: text(),
     metadata: jsonb().$type<Record<string, string>>().notNull().default(emptyMetadata),
     successUrl: text(),
     cancelUrl: text(),
@@ -171,11 +284,40 @@ export const checkoutSessions = pgTable(
       columns: [table.merchantId, table.oxyAppId, table.environment, table.network],
       foreignColumns: [merchants.id, merchants.oxyAppId, merchants.environment, merchants.network],
     }).onDelete('restrict'),
+    /**
+     * The network-free half of that identity, and the reason it is not
+     * redundant is ADR 0001 D6: with `network` NULL on a card session, the
+     * four-column reference above is satisfied without any check at all
+     * (`MATCH SIMPLE`), so `oxy_app_id` and `environment` stop being guaranteed
+     * along with it. MEASURED: with this reference present, a card session
+     * naming the wrong `environment` is refused; without it, accepted.
+     */
+    foreignKey({
+      name: 'checkout_sessions_merchant_identity_no_network_fkey',
+      columns: [table.merchantId, table.oxyAppId, table.environment],
+      foreignColumns: [merchants.id, merchants.oxyAppId, merchants.environment],
+    }).onDelete('restrict'),
     check(
       'checkout_sessions_environment_check',
       sql.raw(`environment in (${inList(SERVICE_ENVIRONMENTS)})`)
     ),
-    check('checkout_sessions_network_check', sql.raw(`network in (${inList(NETWORK_TYPES)})`)),
+    check('checkout_sessions_rail_check', sql.raw(`rail in (${inList(RAIL_VALUES)})`)),
+    check('checkout_sessions_currency_check', sql.raw(`currency in (${inList(CURRENCY_CODES)})`)),
+    check(
+      'checkout_sessions_network_check',
+      sql.raw(`network is null or network in (${inList(NETWORK_TYPES)})`)
+    ),
+    check(
+      'checkout_sessions_rail_network_agrees_check',
+      sql`(${table.rail} = 'faircoin') = (${table.network} is not null)`
+    ),
+    // Same rule as `payment_intents_rail_currency_agrees_check`, for the same
+    // reason: these rows carry the price a payer will be shown, and a rail that
+    // disagreed with the currency would show one and charge the other.
+    check(
+      'checkout_sessions_rail_currency_agrees_check',
+      sql`(${table.rail} = 'faircoin') = (${table.currency} = 'FAIR')`
+    ),
     check('checkout_sessions_amount_check', sql.raw(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`)),
     check(
       'checkout_sessions_metadata_object_check',
@@ -201,7 +343,11 @@ export const paymentLinks = pgTable(
     oxyAppId: text().notNull(),
     environment: text().notNull(),
     amount: text().notNull(),
-    network: text().notNull(),
+    currency: text().notNull().default('FAIR'),
+    /** Which rail the intents this link mints will use. */
+    rail: text().notNull().default('faircoin'),
+    /** FairCoin rail only — NULL on a card link. See ADR 0001 D6. */
+    network: text(),
     active: boolean().notNull().default(true),
     metadata: jsonb().$type<Record<string, string>>().notNull().default(emptyMetadata),
     successUrl: text(),
@@ -217,11 +363,33 @@ export const paymentLinks = pgTable(
       columns: [table.merchantId, table.oxyAppId, table.environment, table.network],
       foreignColumns: [merchants.id, merchants.oxyAppId, merchants.environment, merchants.network],
     }).onDelete('restrict'),
+    /** The network-free half. Same reason as `checkout_sessions`' — ADR 0001 D6. */
+    foreignKey({
+      name: 'payment_links_merchant_identity_no_network_fkey',
+      columns: [table.merchantId, table.oxyAppId, table.environment],
+      foreignColumns: [merchants.id, merchants.oxyAppId, merchants.environment],
+    }).onDelete('restrict'),
     check(
       'payment_links_environment_check',
       sql.raw(`environment in (${inList(SERVICE_ENVIRONMENTS)})`)
     ),
-    check('payment_links_network_check', sql.raw(`network in (${inList(NETWORK_TYPES)})`)),
+    check('payment_links_rail_check', sql.raw(`rail in (${inList(RAIL_VALUES)})`)),
+    check('payment_links_currency_check', sql.raw(`currency in (${inList(CURRENCY_CODES)})`)),
+    check(
+      'payment_links_network_check',
+      sql.raw(`network is null or network in (${inList(NETWORK_TYPES)})`)
+    ),
+    check(
+      'payment_links_rail_network_agrees_check',
+      sql`(${table.rail} = 'faircoin') = (${table.network} is not null)`
+    ),
+    // Same rule as `payment_intents_rail_currency_agrees_check`, for the same
+    // reason: these rows carry the price a payer will be shown, and a rail that
+    // disagreed with the currency would show one and charge the other.
+    check(
+      'payment_links_rail_currency_agrees_check',
+      sql`(${table.rail} = 'faircoin') = (${table.currency} = 'FAIR')`
+    ),
     check('payment_links_amount_check', sql.raw(`amount ~ '${BASE_UNIT_STRING_PATTERN}'`)),
     check('payment_links_metadata_object_check', sql`jsonb_typeof(${table.metadata}) = 'object'`),
   ]

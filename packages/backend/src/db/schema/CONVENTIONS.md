@@ -133,6 +133,24 @@ with `42830 there is no unique constraint matching given keys` — the target do
 not exist yet at that point in the file. Measured against a real server; `tsc`
 and `drizzle-kit generate` are both clean either way.
 
+**And `unique()` is not enough once the table already exists.** The rule above
+works because a `unique()` constraint is emitted INSIDE its `CREATE TABLE`. Add a
+new unique target to a table that is already there and it becomes its own
+`ALTER TABLE … ADD CONSTRAINT … UNIQUE` — which drizzle-kit again orders AFTER
+every foreign key, including the ones pointing at it. MEASURED on PostgreSQL
+16.13 while adding `merchants_id_oxy_app_id_environment_key` in `0001`:
+
+```
+ERROR:  there is no unique constraint matching given keys for referenced table "merchants"
+```
+
+There is no drizzle-kit knob for this. **Move the `ADD CONSTRAINT … UNIQUE`
+above the foreign keys by hand in the generated `.sql`, and say in a comment
+that you did and why** — `0001_certain_skin.sql` is the worked example. This is
+the one kind of hand edit a migration may carry; renaming the file, editing
+`meta/_journal.json` and hand-writing a snapshot are still forbidden. Apply it
+against a real server before committing: nothing earlier in the pipeline fails.
+
 ### A NULL in a composite reference switches the whole reference OFF
 
 `network` is nullable, because a card intent has no network (ADR 0001 D1/D6).

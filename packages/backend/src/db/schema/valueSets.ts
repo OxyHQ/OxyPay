@@ -15,7 +15,11 @@
 
 import type { NetworkType } from '@fairco.in/core';
 import { OXY_SERVICE_ENVIRONMENTS } from '@oxyhq/core/server';
-import type { PaymentIntentStatus, WebhookEventType } from '@peable.to/shared-types';
+import type {
+  PaymentIntentRail,
+  PaymentIntentStatus,
+  WebhookEventType,
+} from '@peable.to/shared-types';
 
 /**
  * `true` when every member of `TUnion` appears in `TListed`, and a compile
@@ -49,7 +53,11 @@ export const PAYMENT_INTENT_STATUS_VALUES = [
   'approved',
   'broadcast',
   'confirming',
+  'requires_action',
+  'processing',
   'settled',
+  'refunded',
+  'partially_refunded',
   'expired',
   'failed',
   'rejected',
@@ -58,6 +66,27 @@ export type PaymentIntentStatusesAreComplete = AssertAllListed<
   PaymentIntentStatus,
   (typeof PAYMENT_INTENT_STATUS_VALUES)[number]
 >;
+
+/**
+ * Which rail moves a payment (ADR 0001 D1). The discriminator every
+ * rail-conditional CHECK in `schema/payments.ts` reads.
+ */
+export const RAIL_VALUES = ['faircoin', 'card'] as const satisfies readonly PaymentIntentRail[];
+export type RailsAreComplete = AssertAllListed<
+  PaymentIntentRail,
+  (typeof RAIL_VALUES)[number]
+>;
+
+/**
+ * The statuses only the FairCoin rail can reach, and the statuses only the card
+ * rail can reach (ADR 0001 D5).
+ *
+ * Re-exported from the contract rather than re-listed, because a second list
+ * here would be a second thing to keep in step with the transition table — and
+ * the failure mode of a drift is a CHECK refusing a status the application
+ * considers legal, in production, on the first payment that reaches it.
+ */
+export { CHAIN_ONLY_STATUSES, CARD_ONLY_STATUSES } from '@peable.to/shared-types';
 
 /** Stripe-parity dotted webhook event types. */
 export const WEBHOOK_EVENT_TYPES = [
@@ -76,11 +105,19 @@ export type WebhookEventTypesAreComplete = AssertAllListed<
 export const WEBHOOK_DELIVERY_STATUSES = ['delivered', 'failed'] as const;
 
 /**
- * The only currency this gateway denominates in. A single-member set still
- * earns a CHECK: it is what makes adding a second currency a migration with a
- * decision behind it rather than a value that appears one day in a row.
+ * The currencies this gateway denominates in.
+ *
+ * This set was `['FAIR']` alone, with a comment saying a single-member set
+ * still earns a CHECK because it is "what makes adding a second currency a
+ * migration with a decision behind it rather than a value that appears one day
+ * in a row". ADR 0001 D4 is that decision.
+ *
+ * Re-exported from `@peable.to/shared-types` rather than re-listed: the wire
+ * contract owns the set AND the per-currency scale (`CURRENCY_DECIMALS`), and a
+ * currency this column accepted but the contract could not name would be a row
+ * the API cannot describe.
  */
-export const CURRENCY_CODES = ['FAIR'] as const;
+export { CURRENCY_CODES } from '@peable.to/shared-types';
 
 /**
  * The highest derivation index this schema can store — `int4`'s ceiling, and

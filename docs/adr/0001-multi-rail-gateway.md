@@ -147,6 +147,16 @@ The serializer is the dangerous one: it does not read the column at all, so
 widening only the CHECK would produce rows the API describes incorrectly with
 every test green.
 
+**The FairCoin rail settles in FAIR and only it does**
+(`payment_intents_rail_currency_agrees_check`, and its twin on sessions and
+links). A FAIR-denominated card charge and a EUR-denominated chain payment are
+both expressible in the column types and neither is a payment this gateway can
+make: the second needs an FX conversion at settlement time that nothing here
+performs, so it would store an amount in a unit the arriving coins are not
+counted in. `resolveRail` refuses both with a 422. Loosening this — priced in
+EUR, settled in FAIR — is a real product idea and a later migration with its own
+decision, not something to let in by omission now.
+
 ### D5. The status set widens, and the chain states become rail-specific
 
 `PaymentIntentStatus` gains `requires_action`, `processing`, `refunded` and
@@ -160,9 +170,24 @@ authorization onto `broadcast` would be cheaper and would be a lie: nothing was
 broadcast, there is no transaction, and `payment_intents_broadcast_requires_txid_check`
 would then be enforcing a txid on a payment that can never have one.
 
+**One table, plus a per-event source restriction.** Opening `created → settled`
+for a card charge that confirms in a single call also opened it for the chain
+event `confirmed`, which the settlement watcher emits — legalizing
+`applyEvent('created', 'confirmed')`, a FairCoin payment settled without ever
+being broadcast. The database still refuses the result, so the damage would have
+been a constraint violation surfacing as a 500 instead of the located error
+`intentState.ts` exists to raise. `LEGAL_SOURCES` there names where the
+chain-only events may act FROM; it generalizes the exception
+`reorg_below_threshold` already had. A rail-parameterised transition table was
+the alternative and would put the same restriction in two places.
+
 ⚠️ `@peable.to/shared-types` and `@peable.to/sdk` are **published packages**.
 This is an external API change and is versioned as one, not folded in as a
-refactor.
+refactor. On the payer side it has a behavioural half:
+`PeableCheckout`'s pay button and the hosted page must REFUSE to build a
+`peable://pay` link for a non-chain intent (`payDeepLinkFor` /
+`PeableRailUnsupportedError`). The tempting `?? ''` at those call sites mints a
+structurally valid link carrying an empty address, which sends a payer nowhere.
 
 ### D6. The network firewall survives a nullable `network` — but only with a second foreign key
 

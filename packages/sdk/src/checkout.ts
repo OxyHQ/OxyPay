@@ -20,3 +20,14 @@ export {
   type PeableCheckoutInstance,
   type PeableCheckoutEventMap,
 } from './browser/mount';
+
+// The rail-aware deep-link builder and its refusal. Exported because
+// `packages/checkout` renders its own pay button over the payer client core
+// and must make the same decision this widget makes — one definition of "which
+// intents have a wallet deep link", not two.
+export {
+  payDeepLinkFor,
+  buildPayDeepLink,
+  type PayDeepLinkParams,
+  PeableRailUnsupportedError,
+} from './browser/mount';

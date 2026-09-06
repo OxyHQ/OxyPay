@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { NetworkType } from "@fairco.in/core";
+import type { CurrencyCode, PaymentIntentRail } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import type { MerchantRow } from "../db/merchants/merchantRepository";
 import {
@@ -28,10 +29,54 @@ export class NetworkMismatchError extends Error {
   }
 }
 
+/**
+ * Thrown when the rail and the rest of the request do not describe one payment
+ * — a FairCoin intent with no network, a card intent claiming one, or either
+ * rail with a currency it cannot settle in.
+ *
+ * A separate error from `NetworkMismatchError` because it is a DIFFERENT
+ * mistake: that one is a caller naming the wrong chain, this one is a caller
+ * naming a combination that is not a payment at all. Routes translate both into
+ * a 422, and the message is what tells the integrator which they made.
+ */
+export class RailMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RailMismatchError";
+  }
+}
+
+/**
+ * The FairCoin rail settles in FAIR and nothing else.
+ *
+ * A FAIR-denominated card charge and a EUR-denominated chain payment are both
+ * expressible in the type system and neither is a thing this gateway can do:
+ * the second would need an FX conversion at settlement time that nothing here
+ * performs. `payment_intents_rail_currency_agrees_check` says the same in the
+ * database. Widening it later is a migration with a decision behind it.
+ */
+function assertRailCurrency(rail: PaymentIntentRail, currency: CurrencyCode): void {
+  if (rail === "faircoin" && currency !== "FAIR") {
+    throw new RailMismatchError(
+      `the faircoin rail settles in FAIR, not '${currency}'`,
+    );
+  }
+  if (rail === "card" && currency === "FAIR") {
+    throw new RailMismatchError(
+      "the card rail cannot settle in FAIR; name a fiat currency",
+    );
+  }
+}
+
 export interface CreateIntentInput {
   merchant: MerchantRow;
   amount: string;
-  network: NetworkType;
+  /** Defaults to `faircoin` — the rail this gateway shipped with (ADR 0001 D1). */
+  rail?: PaymentIntentRail;
+  /** Required on the faircoin rail; must be absent on the card rail. */
+  network?: NetworkType;
+  /** Defaults to `FAIR` on the faircoin rail; required on the card rail. */
+  currency?: CurrencyCode;
   metadata?: Record<string, string>;
   expiresInSeconds?: number;
   /**
@@ -55,12 +100,64 @@ export interface CreateIntentResult {
  * payment links, checkout sessions — must go through, so the idempotency and
  * derivation logic can never fork between them.
  */
-export async function createIntent(input: CreateIntentInput): Promise<CreateIntentResult> {
-  const { merchant, amount, network, metadata, expiresInSeconds, idempotencyKey } = input;
+/** What a caller asked for, once the rail's defaults and rules have been applied. */
+export interface ResolvedRail {
+  readonly rail: PaymentIntentRail;
+  readonly currency: CurrencyCode;
+  /** The merchant's network on the faircoin rail; `null` on the card rail. */
+  readonly network: NetworkType | null;
+}
 
-  if (network !== merchant.network) {
-    throw new NetworkMismatchError(network, merchant.network);
+/**
+ * Turn a caller's partial rail description into a coherent one, or refuse it.
+ *
+ * ONE owner, THREE callers: `createIntent` below, and the payment-link and
+ * checkout-session routes, which have to apply the identical defaults to the
+ * values they persist. A link that stored a rail its minted intents would then
+ * be refused for is a price a payer can see and can never pay — and the two
+ * rows are in different tables, so no constraint can catch the disagreement.
+ *
+ * @throws {RailMismatchError} when the combination is not a payment.
+ * @throws {NetworkMismatchError} when a faircoin caller named the wrong chain.
+ */
+export function resolveRail(
+  merchant: MerchantRow,
+  input: { rail?: PaymentIntentRail; currency?: CurrencyCode; network?: NetworkType },
+): ResolvedRail {
+  const rail = input.rail ?? "faircoin";
+  const currency = input.currency ?? (rail === "faircoin" ? "FAIR" : undefined);
+
+  if (currency === undefined) {
+    throw new RailMismatchError("the card rail requires an explicit currency");
   }
+  assertRailCurrency(rail, currency);
+
+  if (rail === "faircoin") {
+    // The network firewall, unchanged. A `network` label that disagrees with the
+    // network the `address` actually encodes sends a payer's funds to an address
+    // nobody is watching.
+    if (input.network === undefined) {
+      throw new RailMismatchError("the faircoin rail requires a network");
+    }
+    if (input.network !== merchant.network) {
+      throw new NetworkMismatchError(input.network, merchant.network);
+    }
+    return { rail, currency, network: input.network };
+  }
+
+  if (input.network !== undefined) {
+    // Not pedantry: a card intent carrying a network makes the composite
+    // reference to `merchants (id, network)` BIND, tying a card charge to a
+    // chain — and `payment_intents_card_has_no_chain_fields_check` refuses it
+    // one layer down anyway, as a 500 instead of this 422.
+    throw new RailMismatchError("the card rail has no network");
+  }
+  return { rail, currency, network: null };
+}
+
+export async function createIntent(input: CreateIntentInput): Promise<CreateIntentResult> {
+  const { merchant, amount, metadata, expiresInSeconds, idempotencyKey } = input;
+  const { rail, currency, network } = resolveRail(merchant, input);
 
   const db = getDb();
 
@@ -73,7 +170,11 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
     }
   }
 
-  const { address } = await reserveNextAddress(merchant.id);
+  // A card payment reserves NO derivation index. Reserving one anyway would
+  // burn an index on a payment that can never receive coins, and every FairCoin
+  // payer after it would be handed a different address than the counter implies.
+  const address =
+    rail === "faircoin" ? (await reserveNextAddress(merchant.id)).address : null;
   const publicId = newId("pi");
   const clientSecret = clientSecretFor(publicId);
   const expiresAt = new Date(
@@ -88,7 +189,9 @@ export async function createIntent(input: CreateIntentInput): Promise<CreateInte
   const intent = await insertPaymentIntent(db, {
     publicId,
     merchantId: merchant.id,
+    rail,
     amount,
+    currency,
     network,
     address,
     clientSecret,

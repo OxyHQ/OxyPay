@@ -46,6 +46,29 @@ function targetStatusFor(event: IntentEvent): PaymentIntentStatus {
 }
 
 /**
+ * Where an event may act FROM, when the shared table alone is too permissive.
+ *
+ * The transition table is ONE table for both rails (ADR 0001 D5): it answers
+ * "is this a legal lifecycle edge at all", and the card rail legitimately needs
+ * `created → settled` for a charge that confirms in a single call with no SCA
+ * challenge. That edge is not legal on the chain — a FairCoin payment cannot be
+ * confirmed before it was broadcast — and `confirmed` is a CHAIN event, emitted
+ * only by the settlement watcher.
+ *
+ * Without this map, opening that edge for the card rail would have silently
+ * legalized `applyEvent('created', 'confirmed')`. The database still refuses the
+ * result (`payment_intents_broadcast_requires_txid_check` demands a txid for a
+ * settled FairCoin row), so the damage would have been a 500 from a constraint
+ * instead of the loud, located error this module exists to raise. An event
+ * absent from this map is governed by the shared table alone.
+ */
+const LEGAL_SOURCES: Partial<Record<IntentEvent, readonly PaymentIntentStatus[]>> = {
+  confirmed: ['confirming'],
+  mempool_seen: ['broadcast', 'confirming'],
+  underpaid: ['broadcast', 'confirming', 'approved'],
+};
+
+/**
  * Advance an intent's status by applying an event. Fails loud (throws) on any
  * illegal transition — never a silent no-op — so a mis-sequenced caller is
  * caught rather than silently corrupting state.
@@ -74,8 +97,20 @@ export function applyEvent(
   // state (e.g. mempool_seen while already confirming). Returning the current
   // status unchanged lets the watcher re-check safely without tripping the
   // fail-loud guard below.
+  //
+  // Checked BEFORE `LEGAL_SOURCES`, and the order is load-bearing: `confirming`
+  // is a legal source for `mempool_seen` precisely so this branch can absorb the
+  // re-poll, and a source check placed first would have to list every status an
+  // event may idempotently re-observe from as well as act from.
   if (current === target) {
     return current;
+  }
+
+  const legalSources = LEGAL_SOURCES[event];
+  if (legalSources && !legalSources.includes(current)) {
+    throw new Error(
+      `illegal transition: cannot apply '${event}' from '${current}' (${legalSources.join(', ')} only)`,
+    );
   }
 
   if (!isValidStatusTransition(current, target)) {

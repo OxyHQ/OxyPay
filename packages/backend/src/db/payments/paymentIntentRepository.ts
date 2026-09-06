@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import type { NetworkType } from '@fairco.in/core';
-import type { PaymentIntentStatus } from '@peable.to/shared-types';
+import type { CurrencyCode, PaymentIntentRail, PaymentIntentStatus } from '@peable.to/shared-types';
 import { isUniqueViolation, uuidv7 } from '@oxyhq/db';
 import { paymentIntents } from '../schema';
 import type { DatabaseOrTransaction } from '../postgres';
@@ -16,10 +16,13 @@ export interface PaymentIntentRow {
   readonly id: string;
   readonly publicId: string;
   readonly status: PaymentIntentStatus;
+  readonly rail: PaymentIntentRail;
   readonly amount: string;
-  readonly currency: 'FAIR';
-  readonly network: NetworkType;
-  readonly address: string;
+  readonly currency: CurrencyCode;
+  /** FairCoin rail only — `null` on a card intent (ADR 0001 D6). */
+  readonly network: NetworkType | null;
+  /** FairCoin rail only — `null` on a card intent, which reserves no address. */
+  readonly address: string | null;
   readonly merchantId: string;
   readonly txid: string | null;
   readonly confirmations: number;
@@ -39,6 +42,7 @@ const INTENT_COLUMNS = {
   id: paymentIntents.id,
   publicId: paymentIntents.publicId,
   status: paymentIntents.status,
+  rail: paymentIntents.rail,
   amount: paymentIntents.amount,
   currency: paymentIntents.currency,
   network: paymentIntents.network,
@@ -55,8 +59,9 @@ const INTENT_COLUMNS = {
 
 interface RawIntentRow {
   readonly status: string;
+  readonly rail: string;
   readonly currency: string;
-  readonly network: string;
+  readonly network: string | null;
   readonly [key: string]: unknown;
 }
 
@@ -65,17 +70,22 @@ function toIntentRow(row: RawIntentRow): PaymentIntentRow {
   return {
     ...row,
     status: row.status as PaymentIntentStatus,
-    currency: row.currency as 'FAIR',
-    network: row.network as NetworkType,
+    rail: row.rail as PaymentIntentRail,
+    currency: row.currency as CurrencyCode,
+    network: row.network as NetworkType | null,
   } as unknown as PaymentIntentRow;
 }
 
 export interface InsertPaymentIntentParams {
   readonly publicId: string;
   readonly merchantId: string;
+  readonly rail: PaymentIntentRail;
   readonly amount: string;
-  readonly network: NetworkType;
-  readonly address: string;
+  readonly currency: CurrencyCode;
+  /** FairCoin rail only. Both of these are `null` together on a card intent, and
+   *  `payment_intents_faircoin_requires_chain_fields_check` refuses the mix. */
+  readonly network: NetworkType | null;
+  readonly address: string | null;
   readonly clientSecret: string;
   readonly idempotencyKey: string;
   readonly metadata: Record<string, string>;
@@ -96,16 +106,19 @@ export async function insertPaymentIntent(
   params: InsertPaymentIntentParams
 ): Promise<PaymentIntentRow | null> {
   try {
-    // Explicit field list, never a spread. `status`, `currency` and
-    // `confirmations` take their column defaults: a caller does not get to mint
-    // an intent that is already settled.
+    // Explicit field list, never a spread. `status` and `confirmations` take
+    // their column defaults: a caller does not get to mint an intent that is
+    // already settled. `currency` and `rail` are now ARGUMENTS rather than
+    // defaults — a default would silently make every card intent a FairCoin one.
     const [row] = await db
       .insert(paymentIntents)
       .values({
         id: uuidv7(),
         publicId: params.publicId,
         status: 'created',
+        rail: params.rail,
         amount: params.amount,
+        currency: params.currency,
         network: params.network,
         address: params.address,
         merchantId: params.merchantId,
@@ -341,7 +354,19 @@ export async function findWatchableIntents(
     .select(INTENT_COLUMNS)
     .from(paymentIntents)
     .where(
-      and(inArray(paymentIntents.status, [...statuses]), isNotNull(paymentIntents.txid))
+      and(
+        // The rail predicate is NOT redundant with the status one, even though
+        // `payment_intents_chain_statuses_are_faircoin_check` makes every
+        // `broadcast`/`confirming` row a FairCoin row today. `settled` is a
+        // SHARED status: the day this query is asked for one — a reorg sweep, a
+        // reconciliation — it would start handing card payments to a watcher
+        // that dereferences `address` and `network`. Stating the rail here is
+        // what makes "only the FairCoin rail is watchable" a property of the
+        // query rather than of the caller's current status list.
+        eq(paymentIntents.rail, 'faircoin'),
+        inArray(paymentIntents.status, [...statuses]),
+        isNotNull(paymentIntents.txid)
+      )
     );
   return rows.map(toIntentRow);
 }

@@ -9,7 +9,6 @@ import { oxyClient } from "@oxyhq/core";
 import { verifySecret } from "@oxyhq/core/server";
 import type { OxyAuthRequest, OxyServiceEnvironment } from "@oxyhq/core/server";
 import {
-  isBaseUnitString,
   PAYMENT_INTENT_STATUSES,
   type CreatePaymentIntentParams,
   type PaymentIntentStatus,
@@ -24,10 +23,15 @@ import {
   updateIntentState,
 } from "../db/payments/paymentIntentRepository";
 import type { PaymentIntentRow } from "../db/payments/paymentIntentRepository";
-import { createIntent, NetworkMismatchError } from "../services/createIntent";
+import {
+  createIntent,
+  NetworkMismatchError,
+  RailMismatchError,
+} from "../services/createIntent";
 import { applyEvent } from "../services/intentState";
 import { toPaymentIntentDTO } from "../lib/serialize";
 import { sendError, wrap, requireServiceApp, requireAuthenticated } from "../lib/http";
+import { railBodyFields } from "../lib/railSchema";
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -45,10 +49,7 @@ export const listQuerySchema = z.object({
 // `CreatePaymentIntentParams` (see `params` below) so the wire contract and the
 // shared type can never silently drift apart.
 const createBodySchema = z.object({
-  amount: z
-    .string()
-    .refine(isBaseUnitString, "amount must be a base-unit integer string"),
-  network: z.enum(["mainnet", "testnet"]),
+  ...railBodyFields,
   metadata: z.record(z.string(), z.string()).optional(),
   expiresInSeconds: z.number().int().positive().optional(),
 });
@@ -222,13 +223,15 @@ export function createPaymentIntentsRouter(deps: {
         );
         return;
       }
-      const params: CreatePaymentIntentParams = parsed.data;
+      const params: CreatePaymentIntentParams = parsed.data as CreatePaymentIntentParams;
 
       try {
         const { intent, reused } = await createIntent({
           merchant,
           amount: params.amount,
-          network: params.network,
+          ...(params.rail !== undefined ? { rail: params.rail } : {}),
+          ...(params.currency !== undefined ? { currency: params.currency } : {}),
+          ...(params.network !== undefined ? { network: params.network } : {}),
           metadata: params.metadata,
           expiresInSeconds: params.expiresInSeconds,
           idempotencyKey,
@@ -242,7 +245,10 @@ export function createPaymentIntentsRouter(deps: {
         // the caller's claimed `network` — `createIntent` rejects a mismatch
         // up front, or the returned intent's `network` label would lie about
         // the network its `address` actually encodes.
-        if (err instanceof NetworkMismatchError) {
+        // `RailMismatchError` rides the same branch: both are a caller
+        // describing a payment this gateway cannot make, and neither is a
+        // server fault. Which mistake they made is in the message.
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
           return;
         }

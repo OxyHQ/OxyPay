@@ -12,6 +12,8 @@ import type { PaymentIntent } from '@peable.to/shared-types';
 import { getNetwork, validateAddress } from '@fairco.in/core';
 import {
   buildPayDeepLink,
+  payDeepLinkFor,
+  PeableRailUnsupportedError,
   createEmitter,
   deriveIntentId,
   isMobileUserAgent,
@@ -34,6 +36,7 @@ const INTENT: PaymentIntent = {
   id: 'pi_0123456789abcdef01234567',
   object: 'payment_intent',
   status: 'created',
+  rail: 'faircoin',
   amount: '150000000',
   currency: 'FAIR',
   network: NET,
@@ -213,5 +216,46 @@ describe('createEmitter', () => {
     emitter.emit('error', new PeableError('api_error', 'boom'));
 
     expect(calls).toBe(0);
+  });
+});
+
+describe('payDeepLinkFor', () => {
+  /**
+   * The narrowing that stops an empty address reaching the wallet.
+   *
+   * `address` and `network` became nullable with the card rail (gateway ADR
+   * 0001 D6). The tempting fix at the call site was `?? ''`, which mints
+   * `peable://pay?...&address=&network=` — structurally a valid link, and one
+   * that sends a payer nowhere. These two cases are what make that impossible.
+   */
+  test('refuses an intent that is not a chain payment', () => {
+    const card = {
+      ...INTENT,
+      rail: 'card',
+      currency: 'EUR',
+      address: null,
+      network: null,
+    } as unknown as PaymentIntent;
+
+    expect(() => payDeepLinkFor(card)).toThrow(PeableRailUnsupportedError);
+  });
+
+  test('builds the same link as buildPayDeepLink for a faircoin intent', () => {
+    expect(payDeepLinkFor(INTENT)).toBe(
+      buildPayDeepLink({
+        intentId: INTENT.id,
+        clientSecret: INTENT.clientSecret,
+        address: INTENT.address as string,
+        amount: INTENT.amount,
+        network: INTENT.network as NonNullable<PaymentIntent['network']>,
+      })
+    );
+  });
+
+  /** A faircoin intent whose chain fields somehow went missing is refused too —
+   *  the rail label alone is not the guarantee, the fields are. */
+  test('refuses a faircoin intent with no address', () => {
+    const broken = { ...INTENT, address: null } as unknown as PaymentIntent;
+    expect(() => payDeepLinkFor(broken)).toThrow(PeableRailUnsupportedError);
   });
 });

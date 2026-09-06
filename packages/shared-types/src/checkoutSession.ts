@@ -1,9 +1,10 @@
 // CheckoutSession contract — wraps exactly ONE `PaymentIntent`, created at
 // session-create time, with `success_url`/`cancel_url` for a hosted checkout
 // redirect flow (Stripe Checkout Session parity).
+import type { CurrencyCode } from './money';
 import type { NetworkType } from './network';
 import type { MerchantDisplay } from './merchantDisplay';
-import type { PaymentIntent } from './paymentIntent';
+import type { PaymentIntent, PaymentIntentRail } from './paymentIntent';
 
 /** The merchant/SDK-facing DTO — returned on create and by merchant retrieve. */
 export interface CheckoutSession {
@@ -13,7 +14,10 @@ export interface CheckoutSession {
   /** The wrapped intent's `client_secret`, returned to the merchant on create. */
   clientSecret: string;
   amount: string;
-  network: NetworkType;
+  currency: CurrencyCode;
+  rail: PaymentIntentRail;
+  /** FairCoin rail only; `null` on a card session. */
+  network: NetworkType | null;
   metadata: Record<string, string>;
   successUrl?: string;
   cancelUrl?: string;
@@ -40,7 +44,12 @@ export interface CheckoutSessionPublic {
 
 export interface CreateCheckoutSessionParams {
   amount: string;
-  network: NetworkType;
+  /** Defaults to `'faircoin'`, so pre-ADR-0001 integrations keep working. */
+  rail?: PaymentIntentRail;
+  /** Required on the faircoin rail; refused on the card rail. */
+  network?: NetworkType;
+  /** Defaults to `'FAIR'` on the faircoin rail; required on the card rail. */
+  currency?: CurrencyCode;
   metadata?: Record<string, string>;
   successUrl?: string;
   cancelUrl?: string;

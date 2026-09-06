@@ -91,13 +91,20 @@ export class SettlementWatcher {
   }
 
   private async reconcile(intent: PaymentIntentRow): Promise<void> {
-    const { txid } = intent;
-    if (txid === null) return;
+    const { txid, address, network } = intent;
+    // Three guards for one condition — this is a FAIRCOIN intent that has been
+    // broadcast. `findWatchableIntents` already filters on the rail and the
+    // txid, so none of these fires in practice; they are here because
+    // `address` and `network` are nullable since ADR 0001 D6, and a card intent
+    // reaching this method would otherwise verify a payment against a null
+    // address. A silent `return` is right: there is nothing to watch, and this
+    // loop must not throw on one row and stop reconciling the rest.
+    if (txid === null || address === null || network === null) return;
 
     const current = intent.status;
     if (current !== "broadcast" && current !== "confirming") return;
 
-    const tx = await this.deps.getTransaction(txid, intent.network);
+    const tx = await this.deps.getTransaction(txid, network);
     // Not yet visible on-chain — this is the "not the right tx yet" case; skip
     // and re-check next tick. Only a returned tx can move the intent to failed.
     if (tx === null) return;
@@ -108,7 +115,7 @@ export class SettlementWatcher {
 
     const { paid, confirmations } = verifyPayment(
       tx,
-      intent.address,
+      address,
       toBaseUnits(intent.amount),
     );
 

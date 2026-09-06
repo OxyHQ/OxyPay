@@ -64,10 +64,59 @@ const PAYMENT_REQUEST_PREFIX = 'peable://pay';
 export interface PayDeepLinkParams {
   intentId: string;
   clientSecret: string;
+  /**
+   * The intent's watch-only receive address. FairCoin rail only — this link is
+   * a chain payment request and there is nothing to put here for a card.
+   */
   address: string;
   /** Base-unit integer string (m⊜) — `PaymentIntent['amount']`'s own shape. */
   amount: string;
-  network: PaymentIntent['network'];
+  network: NonNullable<PaymentIntent['network']>;
+}
+
+/**
+ * Thrown when a deep link is asked for on an intent that has no chain payment
+ * behind it.
+ *
+ * `address` and `network` became nullable when the card rail landed (gateway
+ * ADR 0001 D6), and the tempting fix was a `?? ''` at the call site. That would
+ * mint `peable://pay?...&address=&network=` — a link the wallet's parser
+ * accepts structurally and which sends a payer to an empty address. Failing
+ * here is the only safe direction.
+ */
+export class PeableRailUnsupportedError extends PeableError {
+  constructor(rail: string) {
+    // Extends `PeableError`, not `Error`: the widget reports everything through
+    // its `error` event, whose payload type is `PeableError`, and a bare `Error`
+    // would arrive there only after being flattened into a `PeableApiError`
+    // that a caller cannot tell apart from a network failure.
+    // `invalid_request_error`, because that is what it is: the caller asked
+    // this widget for a surface the intent does not have. Nothing went wrong
+    // upstream and retrying cannot help.
+    super(
+      'invalid_request_error',
+      `the '${rail}' rail has no wallet deep link; it is not a chain payment`,
+    );
+    this.name = 'PeableRailUnsupportedError';
+    Object.setPrototypeOf(this, PeableRailUnsupportedError.prototype);
+  }
+}
+
+/**
+ * Build the deep link for an intent, refusing any intent that is not a chain
+ * payment. The narrowing is what lets `buildPayDeepLink` keep non-null fields.
+ */
+export function payDeepLinkFor(intent: PaymentIntent): string {
+  if (intent.rail !== 'faircoin' || intent.address === null || intent.network === null) {
+    throw new PeableRailUnsupportedError(intent.rail);
+  }
+  return buildPayDeepLink({
+    intentId: intent.id,
+    clientSecret: intent.clientSecret,
+    address: intent.address,
+    amount: intent.amount,
+    network: intent.network,
+  });
 }
 
 /**
@@ -325,13 +374,17 @@ function mount(
 
   button.addEventListener('click', () => {
     if (!latestIntent) return; // initial snapshot hasn't loaded yet
-    const deepLink = buildPayDeepLink({
-      intentId,
-      clientSecret,
-      address: latestIntent.address,
-      amount: latestIntent.amount,
-      network: latestIntent.network,
-    });
+    // A card intent has no wallet to deep-link into. `error` rather than a
+    // throw into an event handler nobody is listening to: this widget's whole
+    // contract is that a host page learns what happened through `on(...)`, and
+    // an uncaught exception here would leave the button silently dead.
+    let deepLink: string;
+    try {
+      deepLink = payDeepLinkFor(latestIntent);
+    } catch (err) {
+      emitter.emit('error', toPeableError(err));
+      return;
+    }
     if (isMobileUserAgent(navigator.userAgent)) {
       window.location.href = deepLink;
     } else {

@@ -4,7 +4,11 @@ import { deriveKeyFromSeed, getNetwork, mnemonicToSeed } from '@fairco.in/core';
 import type { NetworkType } from '@fairco.in/core';
 import type { OxyServiceEnvironment } from '@oxyhq/core/server';
 import { uuidv7 } from '@oxyhq/db';
-import type { WebhookEventType } from '@peable.to/shared-types';
+import type {
+  CurrencyCode,
+  PaymentIntentRail,
+  WebhookEventType,
+} from '@peable.to/shared-types';
 import { insertMerchant, type MerchantRow } from '../../db/merchants/merchantRepository';
 import {
   insertCheckoutSession,
@@ -184,9 +188,11 @@ export async function seedMerchant(values: SeedMerchantValues = {}): Promise<Mer
 
 export interface SeedIntentValues {
   readonly publicId?: string;
+  readonly rail?: PaymentIntentRail;
   readonly amount?: string;
-  readonly network?: NetworkType;
-  readonly address?: string;
+  readonly currency?: CurrencyCode;
+  readonly network?: NetworkType | null;
+  readonly address?: string | null;
   readonly clientSecret?: string;
   readonly idempotencyKey?: string;
   readonly metadata?: Record<string, string>;
@@ -201,15 +207,23 @@ export async function seedIntent(
   values: SeedIntentValues = {}
 ): Promise<PaymentIntentRow> {
   const unique = uuidv7();
+  // The rail decides whether the chain fields mean anything, so it is resolved
+  // FIRST and the two chain defaults follow from it. Defaulting them
+  // independently would seed a card intent carrying an address, which
+  // `payment_intents_card_has_no_chain_fields_check` refuses — a fixture that
+  // fails on a constraint instead of on its subject.
+  const rail = values.rail ?? 'faircoin';
   const row = await insertPaymentIntent(gatewayDb(), {
     publicId: values.publicId ?? `pi_${unique}`,
     merchantId: merchant.id,
+    rail,
     amount: values.amount ?? '100000000',
+    currency: values.currency ?? (rail === 'faircoin' ? 'FAIR' : 'EUR'),
     // Defaults to the MERCHANT's network, never a literal: the composite
     // reference refuses a mismatch, so a hard-coded default here would make
     // every mainnet-merchant suite fail on a foreign key instead of its subject.
-    network: values.network ?? merchant.network,
-    address: values.address ?? `T${unique}`,
+    network: values.network !== undefined ? values.network : rail === 'faircoin' ? merchant.network : null,
+    address: values.address !== undefined ? values.address : rail === 'faircoin' ? `T${unique}` : null,
     clientSecret: values.clientSecret ?? `pi_${unique}_secret_${unique.slice(0, 8)}`,
     idempotencyKey: values.idempotencyKey ?? unique,
     metadata: values.metadata ?? {},
@@ -223,8 +237,10 @@ export async function seedIntent(
 
 export interface SeedLinkValues {
   readonly publicId?: string;
+  readonly rail?: PaymentIntentRail;
   readonly amount?: string;
-  readonly network?: NetworkType;
+  readonly currency?: CurrencyCode;
+  readonly network?: NetworkType | null;
   readonly metadata?: Record<string, string>;
   readonly successUrl?: string;
 }
@@ -234,6 +250,7 @@ export async function seedLink(
   values: SeedLinkValues = {}
 ): Promise<PaymentLinkRow> {
   const unique = uuidv7();
+  const rail = values.rail ?? 'faircoin';
   return insertPaymentLink(gatewayDb(), {
     publicId: values.publicId ?? `link_${unique}`,
     merchantId: merchant.id,
@@ -241,8 +258,11 @@ export async function seedLink(
     // composite reference refuses any other combination.
     oxyAppId: merchant.oxyAppId,
     environment: merchant.environment,
+    rail,
     amount: values.amount ?? '100000000',
-    network: values.network ?? merchant.network,
+    currency: values.currency ?? (rail === 'faircoin' ? 'FAIR' : 'EUR'),
+    network:
+      values.network !== undefined ? values.network : rail === 'faircoin' ? merchant.network : null,
     metadata: values.metadata ?? {},
     successUrl: values.successUrl,
   });
@@ -269,7 +289,12 @@ export async function seedSession(
     environment: merchant.environment,
     paymentIntentId: intent.id,
     amount: values.amount ?? intent.amount,
-    network: merchant.network,
+    // Denormalized from the WRAPPED INTENT, never chosen here: a session whose
+    // rail disagreed with its intent's would render a card form over a FairCoin
+    // payment, and no constraint spans the two tables to catch it.
+    currency: intent.currency,
+    rail: intent.rail,
+    network: intent.network,
     metadata: values.metadata ?? {},
     successUrl: values.successUrl,
     cancelUrl: values.cancelUrl,

@@ -1,12 +1,24 @@
 // @peable.to/shared-types — public API for the Peable Gateway contract.
-export { UNITS_PER_COIN, isBaseUnitString } from './money';
+export {
+  UNITS_PER_COIN,
+  isBaseUnitString,
+  type CurrencyCode,
+  CURRENCY_CODES,
+  CURRENCY_DECIMALS,
+  decimalsFor,
+  isCurrencyCode,
+} from './money';
 export { type NetworkType } from './network';
 export {
   type PaymentIntentStatus,
+  type PaymentIntentRail,
   type PaymentIntent,
   type CreatePaymentIntentParams,
   isValidStatusTransition,
   PAYMENT_INTENT_STATUSES,
+  PAYMENT_INTENT_RAILS,
+  CHAIN_ONLY_STATUSES,
+  CARD_ONLY_STATUSES,
 } from './paymentIntent';
 export { type WebhookEventType, type WebhookEvent } from './event';
 export { type WebhookDelivery } from './webhookDelivery';

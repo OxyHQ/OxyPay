@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { oxyClient } from "@oxyhq/core";
-import { isBaseUnitString, type CreatePaymentLinkParams } from "@peable.to/shared-types";
+import type { CreatePaymentLinkParams } from "@peable.to/shared-types";
 import { getDb } from "../db/postgres";
 import { findMerchantById } from "../db/merchants/merchantRepository";
 import {
@@ -12,12 +12,18 @@ import {
   listLinksForMerchant,
   updatePaymentLink,
 } from "../db/payments/paymentLinkRepository";
-import { createIntent, NetworkMismatchError } from "../services/createIntent";
+import {
+  createIntent,
+  NetworkMismatchError,
+  RailMismatchError,
+  resolveRail,
+} from "../services/createIntent";
 import { resolveMerchantDisplay } from "../services/merchantDisplay";
 import { newId } from "../lib/ids";
 import { toPaymentLinkDTO, toPublicPaymentLinkDTO, toPaymentIntentDTO } from "../lib/serialize";
 import { sendError, wrap, requireAuthenticated } from "../lib/http";
 import { resolveMerchant } from "./paymentIntents";
+import { railBodyFields } from "../lib/railSchema";
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -28,10 +34,7 @@ const listQuerySchema = z.object({
 });
 
 const createBodySchema = z.object({
-  amount: z
-    .string()
-    .refine(isBaseUnitString, "amount must be a base-unit integer string"),
-  network: z.enum(["mainnet", "testnet"]),
+  ...railBodyFields,
   metadata: z.record(z.string(), z.string()).optional(),
   successUrl: z.string().url().optional(),
 });
@@ -77,20 +80,26 @@ export function createPaymentLinksRouter(deps: {
         );
         return;
       }
-      const params: CreatePaymentLinkParams = parsed.data;
+      const params: CreatePaymentLinkParams = parsed.data as CreatePaymentLinkParams;
 
       // Same data-integrity firewall as `createIntent`'s network check
       // (F2.0 task 1a): a link's `network` must match the merchant it was
       // created under, since every intent it later mints derives its
       // watch-only address from THIS merchant's xpub.
-      if (params.network !== merchant.network) {
-        sendError(
-          res,
-          422,
-          "invalid_request_error",
-          `network '${params.network}' does not match the merchant's configured network '${merchant.network}'`,
-        );
-        return;
+      //
+      // Delegated to `resolveRail` rather than re-checked here, because the
+      // rules a link must satisfy are exactly the rules its future intents must
+      // satisfy — and a link storing a combination `createIntent` would refuse
+      // is a price a payer can see and can never pay.
+      let resolved;
+      try {
+        resolved = resolveRail(merchant, params);
+      } catch (err) {
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
+          sendError(res, 422, "invalid_request_error", err.message);
+          return;
+        }
+        throw err;
       }
 
       // Explicit field whitelist — never spread `req.body`. `active` takes its
@@ -102,7 +111,9 @@ export function createPaymentLinksRouter(deps: {
         oxyAppId: merchant.oxyAppId,
         environment: merchant.environment,
         amount: params.amount,
-        network: params.network,
+        currency: resolved.currency,
+        rail: resolved.rail,
+        network: resolved.network,
         metadata: params.metadata ?? {},
         successUrl: params.successUrl,
       });
@@ -304,7 +315,12 @@ export function createPaymentLinksRouter(deps: {
         const { intent } = await createIntent({
           merchant,
           amount: link.amount,
-          network: link.network,
+          rail: link.rail,
+          currency: link.currency,
+          // `?? undefined` rather than passing the null through: `createIntent`
+          // distinguishes "no network given" (legal on the card rail) from a
+          // network it must validate, and a null would be neither.
+          ...(link.network !== null ? { network: link.network } : {}),
           metadata: link.metadata,
         });
         res
@@ -316,7 +332,7 @@ export function createPaymentLinksRouter(deps: {
         // mutation route) — kept as a defensive translation, same as every
         // other `createIntent` caller, rather than letting it fall through
         // to a bare 500 if that invariant is ever loosened.
-        if (err instanceof NetworkMismatchError) {
+        if (err instanceof NetworkMismatchError || err instanceof RailMismatchError) {
           sendError(res, 422, "invalid_request_error", err.message);
           return;
         }
