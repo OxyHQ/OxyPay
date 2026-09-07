@@ -194,6 +194,7 @@ describe.skipIf(!POSTGRES_TESTS_ENABLED)("the settlement API", () => {
         appName: "t",
         scopes: ["payments:read", "payments:write"],
         credentialId: "c",
+        ownerAccountId: "acct_settlement",
         environment: "development",
       };
       next();
